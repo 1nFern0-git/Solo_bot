@@ -115,7 +115,7 @@ def build_keys_response(records):
                 formatted_date_full = "без срока действия"
                 formatted_date_short = "без срока действия"
 
-            button_text = f"{key_name} ({formatted_date_short})"
+            button_text = f"🔑 {key_name} ({formatted_date_short})"
             builder.row(InlineKeyboardButton(text=button_text, callback_data=f"view_key|{key_name}"))
 
             response_message += f"• <b>{key_name}</b> ({formatted_date_full})\n"
