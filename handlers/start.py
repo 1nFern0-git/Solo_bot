@@ -66,7 +66,6 @@ async def start_command(message: Message, state: FSMContext, session: Any, admin
         try:
             member = await bot.get_chat_member(CHANNEL_ID, message.chat.id)
             if member.status not in ["member", "administrator", "creator"]:
-                await state.update_data(start_text=message.text)
                 builder = InlineKeyboardBuilder()
                 builder.row(InlineKeyboardButton(text="✅ Я подписался", callback_data="check_subscription"))
                 await message.answer(
