@@ -79,7 +79,8 @@ async def start_command(message: Message, state: FSMContext, session: Any, admin
             builder = InlineKeyboardBuilder()
             builder.row(InlineKeyboardButton(text="✅ Я подписался", callback_data="check_subscription"))
             await message.answer(
-                f"Пожалуйста, подпишитесь на <a href='{CHANNEL_URL}'><b>наш канал</b></a>", reply_markup=builder.as_markup()
+                f"Пожалуйста, подпишитесь на <a href='{CHANNEL_URL}'><b>наш канал</b></a>",
+                reply_markup=builder.as_markup(),
             )
             return
 
