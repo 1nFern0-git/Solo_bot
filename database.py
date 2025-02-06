@@ -558,9 +558,7 @@ async def update_balance(tg_id: int, amount: float, session: Any = None):
         extra = amount * (CASHBACK / 100.0) if (CASHBACK > 0 and amount > 0) else 0
         total_amount = int(amount + extra)
 
-        current_balance = await session.fetchval(
-            "SELECT balance FROM connections WHERE tg_id = $1", tg_id
-        )
+        current_balance = await session.fetchval("SELECT balance FROM connections WHERE tg_id = $1", tg_id)
 
         if current_balance is None:
             current_balance = 0
