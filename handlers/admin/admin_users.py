@@ -230,7 +230,7 @@ async def handle_balance_add(
     amount = callback_data.data
 
     if amount:
-        await update_balance(tg_id, int(amount), session)
+        await update_balance(tg_id, int(amount), session, is_admin=True)
         await handle_balance_change(callback_query, callback_data, session)
         return
 

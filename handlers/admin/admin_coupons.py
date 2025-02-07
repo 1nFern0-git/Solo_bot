@@ -86,7 +86,8 @@ async def handle_coupon_data_input(message: Message, state: FSMContext, session:
         text = (
             f"✅ Купон с кодом <b>{coupon_code}</b> успешно создан!\n"
             f"💰 Сумма: <b>{coupon_amount} рублей</b> \n"
-            f"🔢 Лимит использования: <b>{usage_limit} раз</b>"
+            f"🔢 Лимит использования: <b>{usage_limit} раз</b>\n"
+            f"🔗 <b>Ссылка:</b> <code>https://t.me/{USERNAME_BOT}?start=coupons_{coupon_code}</code>\n"
         )
 
         await message.answer(text=text, reply_markup=kb)

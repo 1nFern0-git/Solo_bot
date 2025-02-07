@@ -538,14 +538,16 @@ async def get_balance(tg_id: int) -> float:
             await conn.close()
 
 
-async def update_balance(tg_id: int, amount: float, session: Any = None):
+async def update_balance(tg_id: int, amount: float, session: Any = None, is_admin: bool = False):
     """
-    Обновляет баланс пользователя в базе данных с учетом кэшбека.
-    Кэшбек применяется только для положительных сумм.
+    Обновляет баланс пользователя в базе данных.
+    Кэшбек применяется только для положительных сумм, если пополнение НЕ через админку.
+
     Args:
         tg_id (int): Telegram ID пользователя.
         amount (float): Сумма для обновления баланса.
         session (Any, optional): Сессия базы данных. Если не передана, создается новая.
+        is_admin (bool, optional): Флаг, указывающий, что пополнение идёт через админку. По умолчанию False.
     Raises:
         Exception: В случае ошибки при подключении к базе данных или обновлении баланса.
     """
@@ -555,23 +557,32 @@ async def update_balance(tg_id: int, amount: float, session: Any = None):
             conn = await asyncpg.connect(DATABASE_URL)
             session = conn
 
-        extra = amount * (CASHBACK / 100.0) if (CASHBACK > 0 and amount > 0) else 0
-        total_amount = amount + extra
+        extra = amount * (CASHBACK / 100.0) if (CASHBACK > 0 and amount > 0 and not is_admin) else 0
+        total_amount = int(amount + extra)
+
+        current_balance = await session.fetchval("SELECT balance FROM connections WHERE tg_id = $1", tg_id)
+
+        if current_balance is None:
+            current_balance = 0
+
+        new_balance = int(current_balance) + total_amount
 
         await session.execute(
             """
             UPDATE connections
-            SET balance = balance + $1
+            SET balance = $1
             WHERE tg_id = $2
             """,
-            total_amount,
+            new_balance,
             tg_id,
         )
         logger.info(
-            f"Баланс пользователя {tg_id} обновлен на сумму {total_amount} (исходная сумма {amount}, кэшбек {extra})"
+            f"Баланс пользователя {tg_id} обновлен. Было: {int(current_balance)}, пополнение: {amount} "
+            f"({'+ кешбэк' if extra > 0 else 'без кешбэка'}), стало: {new_balance}"
         )
 
-        await handle_referral_on_balance_update(tg_id, amount)
+        if not is_admin:
+            await handle_referral_on_balance_update(tg_id, int(amount))
 
     except Exception as e:
         logger.error(f"Ошибка при обновлении баланса для пользователя {tg_id}: {e}")
