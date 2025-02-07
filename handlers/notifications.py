@@ -473,13 +473,13 @@ async def process_key(record, bot, conn, current_time, renew=False):
             if current_time_utc >= expiry_time_value:
                 check_interval_ms = EXPIRED_KEYS_CHECK_INTERVAL * 1.5 * 1000
                 if current_time_utc <= (expiry_time_value + check_interval_ms):
-                   remaining_time = (DELETE_KEYS_DELAY * 1000 - (current_time_utc - expiry_time_value)) // 1000
-                   message = (
-                       f"🔔 <b>Уведомление:</b>\n\n"
-                       f"📅 Ваша подписка: {record['email']} истекла. Пополните баланс для продления.\n\n"
-                       f"⏳ Подписка будет удалена через {format_time_until_deletion(remaining_time)}."
-                   )
-                   await send_notification(bot, tg_id, message, "notify_expired.jpg", email)
+                    remaining_time = (DELETE_KEYS_DELAY * 1000 - (current_time_utc - expiry_time_value)) // 1000
+                    message = (
+                        f"🔔 <b>Уведомление:</b>\n\n"
+                        f"📅 Ваша подписка: {record['email']} истекла. Пополните баланс для продления.\n\n"
+                        f"⏳ Подписка будет удалена через {format_time_until_deletion(remaining_time)}."
+                    )
+                    await send_notification(bot, tg_id, message, "notify_expired.jpg", email)
 
         elif renew and AUTO_RENEW_KEYS and balance >= RENEWAL_PLANS["1"]["price"]:
             await update_balance(tg_id, -RENEWAL_PLANS["1"]["price"], conn)
