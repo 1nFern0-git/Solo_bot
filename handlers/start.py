@@ -70,8 +70,7 @@ async def start_command(message: Message, state: FSMContext, session: Any, admin
                 await state.update_data(original_text=message.text)
                 builder.row(InlineKeyboardButton(text="✅ Я подписался", callback_data="check_subscription"))
                 await message.answer(
-                    f"Для использования бота, пожалуйста, подпишитесь на <a href='{CHANNEL_URL}'><b>наш канал</b></a/>/n"
-                    f"ℹ️Там много полезной инфоромации и инструкций, а также новости проекта",
+                    f"Для использования бота, пожалуйста, подпишитесь на <a href='{CHANNEL_URL}'><b>наш канал</b></a>",
                     reply_markup=builder.as_markup(),
                 )
                 return
@@ -275,7 +274,8 @@ async def check_subscription_callback(callback_query: CallbackQuery, state: FSMC
             builder = InlineKeyboardBuilder()
             builder.row(InlineKeyboardButton(text="✅ Я подписался", callback_data="check_subscription"))
             await callback_query.message.answer(
-                f"Для использования бота, пожалуйста, подпишитесь на <a href='{CHANNEL_URL}'><b>наш канал</b></a>",
+                f"Для использования бота, пожалуйста, подпишитесь на <a href='{CHANNEL_URL}'><b>наш канал</b></a>\n"
+				f"ℹ️Там много полезной инфоромации и инструкций, а также новости проекта",
                 reply_markup=builder.as_markup(),
             )
         else:
