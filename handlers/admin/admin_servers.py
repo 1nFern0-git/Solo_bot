@@ -6,10 +6,10 @@ from aiogram import F, Router, types
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
+from config import ADMIN_PASSWORD, ADMIN_USERNAME, DATABASE_URL
 from py3xui import AsyncApi
 
 from backup import create_backup_and_send_to_admins
-from config import ADMIN_PASSWORD, ADMIN_USERNAME, DATABASE_URL
 from database import check_unique_server_name, delete_server, get_servers
 from filters.admin import IsAdminFilter
 from handlers.keys.key_utils import create_key_on_cluster
@@ -397,7 +397,7 @@ async def handle_clusters_backup(
 
 
 @router.callback_query(AdminServerEditorCallback.filter(F.action == "clusters_sync"), IsAdminFilter())
-async def handle_clusters_backup(
+async def handle_clusters_sync(
     callback_query: types.CallbackQuery, callback_data: AdminServerEditorCallback, session: Any
 ):
     cluster_name = callback_data.data

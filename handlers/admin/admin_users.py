@@ -7,8 +7,8 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
-
 from config import TOTAL_GB
+
 from database import (
     delete_key,
     delete_user_data,
@@ -690,12 +690,17 @@ async def handle_user_traffic(
         await callback_query.message.edit_text(traffic_data["message"], reply_markup=build_editor_kb(tg_id, True))
         return
 
-    result_text = f"📊 Трафик ключа {email}:\n\n"
+    total_traffic = 0
+
+    result_text = f"📊 <b>Трафик подписки {email}:</b>\n\n"
 
     for server, traffic in traffic_data["traffic"].items():
         if isinstance(traffic, str):
             result_text += f"❌ {server}: {traffic}\n"
         else:
-            result_text += f"🌍 {server}: {traffic} ГБ\n"
+            result_text += f"🌍 {server}: <b>{traffic} ГБ</b>\n"
+            total_traffic += traffic
+
+    result_text += f"\n🔢 <b>Общий трафик:</b> {total_traffic:.2f} ГБ"
 
     await callback_query.message.edit_text(result_text, reply_markup=build_editor_kb(tg_id, True))

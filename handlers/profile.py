@@ -4,10 +4,27 @@ from typing import Any
 import aiofiles
 import asyncpg
 from aiogram import F, Router
+from aiogram.enums import ParseMode
 from aiogram.fsm.context import FSMContext
-from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardButton, Message
+from aiogram.types import (
+    BufferedInputFile,
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineQuery,
+    InlineQueryResultArticle,
+    InputTextMessageContent,
+    Message,
+)
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from config import DATABASE_URL, INSTRUCTIONS_BUTTON, NEWS_MESSAGE, RENEWAL_PLANS
+from config import (
+    DATABASE_URL,
+    INSTRUCTIONS_BUTTON,
+    NEWS_MESSAGE,
+    REFERRAL_OFFERS,
+    RENEWAL_PLANS,
+    TRIAL_TIME,
+    USERNAME_BOT,
+)
 
 from database import get_balance, get_key_count, get_last_payments, get_referral_stats, get_trial
 from handlers.buttons.profile import (
@@ -117,13 +134,22 @@ async def process_callback_view_profile(
 
 
 @router.callback_query(F.data == "balance")
-async def balance_handler(callback_query: CallbackQuery):
+async def balance_handler(callback_query: CallbackQuery, session: Any):
+    result = await session.fetchrow(
+        "SELECT balance FROM connections WHERE tg_id = $1",
+        callback_query.from_user.id,
+    )
+    balance = result["balance"] if result else 0.0
+
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text=PAYMENT, callback_data="pay"))
     builder.row(InlineKeyboardButton(text=BALANCE_HISTORY, callback_data="balance_history"))
     builder.row(InlineKeyboardButton(text=MAIN_MENU, callback_data="profile"))
 
-    await callback_query.message.answer("💰 Управление балансом:", reply_markup=builder.as_markup())
+    await callback_query.message.answer(
+        f"<b>Управление вашим балансом 💰</b>\n\nВаш баланс: {balance}",
+        reply_markup=builder.as_markup(),
+    )
 
 
 @router.callback_query(F.data == "balance_history")
@@ -196,7 +222,8 @@ async def invite_handler(callback_query: CallbackQuery):
     image_path = os.path.join("img", "pic_invite.jpg")
 
     builder = InlineKeyboardBuilder()
-    builder.button(text="📢 Поделиться", switch_inline_query=invite_text)
+    # builder.button(text="📢 Поделиться", switch_inline_query=invite_text)
+    builder.button(text="👥 Пригласить друга", switch_inline_query="invite ")
     builder.button(text="👤 Личный кабинет", callback_data="profile")
     builder.adjust(1)
 
@@ -213,3 +240,41 @@ async def invite_handler(callback_query: CallbackQuery):
             text=invite_message,
             reply_markup=builder.as_markup(),
         )
+
+
+@router.inline_query(F.query.in_(["referral", "ref", "invite"]))
+async def inline_referral_handler(inline_query: InlineQuery):
+    try:
+        if not inline_query.from_user:
+            return await inline_query.answer([])
+
+        if not USERNAME_BOT:
+            return await inline_query.answer([])
+
+        referral_link = f"https://t.me/{USERNAME_BOT}?start=referral_{inline_query.from_user.id}"
+
+        if not inline_query.query:
+            return await inline_query.answer([])
+
+        results: list[InlineQueryResultArticle] = []
+
+        for index, offer in enumerate(REFERRAL_OFFERS):
+            description = offer["description"][:64]
+            message_text = offer["message"].format(trial_time=TRIAL_TIME)[:4096]
+
+            builder = InlineKeyboardBuilder()
+            builder.row(InlineKeyboardButton(text=offer["title"], url=referral_link))
+
+            results.append(
+                InlineQueryResultArticle(
+                    id=str(index),
+                    title=offer["title"],
+                    description=description,
+                    input_message_content=InputTextMessageContent(message_text=message_text, parse_mode=ParseMode.HTML),
+                    reply_markup=builder.as_markup(),
+                )
+            )
+
+        await inline_query.answer(results=results, cache_time=1)
+    except Exception:
+        await inline_query.answer([])

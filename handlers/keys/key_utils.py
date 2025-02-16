@@ -1,10 +1,10 @@
 import asyncio
 from typing import Any
 
+from config import ADMIN_PASSWORD, ADMIN_USERNAME, LIMIT_IP, PUBLIC_LINK, SUPERNODE, TOTAL_GB, USE_COUNTRY_SELECTION
 from py3xui import AsyncApi
 
-from client import ClientConfig, add_client, delete_client, extend_client_key, get_client_traffic
-from config import ADMIN_PASSWORD, ADMIN_USERNAME, LIMIT_IP, PUBLIC_LINK, SUPERNODE, TOTAL_GB, USE_COUNTRY_SELECTION
+from client import ClientConfig, add_client, delete_client, extend_client_key, get_client_traffic, toggle_client
 from database import get_servers, store_key
 from handlers.utils import get_least_loaded_cluster
 from logger import logger
@@ -104,7 +104,15 @@ async def renew_key_in_cluster(cluster_id, email, client_id, new_expiry_time, to
         cluster = servers.get(cluster_id)
 
         if not cluster:
-            raise ValueError(f"Кластер с ID {cluster_id} не найден.")
+            found_servers = []
+            for _key, server_list in servers.items():
+                for server_info in server_list:
+                    if server_info.get("server_name", "").lower() == cluster_id.lower():
+                        found_servers.append(server_info)
+            if found_servers:
+                cluster = found_servers
+            else:
+                raise ValueError(f"Кластер или сервер с ID/именем {cluster_id} не найден.")
 
         tasks = []
         for server_info in cluster:
@@ -135,18 +143,27 @@ async def renew_key_in_cluster(cluster_id, email, client_id, new_expiry_time, to
         await asyncio.gather(*tasks)
 
     except Exception as e:
-        logger.error(f"Не удалось продлить ключ {client_id} в кластере {cluster_id}: {e}")
+        logger.error(f"Не удалось продлить ключ {client_id} в кластере/на сервере {cluster_id}: {e}")
         raise e
 
 
 async def delete_key_from_cluster(cluster_id, email, client_id):
-    """Удаление ключа с серверов в кластере"""
+    """Удаление ключа с серверов в кластере или с конкретного сервера"""
     try:
         servers = await get_servers()
         cluster = servers.get(cluster_id)
 
         if not cluster:
-            raise ValueError(f"Кластер с ID {cluster_id} не найден.")
+            found_servers = []
+            for _, server_list in servers.items():
+                for server_info in server_list:
+                    if server_info.get("server_name", "").lower() == cluster_id.lower():
+                        found_servers.append(server_info)
+
+            if found_servers:
+                cluster = found_servers
+            else:
+                raise ValueError(f"Кластер или сервер с ID/именем {cluster_id} не найден.")
 
         tasks = []
         for server_info in cluster:
@@ -175,7 +192,7 @@ async def delete_key_from_cluster(cluster_id, email, client_id):
         await asyncio.gather(*tasks)
 
     except Exception as e:
-        logger.error(f"Не удалось удалить ключ {client_id} в кластере {cluster_id}: {e}")
+        logger.error(f"Не удалось удалить ключ {client_id} в кластере/на сервере {cluster_id}: {e}")
         raise e
 
 
@@ -291,7 +308,6 @@ async def get_user_traffic(session: Any, tg_id: int, email: str) -> dict[str, An
     Returns:
         dict[str, Any]: Структура с данными о трафике.
     """
-    logger.info(f"🔍 Получаем ключи для пользователя {email} (TG ID: {tg_id})")
 
     query = "SELECT client_id, server_id FROM keys WHERE tg_id = $1 AND email = $2"
     rows = await session.fetch(query, tg_id, email)
@@ -300,46 +316,128 @@ async def get_user_traffic(session: Any, tg_id: int, email: str) -> dict[str, An
         return {"status": "error", "message": "❌ У пользователя нет активных ключей."}
 
     server_ids = {row["server_id"] for row in rows}
-    logger.info(f"🖥️ Серверы/Кластеры пользователя: {server_ids}")
 
-    if USE_COUNTRY_SELECTION:
-        query_servers = "SELECT server_name, api_url FROM servers WHERE server_name = ANY($1)"
-        filter_ids = list(server_ids)
-    else:
-        query_servers = "SELECT server_name, api_url FROM servers WHERE cluster_name = ANY($1)"
-        filter_ids = list(server_ids)
-
-    server_rows = await session.fetch(query_servers, filter_ids)
+    query_servers = """
+        SELECT server_name, api_url FROM servers 
+        WHERE server_name = ANY($1) OR cluster_name = ANY($1)
+    """
+    server_rows = await session.fetch(query_servers, list(server_ids))
 
     if not server_rows:
         logger.error(f"❌ Не найдено серверов для: {server_ids}")
         return {"status": "error", "message": f"❌ Серверы не найдены: {', '.join(server_ids)}"}
 
     servers_map = {row["server_name"]: row["api_url"] for row in server_rows}
-    logger.info(f"✅ Найденные серверы: {list(servers_map.keys())}")
 
     user_traffic_data = {}
 
+    async def fetch_traffic(api_url: str, client_id: str, server: str) -> tuple[str, Any]:
+        """
+        Получает трафик с сервера для заданного client_id.
+        Возвращает кортеж: (server, used_gb) или (server, ошибка).
+        """
+        xui = AsyncApi(api_url, username=ADMIN_USERNAME, password=ADMIN_PASSWORD)
+        try:
+            traffic_info = await get_client_traffic(xui, client_id)
+            if traffic_info["status"] == "success" and traffic_info["traffic"]:
+                client_data = traffic_info["traffic"][0]
+                used_gb = (client_data.up + client_data.down) / 1073741824
+                return server, round(used_gb, 2)
+            else:
+                return server, "Ошибка получения трафика"
+        except Exception as e:
+            return server, f"Ошибка: {e}"
+
+    tasks = []
     for row in rows:
         client_id = row["client_id"]
+        server_id = row["server_id"]
+        if server_id in servers_map:
+            api_url = servers_map[server_id]
+            tasks.append(fetch_traffic(api_url, client_id, server_id))
+        else:
+            for server, api_url in servers_map.items():
+                tasks.append(fetch_traffic(api_url, client_id, server))
 
-        for server, api_url in servers_map.items():
-            if not USE_COUNTRY_SELECTION and server not in servers_map:
-                continue
-
-            xui = AsyncApi(api_url, username=ADMIN_USERNAME, password=ADMIN_PASSWORD)
-
-            try:
-                traffic_info = await get_client_traffic(xui, client_id)
-
-                if traffic_info["status"] == "success" and traffic_info["traffic"]:
-                    client_data = traffic_info["traffic"][0]
-                    used_gb = (client_data.up + client_data.down) / 1073741824
-                    user_traffic_data[server] = round(used_gb, 2)
-                else:
-                    user_traffic_data[server] = "Ошибка получения трафика"
-
-            except Exception as e:
-                user_traffic_data[server] = f"Ошибка: {e}"
+    results = await asyncio.gather(*tasks)
+    for server, result in results:
+        user_traffic_data[server] = result
 
     return {"status": "success", "traffic": user_traffic_data}
+
+
+async def toggle_client_on_cluster(cluster_id: str, email: str, client_id: str, enable: bool = True) -> dict[str, Any]:
+    """
+    Включает или отключает клиента на всех серверах указанного кластера.
+
+    Args:
+        cluster_id (str): ID кластера или имя сервера
+        email (str): Email клиента
+        client_id (str): UUID клиента
+        enable (bool): True для включения, False для отключения
+
+    Returns:
+        dict[str, Any]: Результат операции с информацией по каждому серверу
+    """
+    try:
+        servers = await get_servers()
+        cluster = servers.get(cluster_id)
+
+        if not cluster:
+            # Поиск по имени сервера, если не найден кластер
+            found_servers = []
+            for _, server_list in servers.items():
+                for server_info in server_list:
+                    if server_info.get("server_name", "").lower() == cluster_id.lower():
+                        found_servers.append(server_info)
+
+            if found_servers:
+                cluster = found_servers
+            else:
+                raise ValueError(f"Кластер или сервер с ID/именем {cluster_id} не найден.")
+
+        results = {}
+        tasks = []
+
+        for server_info in cluster:
+            xui = AsyncApi(
+                server_info["api_url"],
+                username=ADMIN_USERNAME,
+                password=ADMIN_PASSWORD,
+            )
+
+            inbound_id = server_info.get("inbound_id")
+            server_name = server_info.get("server_name", "unknown")
+
+            if not inbound_id:
+                logger.warning(f"INBOUND_ID отсутствует для сервера {server_name}. Пропуск.")
+                results[server_name] = False
+                continue
+
+            if SUPERNODE:
+                unique_email = f"{email}_{server_name.lower()}"
+            else:
+                unique_email = email
+
+            tasks.append(toggle_client(xui, int(inbound_id), unique_email, client_id, enable))
+
+        # Выполняем все задачи параллельно
+        task_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Формируем результаты для каждого сервера
+        for server_info, result in zip(cluster, task_results, strict=False):
+            server_name = server_info.get("server_name", "unknown")
+            if isinstance(result, Exception):
+                logger.error(f"Ошибка на сервере {server_name}: {result}")
+                results[server_name] = False
+            else:
+                results[server_name] = result
+
+        status = "включен" if enable else "отключен"
+        logger.info(f"Клиент {email} {status} на серверах кластера {cluster_id}")
+
+        return {"status": "success" if any(results.values()) else "error", "results": results}
+
+    except Exception as e:
+        logger.error(f"Ошибка при изменении состояния клиента {email} в кластере {cluster_id}: {e}")
+        return {"status": "error", "error": str(e)}

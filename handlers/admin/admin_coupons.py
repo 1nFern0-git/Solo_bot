@@ -4,8 +4,8 @@ from aiogram import F, Router, types
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
-
 from config import USERNAME_BOT
+
 from database import create_coupon, delete_coupon, get_all_coupons
 from filters.admin import IsAdminFilter
 from keyboards.admin.coupons_kb import AdminCouponDeleteCallback, build_coupons_kb, build_coupons_list_kb
@@ -115,8 +115,6 @@ async def handle_coupons_list(callback_query: CallbackQuery, session: Any):
         per_page = 10
         result = await get_all_coupons(session, page, per_page)
         coupons = result["coupons"]
-        total_pages = result["pages"]
-        current_page = result["current_page"]
 
         if not coupons:
             await callback_query.message.edit_text(
