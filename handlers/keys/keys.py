@@ -331,7 +331,10 @@ async def process_callback_renew_key(callback_query: CallbackQuery, session: Any
                 months = plan_details["months"]
                 price = plan_details["price"]
                 discount = DISCOUNTS.get(plan_id, 0)
-                button_text = f"📅 {months} месяц{'а' if months > 1 else ''} ({price} руб.)" + (
+                button_text = f"📅 {months} " \
+              f"{'месяц' if months == 1 else 'месяца' if 2 <= months <= 4 else 'месяцев'} " \
+              f"({price} руб.)"
+ + (
                     f" {discount}% скидка" if discount > 0 else ""
                 )
                 builder.row(
