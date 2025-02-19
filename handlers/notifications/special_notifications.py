@@ -6,8 +6,8 @@ import pytz
 from aiogram import Bot, Router, types
 from aiogram.exceptions import TelegramForbiddenError
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from config import NOTIFY_EXTRA_DAYS, NOTIFY_INACTIVE, NOTIFY_INACTIVE_TRAFFIC, SUPPORT_CHAT_URL, TRIAL_TIME
 
+from config import NOTIFY_EXTRA_DAYS, NOTIFY_INACTIVE, NOTIFY_INACTIVE_TRAFFIC, SUPPORT_CHAT_URL, TRIAL_TIME
 from database import (
     add_notification,
     check_notification_time,
@@ -84,7 +84,7 @@ async def notify_inactive_trial_users(bot: Bot, conn: asyncpg.Connection):
                         f"Мы добавили тебе +{NOTIFY_EXTRA_DAYS} дополнительных дня к пробному периоду!\n"
                         f"Теперь у тебя есть еще шанс протестировать наш VPN целых {NOTIFY_EXTRA_DAYS + TRIAL_TIME} дня!\n"
                         "</blockquote>"
-                        "Нажми на кнопку ниже, чтобы активировать доступ с бонусом +2 дня! 👇"
+                        "Нажми на кнопку ниже, чтобы активировать еще день пробного периода! 👇"
                     )
 
                     await conn.execute("UPDATE connections SET trial = -1 WHERE tg_id = $1", tg_id)
