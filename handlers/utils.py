@@ -177,7 +177,7 @@ async def edit_or_send_message(
         try:
             await target_message.edit_media(media=media, reply_markup=reply_markup)
             return
-        except Exception as e:
+        except Exception:
             await target_message.answer_photo(
                 photo=BufferedInputFile(image_data, filename=os.path.basename(media_path)),
                 caption=text,
@@ -191,7 +191,7 @@ async def edit_or_send_message(
                 await target_message.edit_caption(caption=text, reply_markup=reply_markup)
                 return
             except Exception as e:
-                logger.error("Ошибка редактирования подписи: %s", e)
+                logger.error(f"Ошибка редактирования подписи: {e}")
         try:
             await target_message.edit_text(
                 text=text,
@@ -200,7 +200,7 @@ async def edit_or_send_message(
             )
             return
         except Exception as e:
-            logger.error("Ошибка редактирования текста: %s", e)
+            logger.error(f"Ошибка редактирования текста: {e}")
             await target_message.answer(
                 text=text,
                 reply_markup=reply_markup,
