@@ -1,6 +1,8 @@
 import asyncio
+from datetime import datetime, timedelta
 
 import asyncpg
+import pytz
 from aiogram import Bot, Router, types
 from aiogram.exceptions import TelegramForbiddenError
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -13,13 +15,11 @@ from database import (
 )
 from handlers.keys.key_utils import get_user_traffic
 from logger import logger
-from datetime import datetime, timedelta
-
-import pytz
 
 router = Router()
 
 moscow_tz = pytz.timezone("Europe/Moscow")
+
 
 async def notify_inactive_trial_users(bot: Bot, conn: asyncpg.Connection):
     """
@@ -134,14 +134,11 @@ async def notify_users_no_traffic(bot: Bot, conn: asyncpg.Connection, current_ti
         client_id = key.get("client_id")
         notified = key.get("notified")
 
-        logger.info(f"Обработка ключа для {email}: created_at = {created_at}")
-
         if created_at is None:
             logger.warning(f"Для {email} нет значения created_at. Пропускаем.")
             continue
 
         if notified is True:
-            logger.info(f"Уведомление для {email} уже отправлено, пропускаем.")
             continue
 
         created_at_dt = pytz.utc.localize(datetime.fromtimestamp(created_at / 1000)).astimezone(moscow_tz)
