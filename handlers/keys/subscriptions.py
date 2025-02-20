@@ -237,13 +237,6 @@ async def handle_subscription(request, old_subscription=False):
                 "profile-web-page-url": f"https://t.me/{USERNAME_BOT}",
                 "subscription-userinfo": subscription_userinfo
             }
-        elif "Hiddify" in user_agent:
-            encoded_project_name = f"{PROJECT_NAME}\n📄 Подписка: {email}"
-            headers = {
-                "profile-update-interval": "3",
-                "profile-title": "base64:" + base64.b64encode(encoded_project_name.encode("utf-8")).decode("utf-8"),
-                "subscription-userinfo": subscription_userinfo
-            }
         else:
             encoded_project_name = f"{PROJECT_NAME}\n{subscription_info}"
             headers = {
