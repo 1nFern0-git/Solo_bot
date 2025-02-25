@@ -842,16 +842,22 @@ async def get_total_referral_bonus(conn, referrer_tg_id: int, max_levels: int) -
                 ORDER BY tg_id, created_at
             )
         """
-        bonus_query = bonus_cte + f"""
+        bonus_query = (
+            bonus_cte
+            + f"""
             SELECT 
                 COALESCE(SUM(
                     CASE
-                        {" ".join([
-                            f"WHEN rl.level = {level} THEN {REFERRAL_BONUS_PERCENTAGES[level]} * ep.amount" 
-                            if isinstance(REFERRAL_BONUS_PERCENTAGES[level], float) 
-                            else f"WHEN rl.level = {level} THEN {REFERRAL_BONUS_PERCENTAGES[level]}"
-                            for level in REFERRAL_BONUS_PERCENTAGES
-                        ])}
+                        {
+                " ".join(
+                    [
+                        f"WHEN rl.level = {level} THEN {REFERRAL_BONUS_PERCENTAGES[level]} * ep.amount"
+                        if isinstance(REFERRAL_BONUS_PERCENTAGES[level], float)
+                        else f"WHEN rl.level = {level} THEN {REFERRAL_BONUS_PERCENTAGES[level]}"
+                        for level in REFERRAL_BONUS_PERCENTAGES
+                    ]
+                )
+            }
                         ELSE 0 
                     END
                 ), 0) AS total_bonus
@@ -859,6 +865,7 @@ async def get_total_referral_bonus(conn, referrer_tg_id: int, max_levels: int) -
             JOIN earliest_payments ep ON rl.referred_tg_id = ep.tg_id
             WHERE rl.level <= {max_levels}
         """
+        )
     else:
         bonus_cte = f"""
             WITH RECURSIVE
@@ -881,16 +888,22 @@ async def get_total_referral_bonus(conn, referrer_tg_id: int, max_levels: int) -
                 WHERE rl.level < {max_levels}
             )
         """
-        bonus_query = bonus_cte + f"""
+        bonus_query = (
+            bonus_cte
+            + f"""
             SELECT 
                 COALESCE(SUM(
                     CASE
-                        {" ".join([
-                            f"WHEN rl.level = {level} THEN {REFERRAL_BONUS_PERCENTAGES[level]} * p.amount" 
-                            if isinstance(REFERRAL_BONUS_PERCENTAGES[level], float) 
-                            else f"WHEN rl.level = {level} THEN {REFERRAL_BONUS_PERCENTAGES[level]}"
-                            for level in REFERRAL_BONUS_PERCENTAGES
-                        ])}
+                        {
+                " ".join(
+                    [
+                        f"WHEN rl.level = {level} THEN {REFERRAL_BONUS_PERCENTAGES[level]} * p.amount"
+                        if isinstance(REFERRAL_BONUS_PERCENTAGES[level], float)
+                        else f"WHEN rl.level = {level} THEN {REFERRAL_BONUS_PERCENTAGES[level]}"
+                        for level in REFERRAL_BONUS_PERCENTAGES
+                    ]
+                )
+            }
                         ELSE 0 
                     END
                 ), 0) AS total_bonus
@@ -898,6 +911,7 @@ async def get_total_referral_bonus(conn, referrer_tg_id: int, max_levels: int) -
             JOIN payments p ON rl.referred_tg_id = p.tg_id
             WHERE p.status = 'success' AND rl.level <= {max_levels}
         """
+        )
     total_bonus = await conn.fetchval(bonus_query, referrer_tg_id)
     logger.debug(f"Получена общая сумма бонусов от рефералов: {total_bonus}")
     return total_bonus
@@ -1080,7 +1094,8 @@ async def upsert_user(
     last_name: str = None,
     language_code: str = None,
     is_bot: bool = False,
-):
+    session: Any = None,
+) -> dict:
     """
     Обновляет или вставляет информацию о пользователе в базу данных.
 
@@ -1091,16 +1106,29 @@ async def upsert_user(
         last_name (str, optional): Фамилия пользователя
         language_code (str, optional): Код языка пользователя
         is_bot (bool, optional): Флаг, указывающий является ли пользователь ботом
+        session (Any, optional): Существующая сессия базы данных
+
+    Returns:
+        dict: Словарь с информацией о пользователе после обновления/вставки
 
     Raises:
         Exception: В случае ошибки при работе с базой данных
     """
     conn = None
-    try:
-        conn = await asyncpg.connect(DATABASE_URL)
-        logger.info(f"Установлено подключение к базе данных для обновления пользователя {tg_id}")
+    close_conn = False
 
-        await conn.execute(
+    try:
+        # Используем переданную сессию или создаем новое подключение
+        if session:
+            conn = session
+            logger.debug(f"Используем существующую сессию для обновления пользователя {tg_id}")
+        else:
+            conn = await asyncpg.connect(DATABASE_URL)
+            close_conn = True
+            logger.info(f"Установлено новое подключение к базе данных для обновления пользователя {tg_id}")
+
+        # Выполняем вставку/обновление и сразу получаем обновленные данные
+        user_data = await conn.fetchrow(
             """
             INSERT INTO users (tg_id, username, first_name, last_name, language_code, is_bot, created_at, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
@@ -1112,6 +1140,9 @@ async def upsert_user(
                 language_code = COALESCE(EXCLUDED.language_code, users.language_code),
                 is_bot = EXCLUDED.is_bot,
                 updated_at = CURRENT_TIMESTAMP
+            RETURNING 
+                tg_id, username, first_name, last_name, language_code, 
+                is_bot, created_at, updated_at
             """,
             tg_id,
             username,
@@ -1120,14 +1151,17 @@ async def upsert_user(
             language_code,
             is_bot,
         )
-        logger.info(f"Успешно обновлена информация о пользователе {tg_id}")
+
+        logger.debug(f"Успешно обновлена информация о пользователе {tg_id}")
+
+        return dict(user_data)
     except Exception as e:
         logger.error(f"Ошибка при обновлении информации о пользователе {tg_id}: {e}")
         raise
     finally:
-        if conn:
+        if conn and close_conn:
             await conn.close()
-            logger.info("Закрытие подключения к базе данных")
+            logger.debug("Закрытие подключения к базе данных")
 
 
 async def add_payment(tg_id: int, amount: float, payment_system: str):

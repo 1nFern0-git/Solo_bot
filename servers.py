@@ -7,7 +7,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from ping3 import ping
 
 from bot import bot
-from config import ADMIN_ID, DATABASE_URL, PING_TIME
+from config import ADMIN_ID, PING_TIME
 from database import get_servers
 from keyboards.admin.servers_kb import AdminServerEditorCallback
 from logger import logger

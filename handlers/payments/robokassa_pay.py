@@ -8,8 +8,6 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiohttp import web
-from robokassa import HashAlgorithm, Robokassa
-
 from config import (
     DATABASE_URL,
     ROBOKASSA_ENABLE,
@@ -18,6 +16,8 @@ from config import (
     ROBOKASSA_PASSWORD2,
     ROBOKASSA_TEST_MODE,
 )
+from robokassa import HashAlgorithm, Robokassa
+
 from database import (
     add_connection,
     add_payment,
@@ -28,9 +28,8 @@ from database import (
 )
 from handlers.payments.utils import send_payment_success_notification
 from handlers.texts import PAYMENT_OPTIONS
-from logger import logger
-
 from handlers.utils import edit_or_send_message
+from logger import logger
 
 router = Router()
 
@@ -54,9 +53,7 @@ if ROBOKASSA_ENABLE:
 
 def generate_payment_link(amount, inv_id, description, tg_id):
     """Генерация ссылки на оплату."""
-    logger.debug(
-        f"Generating payment link for amount: {amount}, inv_id: {inv_id}, description: {description}"
-    )
+    logger.debug(f"Generating payment link for amount: {amount}, inv_id: {inv_id}, description: {description}")
     payment_link = robokassa._payment.link.generate_by_script(
         out_sum=amount,
         inv_id=inv_id,
@@ -68,9 +65,7 @@ def generate_payment_link(amount, inv_id, description, tg_id):
 
 
 @router.callback_query(F.data == "pay_robokassa")
-async def process_callback_pay_robokassa(
-    callback_query: types.CallbackQuery, state: FSMContext, session: Any
-):
+async def process_callback_pay_robokassa(callback_query: types.CallbackQuery, state: FSMContext, session: Any):
     tg_id = callback_query.message.chat.id
     logger.info(f"User {tg_id} initiated Robokassa payment.")
 
@@ -104,20 +99,19 @@ async def process_callback_pay_robokassa(
             await add_connection(tg_id, balance=0.0, trial=0, session=session)
             logger.info(f"Created new connection for user {tg_id} with balance 0.0.")
 
-    await edit_or_send_message(
-        target_message=callback_query.message,
+    await callback_query.message.delete()
+    
+    new_message = await callback_query.message.answer(
         text="Выберите сумму пополнения:",
         reply_markup=builder.as_markup(),
-        force_text=True
     )
+    await state.update_data(message_id=new_message.message_id, chat_id=new_message.chat.id) 
     await state.set_state(ReplenishBalanceState.choosing_amount_robokassa)
     logger.info(f"Displayed amount selection for user {tg_id}.")
 
 
 @router.callback_query(F.data.startswith("robokassa_amount|"))
-async def process_amount_selection(
-    callback_query: types.CallbackQuery, state: FSMContext
-):
+async def process_amount_selection(callback_query: types.CallbackQuery, state: FSMContext):
     logger.info(f"Получены данные callback_data: {callback_query.data}")
 
     data = callback_query.data.split("|")
@@ -127,7 +121,7 @@ async def process_amount_selection(
             target_message=callback_query.message,
             text="Ошибка: данные повреждены.",
             reply_markup=types.InlineKeyboardMarkup(),
-            force_text=True
+            force_text=True,
         )
         return
 
@@ -142,7 +136,7 @@ async def process_amount_selection(
             target_message=callback_query.message,
             text="Некорректная сумма.",
             reply_markup=types.InlineKeyboardMarkup(),
-            force_text=True
+            force_text=True,
         )
         return
 
@@ -166,7 +160,7 @@ async def process_amount_selection(
         target_message=callback_query.message,
         text=f"Вы выбрали пополнение на {amount} рублей. Для оплаты перейдите по ссылке ниже:",
         reply_markup=confirm_keyboard,
-        force_text=True
+        force_text=True,
     )
     logger.info(f"Payment link sent to user {callback_query.message.chat.id}.")
 
@@ -183,9 +177,7 @@ async def robokassa_webhook(request):
         shp_id = params.get("shp_id")
         signature_value = params.get("SignatureValue")
 
-        logger.info(
-            f"OutSum: {amount}, InvId: {inv_id}, shp_id: {shp_id}, SignatureValue: {signature_value}"
-        )
+        logger.info(f"OutSum: {amount}, InvId: {inv_id}, shp_id: {shp_id}, SignatureValue: {signature_value}")
 
         if not check_payment_signature(params):
             logger.error("Неверная подпись или данные запроса.")
@@ -224,9 +216,7 @@ def check_payment_signature(params):
 
     logger.info(f"Signature string before hashing: {signature_string}")
 
-    expected_signature = (
-        hashlib.md5(signature_string.encode("utf-8")).hexdigest().upper()
-    )
+    expected_signature = hashlib.md5(signature_string.encode("utf-8")).hexdigest().upper()
 
     logger.info(f"Expected signature: {expected_signature}")
     logger.info(f"Received signature: {signature_value}")
@@ -235,9 +225,7 @@ def check_payment_signature(params):
 
 
 @router.callback_query(F.data == "enter_custom_amount_robokassa")
-async def process_custom_amount_selection(
-    callback_query: types.CallbackQuery, state: FSMContext
-):
+async def process_custom_amount_selection(callback_query: types.CallbackQuery, state: FSMContext):
     tg_id = callback_query.message.chat.id
     logger.info(f"User {tg_id} chose to enter a custom amount.")
 
@@ -248,16 +236,16 @@ async def process_custom_amount_selection(
         target_message=callback_query.message,
         text="Пожалуйста, введите сумму пополнения.",
         reply_markup=builder.as_markup(),
-        force_text=True
+        force_text=True,
     )
 
-    await state.set_state(
-        ReplenishBalanceState.waiting_for_payment_confirmation_robokassa
-    )
+    await state.set_state(ReplenishBalanceState.waiting_for_payment_confirmation_robokassa)
 
 
 @router.message(ReplenishBalanceState.waiting_for_payment_confirmation_robokassa)
-async def handle_custom_amount_input(message: types.Message | types.CallbackQuery, state: FSMContext = None, session: Any = None):
+async def handle_custom_amount_input(
+    message: types.Message | types.CallbackQuery, state: FSMContext = None, session: Any = None
+):
     if isinstance(message, types.CallbackQuery):
         tg_id = message.message.chat.id
         target_message = message.message
@@ -277,7 +265,7 @@ async def handle_custom_amount_input(message: types.Message | types.CallbackQuer
             await edit_or_send_message(
                 target_message=target_message,
                 text="Данные для оплаты не найдены. Попробуйте снова.",
-                reply_markup=types.InlineKeyboardMarkup()
+                reply_markup=types.InlineKeyboardMarkup(),
             )
             return
 
@@ -288,7 +276,7 @@ async def handle_custom_amount_input(message: types.Message | types.CallbackQuer
             await edit_or_send_message(
                 target_message=target_message,
                 text="Недостаточная сумма для пополнения.",
-                reply_markup=types.InlineKeyboardMarkup()
+                reply_markup=types.InlineKeyboardMarkup(),
             )
             return
 
@@ -300,22 +288,22 @@ async def handle_custom_amount_input(message: types.Message | types.CallbackQuer
         builder.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="pay_robokassa"))
 
         if state_type == "waiting_for_payment":
-            message_text = f"Вы выбрали пополнение на {amount} рублей для создания нового ключа. Перейдите по ссылке для оплаты:"
+            message_text = (
+                f"Вы выбрали пополнение на {amount} рублей для создания нового ключа. Перейдите по ссылке для оплаты:"
+            )
         elif state_type == "waiting_for_renewal_payment":
-            message_text = f"Вы выбрали пополнение на {amount} рублей для продления ключа. Перейдите по ссылке для оплаты:"
+            message_text = (
+                f"Вы выбрали пополнение на {amount} рублей для продления ключа. Перейдите по ссылке для оплаты:"
+            )
         else:
             await edit_or_send_message(
                 target_message=target_message,
                 text="Некорректное состояние данных. Попробуйте снова.",
-                reply_markup=types.InlineKeyboardMarkup()
+                reply_markup=types.InlineKeyboardMarkup(),
             )
             return
 
-        await edit_or_send_message(
-            target_message=target_message,
-            text=message_text,
-            reply_markup=builder.as_markup()
-        )
+        await edit_or_send_message(target_message=target_message, text=message_text, reply_markup=builder.as_markup())
 
         if isinstance(state, FSMContext):
             await state.clear()
@@ -325,5 +313,5 @@ async def handle_custom_amount_input(message: types.Message | types.CallbackQuer
         await edit_or_send_message(
             target_message=target_message,
             text="Произошла ошибка при создании платежа. Попробуйте позже.",
-            reply_markup=types.InlineKeyboardMarkup()
+            reply_markup=types.InlineKeyboardMarkup(),
         )
