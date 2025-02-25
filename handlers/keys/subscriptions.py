@@ -38,6 +38,7 @@ async def fetch_url_content(url: str, identifier: str) -> list[str]:
     Returns:
         Список строк из подписки
     """
+
     try:
         logger.info(f"Получение URL: {url} для идентификатора: {identifier}")
         timeout = aiohttp.ClientTimeout(total=5)
@@ -59,7 +60,6 @@ async def fetch_url_content(url: str, identifier: str) -> list[str]:
         logger.error(f"Ошибка при получении {url} для идентификатора: {identifier}: {e}")
         return []
 
-
 async def combine_unique_lines(urls: list[str], identifier: str, query_string: str) -> list[str]:
     """
     Объединяет строки подписки из нескольких URL, удаляя дубликаты.
@@ -72,6 +72,7 @@ async def combine_unique_lines(urls: list[str], identifier: str, query_string: s
     Returns:
         Список уникальных строк из всех подписок
     """
+
     if SUPERNODE:
         logger.info(f"Режим SUPERNODE активен. Возвращаем первую ссылку для идентификатора: {identifier}")
         if not urls:
@@ -92,7 +93,6 @@ async def combine_unique_lines(urls: list[str], identifier: str, query_string: s
         f"Объединено {len(all_lines)} строк после фильтрации и удаления дубликатов для идентификатора: {identifier}"
     )
     return list(all_lines)
-
 
 async def get_subscription_urls(server_id: str, email: str, conn) -> list[str]:
     """
@@ -127,6 +127,48 @@ async def get_subscription_urls(server_id: str, email: str, conn) -> list[str]:
     logger.info(f"Найдено {len(urls)} URL-адресов в кластере {server_id}")
     return urls
 
+def calculate_traffic(cleaned_subscriptions, expiry_time_ms):
+    expire_timestamp = int(expiry_time_ms / 1000) if expiry_time_ms else 0
+    if TOTAL_GB != 0:
+        country_remaining = {}
+        for line in cleaned_subscriptions:
+            if "#" not in line:
+                continue
+            try:
+                _, meta = line.split("#", 1)
+            except ValueError:
+                continue
+            parts = meta.split("-")
+            country = parts[0].strip()
+            remaining_str = parts[1].strip() if len(parts) == 2 else ""
+            if remaining_str:
+                remaining_str = remaining_str.replace(',', '.')
+                m_total = re.search(r'([\d\.]+)\s*([GMKTB]B)', remaining_str, re.IGNORECASE)
+                if m_total:
+                    value = float(m_total.group(1))
+                    unit = m_total.group(2).upper()
+                    if unit == "GB":
+                        remaining_bytes = int(value * 1073741824)
+                    elif unit == "MB":
+                        remaining_bytes = int(value * 1048576)
+                    elif unit == "KB":
+                        remaining_bytes = int(value * 1024)
+                    elif unit == "TB":
+                        remaining_bytes = int(value * 1099511627776)
+                    else:
+                        remaining_bytes = int(value)
+                    country_remaining[country] = remaining_bytes
+        num_countries = len(country_remaining)
+        issued_per_country = TOTAL_GB
+        total_traffic_bytes = issued_per_country * num_countries
+        consumed_traffic_bytes = total_traffic_bytes - sum(country_remaining.values())
+        if consumed_traffic_bytes < 0:
+            consumed_traffic_bytes = 0
+    else:
+        consumed_traffic_bytes = 1
+        total_traffic_bytes = 0
+
+    return f"upload=0; download={consumed_traffic_bytes}; total={total_traffic_bytes}; expire={expire_timestamp}"
 
 def get_transition_timestamp() -> int:
     """
@@ -357,6 +399,7 @@ async def handle_subscription(request: web.Request, old_subscription: bool = Fal
 
         user_agent = request.headers.get("User-Agent", "")
         subscription_userinfo = calculate_traffic(cleaned_subscriptions, expiry_time_ms)
+
         headers = prepare_headers(user_agent, PROJECT_NAME, subscription_info, subscription_userinfo)
 
         logger.info(f"Возвращаем объединенные подписки для email: {email}")
@@ -369,7 +412,7 @@ async def handle_old_subscription(request: web.Request) -> web.Response:
     """Обработка запроса для старых клиентов."""
     return await handle_subscription(request, old_subscription=True)
 
-
 async def handle_new_subscription(request: web.Request) -> web.Response:
+
     """Обработка запроса для новых клиентов."""
     return await handle_subscription(request, old_subscription=False)
