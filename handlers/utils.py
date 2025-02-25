@@ -58,14 +58,21 @@ def generate_random_email(length: int = 6) -> str:
 
 async def get_least_loaded_cluster() -> str:
     """
-    Определяет кластер с наименьшей загрузкой.
+    Определяет кластер с наименьшей загрузкой, исключая кластер с названием 'Private'.
 
     Returns:
         str: Идентификатор наименее загруженного кластера.
     """
     servers = await get_servers()
 
-    cluster_loads: dict[str, int] = {cluster_id: 0 for cluster_id in servers.keys()}
+    # Исключаем кластер с названием 'Private'
+    filtered_servers = {cluster_id: servers[cluster_id] for cluster_id in servers if cluster_id != "Private"}
+
+    if not filtered_servers:
+        logger.warning("Нет доступных кластеров после фильтрации.")
+        return "cluster1"  # Возвращаем стандартный кластер
+
+    cluster_loads: dict[str, int] = {cluster_id: 0 for cluster_id in filtered_servers.keys()}
 
     async with asyncpg.create_pool(DATABASE_URL) as pool:
         async with pool.acquire() as conn:
@@ -75,10 +82,10 @@ async def get_least_loaded_cluster() -> str:
                 if cluster_id in cluster_loads:
                     cluster_loads[cluster_id] += 1
 
-    logger.info(f"Cluster loads after database query: {cluster_loads}")
+    logger.info(f"Cluster loads after filtering: {cluster_loads}")
 
     if not cluster_loads:
-        logger.warning("No clusters found in database or configuration.")
+        logger.warning("No clusters found in database or configuration after filtering.")
         return "cluster1"
 
     least_loaded_cluster = min(cluster_loads, key=lambda k: (cluster_loads[k], k))

@@ -44,7 +44,7 @@ async def handle_pay(callback_query: CallbackQuery):
     if STARS_ENABLE:
         builder.row(
             InlineKeyboardButton(
-                text="⭐ Оплата Звездами",
+                text="⭐ Telegram Stars Pay",
                 callback_data="pay_stars",
             )
         )
