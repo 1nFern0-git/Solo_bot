@@ -75,9 +75,11 @@ async def start_command(message: Message, state: FSMContext, session: Any, admin
                 await state.update_data(original_text=original_text)
                 builder = InlineKeyboardBuilder()
                 builder.row(InlineKeyboardButton(text="✅ Я подписался", callback_data="check_subscription"))
-                await edit_or_send_message(
-                    target_message=message,
-                    text=f"Для использования бота, пожалуйста, подпишитесь на наш канал: {CHANNEL_URL}",
+
+                await message.answer(
+                    f"Для использования бота, пожалуйста, подпишитесь на <a href='{CHANNEL_URL}'><b>наш канал</b></a>\n"
+                    f"ℹ️Там много полезной информации и инструкций, а также новости проекта",
+
                     reply_markup=builder.as_markup(),
                 )
                 return
@@ -90,9 +92,11 @@ async def start_command(message: Message, state: FSMContext, session: Any, admin
             await state.update_data(start_text=message.text)
             builder = InlineKeyboardBuilder()
             builder.row(InlineKeyboardButton(text="✅ Я подписался", callback_data="check_subscription"))
-            await edit_or_send_message(
-                target_message=message,
-                text=f"Пожалуйста, подпишитесь на наш канал: {CHANNEL_URL}",
+
+            await message.answer(
+                f"Для использования бота, пожалуйста, подпишитесь на <a href='{CHANNEL_URL}'><b>наш канал</b></a>\n"
+                f"ℹ️Там много полезной информации и инструкций, а также новости проекта",
+
                 reply_markup=builder.as_markup(),
             )
             return
@@ -301,8 +305,11 @@ async def check_subscription_callback(callback_query: CallbackQuery, state: FSMC
             await callback_query.answer("Вы еще не подписаны на канал!", show_alert=True)
             builder = InlineKeyboardBuilder()
             builder.row(InlineKeyboardButton(text="✅ Я подписался", callback_data="check_subscription"))
-            await callback_query.message.edit_text(
-                f"Для использования бота, пожалуйста, подпишитесь на наш канал: {CHANNEL_URL}",
+
+            await callback_query.message.answer(
+                f"Для использования бота, пожалуйста, подпишитесь на <a href='{CHANNEL_URL}'><b>наш канал</b></a>\n"
+                f"ℹ️Там много полезной информации и инструкций, а также новости проекта",
+
                 reply_markup=builder.as_markup(),
             )
         else:
