@@ -40,6 +40,7 @@ from handlers.buttons.profile import (
 from handlers.texts import get_referral_link, invite_message_send, profile_message_send
 from keyboards.admin.panel_kb import AdminPanelCallback
 from logger import logger
+import html
 
 from .utils import edit_or_send_message
 
@@ -55,11 +56,11 @@ async def process_callback_view_profile(
 ):
     if isinstance(callback_query_or_message, CallbackQuery):
         chat_id = callback_query_or_message.message.chat.id
-        username = callback_query_or_message.from_user.full_name
+        username = html.escape(callback_query_or_message.from_user.full_name)  
         target_message = callback_query_or_message.message
     else:
         chat_id = callback_query_or_message.chat.id
-        username = callback_query_or_message.from_user.full_name
+        username = html.escape(callback_query_or_message.from_user.full_name)
         target_message = callback_query_or_message
 
     image_path = os.path.join("img", "profile.jpg")
@@ -118,6 +119,7 @@ async def balance_handler(callback_query: CallbackQuery, session: Any):
         callback_query.from_user.id,
     )
     balance = result["balance"] if result else 0.0
+    balance = int(balance)
 
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text=PAYMENT, callback_data="pay"))

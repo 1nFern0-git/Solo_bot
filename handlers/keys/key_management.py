@@ -90,6 +90,12 @@ async def handle_key_creation(
             logger.info(f"Доступен {TRIAL_TIME + extra_days}-дневный пробный период пользователю {tg_id}.")
             updated = await update_trial(tg_id, 1, session)
             if updated:
+                await edit_or_send_message(
+                    target_message=message_or_query if isinstance(message_or_query, Message) else message_or_query.message,
+                    text="⏳ Пожалуйста, подождите, создаем вам подключение...",
+                    reply_markup=None,  
+                )
+
                 await create_key(tg_id, expiry_time, state, session, message_or_query)
                 return
             else:
@@ -287,8 +293,8 @@ async def create_key(
             InlineKeyboardButton(text=DOWNLOAD_ANDROID_BUTTON, url=DOWNLOAD_ANDROID),
         )
         builder.row(
-            InlineKeyboardButton(text=IMPORT_IOS, url=f"{CONNECT_IOS}{key_name}"),
-            InlineKeyboardButton(text=IMPORT_ANDROID, url=f"{CONNECT_ANDROID}{key_name}"),
+            InlineKeyboardButton(text=IMPORT_IOS, url=f"{CONNECT_IOS}{public_link}"),
+            InlineKeyboardButton(text=IMPORT_ANDROID, url=f"{CONNECT_ANDROID}{public_link}"),
         )
     builder.row(
         InlineKeyboardButton(text=PC_BUTTON, callback_data=f"connect_pc|{email}"),
@@ -511,8 +517,8 @@ async def finalize_key_creation(
             InlineKeyboardButton(text=DOWNLOAD_ANDROID_BUTTON, url=DOWNLOAD_ANDROID),
         )
         builder.row(
-            InlineKeyboardButton(text=IMPORT_IOS, url=f"{CONNECT_IOS}{key_name}"),
-            InlineKeyboardButton(text=IMPORT_ANDROID, url=f"{CONNECT_ANDROID}{key_name}"),
+            InlineKeyboardButton(text=IMPORT_IOS, url=f"{CONNECT_IOS}{public_link}"),
+            InlineKeyboardButton(text=IMPORT_ANDROID, url=f"{CONNECT_ANDROID}{public_link}"),
         )
     builder.row(
         InlineKeyboardButton(text=PC_BUTTON, callback_data=f"connect_pc|{email}"),
