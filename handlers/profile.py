@@ -1,7 +1,10 @@
+import html
 import os
+
 from typing import Any
 
 import asyncpg
+
 from aiogram import F, Router
 from aiogram.enums import ParseMode
 from aiogram.fsm.context import FSMContext
@@ -16,33 +19,43 @@ from aiogram.types import (
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from config import (
+    ADMIN_ID,
     DATABASE_URL,
+    GIFT_BUTTON,
     INLINE_MODE,
     INSTRUCTIONS_BUTTON,
     NEWS_MESSAGE,
+    REFERRAL_BUTTON,
     REFERRAL_OFFERS,
     RENEWAL_PLANS,
+    SHOW_START_MENU_ONCE,
+    TOP_REFERRAL_BUTTON,
     TRIAL_TIME,
     USERNAME_BOT,
 )
 from database import get_balance, get_key_count, get_last_payments, get_referral_stats, get_trial
-from handlers.buttons.profile import (
+from handlers.buttons import (
+    ABOUT_VPN,
     ADD_SUB,
+    BACK,
     BALANCE,
     BALANCE_HISTORY,
+    COUPON,
     GIFTS,
     INSTRUCTIONS,
     INVITE,
     MAIN_MENU,
     MY_SUBS,
     PAYMENT,
+    TOP_FIVE,
 )
-from handlers.texts import get_referral_link, invite_message_send, profile_message_send
-from keyboards.admin.panel_kb import AdminPanelCallback
+from handlers.texts import BALANCE_HISTORY_HEADER, BALANCE_MANAGEMENT_TEXT, INVITE_TEXT_NON_INLINE, TOP_REFERRALS_TEXT
 from logger import logger
-import html
 
+from .admin.panel.keyboard import AdminPanelCallback
+from .texts import get_referral_link, invite_message_send, profile_message_send
 from .utils import edit_or_send_message
+
 
 router = Router()
 
@@ -56,7 +69,7 @@ async def process_callback_view_profile(
 ):
     if isinstance(callback_query_or_message, CallbackQuery):
         chat_id = callback_query_or_message.message.chat.id
-        username = html.escape(callback_query_or_message.from_user.full_name)  
+        username = html.escape(callback_query_or_message.from_user.full_name)
         target_message = callback_query_or_message.message
     else:
         chat_id = callback_query_or_message.chat.id
@@ -87,18 +100,25 @@ async def process_callback_view_profile(
         else:
             builder.row(InlineKeyboardButton(text=MY_SUBS, callback_data="view_keys"))
         builder.row(InlineKeyboardButton(text=BALANCE, callback_data="balance"))
-        builder.row(
-            InlineKeyboardButton(text=INVITE, callback_data="invite"),
-            InlineKeyboardButton(text=GIFTS, callback_data="gifts"),
-        )
+
+        row_buttons = []
+        if REFERRAL_BUTTON:
+            row_buttons.append(InlineKeyboardButton(text=INVITE, callback_data="invite"))
+        if GIFT_BUTTON:
+            row_buttons.append(InlineKeyboardButton(text=GIFTS, callback_data="gifts"))
+        if row_buttons:
+            builder.row(*row_buttons)
+
         if INSTRUCTIONS_BUTTON:
             builder.row(InlineKeyboardButton(text=INSTRUCTIONS, callback_data="instructions"))
         if admin:
             builder.row(
                 InlineKeyboardButton(text="🔧 Администратор", callback_data=AdminPanelCallback(action="admin").pack())
             )
-
-        builder.row(InlineKeyboardButton(text=MAIN_MENU, callback_data="start"))
+        if SHOW_START_MENU_ONCE:
+            builder.row(InlineKeyboardButton(text=ABOUT_VPN, callback_data="about_vpn"))
+        else:
+            builder.row(InlineKeyboardButton(text=BACK, callback_data="start"))
 
         await edit_or_send_message(
             target_message=target_message,
@@ -124,9 +144,11 @@ async def balance_handler(callback_query: CallbackQuery, session: Any):
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text=PAYMENT, callback_data="pay"))
     builder.row(InlineKeyboardButton(text=BALANCE_HISTORY, callback_data="balance_history"))
+    builder.row(InlineKeyboardButton(text=COUPON, callback_data="activate_coupon"))
     builder.row(InlineKeyboardButton(text=MAIN_MENU, callback_data="profile"))
 
-    text = f"<b>Управление вашим балансом 💰</b>\n\nВаш баланс: {balance}"
+    text = BALANCE_MANAGEMENT_TEXT.format(balance=balance)
+
     await edit_or_send_message(
         target_message=callback_query.message,
         text=text,
@@ -145,7 +167,7 @@ async def balance_history_handler(callback_query: CallbackQuery, session: Any):
     records = await get_last_payments(callback_query.from_user.id, session)
 
     if records:
-        history_text = "📊 <b>Последние 3 операции с балансом:</b>\n\n"
+        history_text = BALANCE_HISTORY_HEADER
         for record in records:
             amount = record["amount"]
             payment_system = record["payment_system"]
@@ -173,17 +195,15 @@ async def balance_history_handler(callback_query: CallbackQuery, session: Any):
 @router.callback_query(F.data == "view_tariffs")
 async def view_tariffs_handler(callback_query: CallbackQuery):
     builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text="👤 Личный кабинет", callback_data="profile"))
+    builder.row(InlineKeyboardButton(text=MAIN_MENU, callback_data="profile"))
 
     image_path = os.path.join("img", "tariffs.jpg")
-    tariffs_message = "<b>🚀 Доступные тарифы VPN:</b>\n\n" + "\n".join(
-        [
-            f"{months} {'месяц' if months == '1' else 'месяца' if int(months) in [2, 3, 4] else 'месяцев'}: "
-            f"{RENEWAL_PLANS[months]['price']} "
-            f"{'💳' if months == '1' else '🌟' if months == '3' else '🔥' if months == '6' else '🚀'} рублей"
-            for months in sorted(RENEWAL_PLANS.keys(), key=int)
-        ]
-    )
+    tariffs_message = "<b>🚀 Доступные тарифы VPN:</b>\n\n" + "\n".join([
+        f"{months} {'месяц' if months == '1' else 'месяца' if int(months) in [2, 3, 4] else 'месяцев'}: "
+        f"{RENEWAL_PLANS[months]['price']} "
+        f"{'💳' if months == '1' else '🌟' if months == '3' else '🔥' if months == '6' else '🚀'} рублей"
+        for months in sorted(RENEWAL_PLANS.keys(), key=int)
+    ])
 
     await edit_or_send_message(
         target_message=callback_query.message,
@@ -212,11 +232,13 @@ async def invite_handler(callback_query_or_message: Message | CallbackQuery):
 
     builder = InlineKeyboardBuilder()
     if INLINE_MODE:
-        builder.button(text="👥 Пригласить друга", switch_inline_query="invite")
+        builder.button(text=INVITE, switch_inline_query="invite")
     else:
-        invite_text = f"\nПриглашаю тебя пользоваться действительно быстрым VPN вместе:\n\n{referral_link}"
-        builder.button(text="👥 Пригласить друга", switch_inline_query=invite_text)
-    builder.button(text="👤 Личный кабинет", callback_data="profile")
+        invite_text = INVITE_TEXT_NON_INLINE.format(referral_link=referral_link)
+        builder.button(text=INVITE, switch_inline_query=invite_text)
+    if TOP_REFERRAL_BUTTON:
+        builder.button(text=TOP_FIVE, callback_data="top_referrals")
+    builder.button(text=MAIN_MENU, callback_data="profile")
     builder.adjust(1)
 
     await edit_or_send_message(
@@ -252,3 +274,43 @@ async def inline_referral_handler(inline_query: InlineQuery):
         )
 
     await inline_query.answer(results=results, cache_time=86400, is_personal=True)
+
+
+@router.callback_query(F.data == "top_referrals")
+async def top_referrals_handler(callback_query: CallbackQuery):
+    conn = await asyncpg.connect(DATABASE_URL)
+    try:
+        top_referrals = await conn.fetch(
+            """
+            SELECT referrer_tg_id, COUNT(*) as referral_count
+            FROM referrals
+            GROUP BY referrer_tg_id
+            ORDER BY referral_count DESC
+            LIMIT 5
+            """
+        )
+
+        is_admin = callback_query.from_user.id in ADMIN_ID
+        rows = ""
+
+        for i, row in enumerate(top_referrals, 1):
+            tg_id = str(row["referrer_tg_id"])
+            count = row["referral_count"]
+            display_id = tg_id if is_admin else f"{tg_id[:5]}*****"
+            rows += f"{i}. {display_id} - {count} чел.\n"
+
+        text = TOP_REFERRALS_TEXT.format(rows=rows)
+
+        builder = InlineKeyboardBuilder()
+        builder.row(InlineKeyboardButton(text=BACK, callback_data="invite"))
+        builder.row(InlineKeyboardButton(text=MAIN_MENU, callback_data="profile"))
+
+        await edit_or_send_message(
+            target_message=callback_query.message,
+            text=text,
+            reply_markup=builder.as_markup(),
+            media_path=None,
+            disable_web_page_preview=False,
+        )
+    finally:
+        await conn.close()

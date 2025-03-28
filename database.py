@@ -1,4 +1,5 @@
 import json
+
 from datetime import datetime
 from typing import Any
 
@@ -62,12 +63,10 @@ async def init_db(file_path: str = "assets/schema.sql"):
     with open(file_path) as file:
         sql_content = file.read()
 
-    statements = [stmt.strip() for stmt in sql_content.split(";") if stmt.strip()]
     conn = await asyncpg.connect(DATABASE_URL)
 
     try:
-        for statement in statements:
-            await conn.execute(statement)
+        await conn.execute(sql_content)
     except Exception as e:
         logger.error(f"Error while executing SQL statement: {e}")
     finally:
@@ -417,6 +416,14 @@ async def store_key(
         raise
 
 
+async def get_clusters(session) -> list[str]:
+    """
+    Получает список уникальных имён кластеров из таблицы servers.
+    """
+    rows = await session.fetch("SELECT DISTINCT cluster_name FROM servers ORDER BY cluster_name")
+    return [row["cluster_name"] for row in rows]
+
+
 async def get_keys(tg_id: int, session: Any):
     """
     Получает список ключей для указанного пользователя.
@@ -672,6 +679,9 @@ async def handle_referral_on_balance_update(tg_id: int, amount: float):
         tg_id (int): Идентификатор Telegram пользователя, пополнившего баланс
         amount (float): Сумма пополнения баланса
     """
+
+    if amount <= 0:
+        return
     conn = None
     try:
         conn = await asyncpg.connect(DATABASE_URL)
@@ -849,14 +859,12 @@ async def get_total_referral_bonus(conn, referrer_tg_id: int, max_levels: int) -
                 COALESCE(SUM(
                     CASE
                         {
-                " ".join(
-                    [
-                        f"WHEN rl.level = {level} THEN {REFERRAL_BONUS_PERCENTAGES[level]} * ep.amount"
-                        if isinstance(REFERRAL_BONUS_PERCENTAGES[level], float)
-                        else f"WHEN rl.level = {level} THEN {REFERRAL_BONUS_PERCENTAGES[level]}"
-                        for level in REFERRAL_BONUS_PERCENTAGES
-                    ]
-                )
+                " ".join([
+                    f"WHEN rl.level = {level} THEN {REFERRAL_BONUS_PERCENTAGES[level]} * ep.amount"
+                    if isinstance(REFERRAL_BONUS_PERCENTAGES[level], float)
+                    else f"WHEN rl.level = {level} THEN {REFERRAL_BONUS_PERCENTAGES[level]}"
+                    for level in REFERRAL_BONUS_PERCENTAGES
+                ])
             }
                         ELSE 0 
                     END
@@ -895,14 +903,12 @@ async def get_total_referral_bonus(conn, referrer_tg_id: int, max_levels: int) -
                 COALESCE(SUM(
                     CASE
                         {
-                " ".join(
-                    [
-                        f"WHEN rl.level = {level} THEN {REFERRAL_BONUS_PERCENTAGES[level]} * p.amount"
-                        if isinstance(REFERRAL_BONUS_PERCENTAGES[level], float)
-                        else f"WHEN rl.level = {level} THEN {REFERRAL_BONUS_PERCENTAGES[level]}"
-                        for level in REFERRAL_BONUS_PERCENTAGES
-                    ]
-                )
+                " ".join([
+                    f"WHEN rl.level = {level} THEN {REFERRAL_BONUS_PERCENTAGES[level]} * p.amount"
+                    if isinstance(REFERRAL_BONUS_PERCENTAGES[level], float)
+                    else f"WHEN rl.level = {level} THEN {REFERRAL_BONUS_PERCENTAGES[level]}"
+                    for level in REFERRAL_BONUS_PERCENTAGES
+                ])
             }
                         ELSE 0 
                     END
@@ -1336,14 +1342,12 @@ async def get_servers(session: Any = None):
             if cluster_name not in servers:
                 servers[cluster_name] = []
 
-            servers[cluster_name].append(
-                {
-                    "server_name": row["server_name"],
-                    "api_url": row["api_url"],
-                    "subscription_url": row["subscription_url"],
-                    "inbound_id": row["inbound_id"],
-                }
-            )
+            servers[cluster_name].append({
+                "server_name": row["server_name"],
+                "api_url": row["api_url"],
+                "subscription_url": row["subscription_url"],
+                "inbound_id": row["inbound_id"],
+            })
 
         return servers
 
@@ -1424,7 +1428,7 @@ async def store_gift_link(
 async def get_key_details(email, session):
     record = await session.fetchrow(
         """
-        SELECT k.server_id, k.key, k.email, k.expiry_time, k.client_id, k.created_at, c.tg_id, c.balance
+        SELECT k.server_id, k.key, k.email, k.is_frozen, k.expiry_time, k.client_id, k.created_at, c.tg_id, c.balance
         FROM keys k
         JOIN connections c ON k.tg_id = c.tg_id
         WHERE k.email = $1
@@ -1462,6 +1466,7 @@ async def get_key_details(email, session):
         "balance": record["balance"],
         "tg_id": record["tg_id"],
         "email": record["email"],
+        "is_frozen": record["is_frozen"],
     }
 
 

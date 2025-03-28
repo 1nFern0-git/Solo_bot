@@ -10,8 +10,11 @@ from config import (
     YOOKASSA_ENABLE,
     YOOMONEY_ENABLE,
 )
+from handlers.buttons import CRYPTOBOT, MAIN_MENU, ROBOKASSA, STARS, YOOKASSA, YOOMONEY
+from handlers.texts import PAYMENT_METHODS_MSG
 
 from .utils import edit_or_send_message
+
 
 router = Router()
 
@@ -23,56 +26,45 @@ async def handle_pay(callback_query: CallbackQuery):
     if YOOKASSA_ENABLE:
         builder.row(
             InlineKeyboardButton(
-                text="💳 ЮКасса: быстрая оплата",
+                text=YOOKASSA,
                 callback_data="pay_yookassa",
             )
         )
     if YOOMONEY_ENABLE:
         builder.row(
             InlineKeyboardButton(
-                text="💳 ЮМани: оплата по карте",
+                text=YOOMONEY,
                 callback_data="pay_yoomoney",
             )
         )
     if CRYPTO_BOT_ENABLE:
         builder.row(
             InlineKeyboardButton(
-                text="💰 CryptoBot: криптовалюта",
+                text=CRYPTOBOT,
                 callback_data="pay_cryptobot",
             )
         )
     if STARS_ENABLE:
         builder.row(
             InlineKeyboardButton(
-                text="⭐ Telegram Stars Pay",
+                text=STARS,
                 callback_data="pay_stars",
             )
         )
     if ROBOKASSA_ENABLE:
         builder.row(
             InlineKeyboardButton(
-                text="⭐ RoboKassa",
+                text=ROBOKASSA,
                 callback_data="pay_robokassa",
             )
         )
-
-    builder.row(InlineKeyboardButton(text="🎟️ Активировать купон", callback_data="activate_coupon"))
     if DONATIONS_ENABLE:
         builder.row(InlineKeyboardButton(text="💰 Поддержать проект", callback_data="donate"))
-    builder.row(InlineKeyboardButton(text="👤 Личный кабинет", callback_data="profile"))
-
-    payment_text = (
-        "💸 <b>Выберите удобный способ пополнения баланса:</b>\n"
-        "<blockquote>"
-        "• Быстро и безопасно\n"
-        "• Поддержка разных платежных систем\n"
-        "• Моментальное зачисление средств 🚀\n"
-        "</blockquote>"
-    )
+    builder.row(InlineKeyboardButton(text=MAIN_MENU, callback_data="profile"))
 
     await edit_or_send_message(
         target_message=callback_query.message,
-        text=payment_text,
+        text=PAYMENT_METHODS_MSG,
         reply_markup=builder.as_markup(),
         media_path=None,
         disable_web_page_preview=False,

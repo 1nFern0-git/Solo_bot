@@ -1,13 +1,23 @@
 import asyncio
+
 from typing import Any
+
+import asyncpg
 
 from py3xui import AsyncApi
 
-from client import ClientConfig, add_client, delete_client, extend_client_key, get_client_traffic, toggle_client
-from config import ADMIN_PASSWORD, ADMIN_USERNAME, LIMIT_IP, PUBLIC_LINK, SUPERNODE, TOTAL_GB, USE_COUNTRY_SELECTION
+from config import ADMIN_PASSWORD, ADMIN_USERNAME, DATABASE_URL, LIMIT_IP, PUBLIC_LINK, SUPERNODE, TOTAL_GB
 from database import get_servers, store_key
 from handlers.utils import get_least_loaded_cluster
 from logger import logger
+from panels.three_xui import (
+    ClientConfig,
+    add_client,
+    delete_client,
+    extend_client_key,
+    get_client_traffic,
+    toggle_client,
+)
 
 
 async def create_key_on_cluster(
@@ -43,7 +53,8 @@ async def create_key_on_cluster(
                 *(
                     create_client_on_server(server, tg_id, client_id, email, expiry_timestamp, semaphore, plan=plan)
                     for server in cluster
-                )
+                ),
+                return_exceptions=True,
             )
 
     except Exception as e:
@@ -68,6 +79,7 @@ async def create_client_on_server(
             server_info["api_url"],
             username=ADMIN_USERNAME,
             password=ADMIN_PASSWORD,
+            logger=logger,
         )
 
         inbound_id = server_info.get("inbound_id")
@@ -122,12 +134,23 @@ async def renew_key_in_cluster(cluster_id, email, client_id, new_expiry_time, to
             else:
                 raise ValueError(f"Кластер или сервер с ID/именем {cluster_id} не найден.")
 
+        async with asyncpg.create_pool(DATABASE_URL) as pool:
+            async with pool.acquire() as conn:
+                tg_id_query = "SELECT tg_id FROM keys WHERE client_id = $1 LIMIT 1"
+                tg_id_record = await conn.fetchrow(tg_id_query, client_id)
+
+                if not tg_id_record:
+                    logger.error(f"Не найден пользователь с client_id={client_id} в таблице keys.")
+                    return False
+
+                tg_id = tg_id_record["tg_id"]
         tasks = []
         for server_info in cluster:
             xui = AsyncApi(
                 server_info["api_url"],
                 username=ADMIN_USERNAME,
                 password=ADMIN_PASSWORD,
+                logger=logger,
             )
 
             inbound_id = server_info.get("inbound_id")
@@ -145,10 +168,12 @@ async def renew_key_in_cluster(cluster_id, email, client_id, new_expiry_time, to
                 sub_id = unique_email
 
             tasks.append(
-                extend_client_key(xui, int(inbound_id), unique_email, new_expiry_time, client_id, total_gb, sub_id)
+                extend_client_key(
+                    xui, int(inbound_id), unique_email, new_expiry_time, client_id, total_gb, sub_id, tg_id
+                )
             )
 
-        await asyncio.gather(*tasks)
+        await asyncio.gather(*tasks, return_exceptions=True)
 
     except Exception as e:
         logger.error(f"Не удалось продлить ключ {client_id} в кластере/на сервере {cluster_id}: {e}")
@@ -179,6 +204,7 @@ async def delete_key_from_cluster(cluster_id, email, client_id):
                 server_info["api_url"],
                 username=ADMIN_USERNAME,
                 password=ADMIN_PASSWORD,
+                logger=logger,
             )
 
             inbound_id = server_info.get("inbound_id")
@@ -197,7 +223,7 @@ async def delete_key_from_cluster(cluster_id, email, client_id):
                 )
             )
 
-        await asyncio.gather(*tasks)
+        await asyncio.gather(*tasks, return_exceptions=True)
 
     except Exception as e:
         logger.error(f"Не удалось удалить ключ {client_id} в кластере/на сервере {cluster_id}: {e}")
@@ -229,6 +255,7 @@ async def update_key_on_cluster(tg_id, client_id, email, expiry_time, cluster_id
                 server_info["api_url"],
                 username=ADMIN_USERNAME,
                 password=ADMIN_PASSWORD,
+                logger=logger,
             )
 
             inbound_id = server_info.get("inbound_id")
@@ -256,7 +283,7 @@ async def update_key_on_cluster(tg_id, client_id, email, expiry_time, cluster_id
                 )
             )
 
-        await asyncio.gather(*tasks)
+        await asyncio.gather(*tasks, return_exceptions=True)
 
         logger.info(f"Ключ успешно обновлен для {client_id} на всех серверах в кластере {cluster_id}")
 
@@ -265,7 +292,7 @@ async def update_key_on_cluster(tg_id, client_id, email, expiry_time, cluster_id
         raise e
 
 
-async def update_subscription(tg_id: int, email: str, session: Any) -> None:
+async def update_subscription(tg_id: int, email: str, session: Any, cluster_override: str = None) -> None:
     record = await session.fetchrow(
         """
         SELECT k.key, k.expiry_time, k.email, k.server_id, k.client_id
@@ -281,27 +308,22 @@ async def update_subscription(tg_id: int, email: str, session: Any) -> None:
 
     expiry_time = record["expiry_time"]
     client_id = record["client_id"]
+    old_cluster_id = record["server_id"]
     public_link = f"{PUBLIC_LINK}{email}/{tg_id}"
 
+    await delete_key_from_cluster(old_cluster_id, email, client_id)
+
     await session.execute(
-        """
-        DELETE FROM keys
-        WHERE tg_id = $1 AND email = $2
-        """,
+        "DELETE FROM keys WHERE tg_id = $1 AND email = $2",
         tg_id,
         email,
     )
 
-    least_loaded_cluster_id = await get_least_loaded_cluster()
+    new_cluster_id = cluster_override or await get_least_loaded_cluster()
 
     await asyncio.gather(
-        update_key_on_cluster(
-            tg_id,
-            client_id,
-            email,
-            expiry_time,
-            least_loaded_cluster_id,
-        )
+        update_key_on_cluster(tg_id, client_id, email, expiry_time, new_cluster_id),
+        return_exceptions=True,
     )
 
     await store_key(
@@ -310,7 +332,7 @@ async def update_subscription(tg_id: int, email: str, session: Any) -> None:
         email,
         expiry_time,
         public_link,
-        server_id=least_loaded_cluster_id,
+        server_id=new_cluster_id,
         session=session,
     )
 
@@ -355,7 +377,7 @@ async def get_user_traffic(session: Any, tg_id: int, email: str) -> dict[str, An
         Получает трафик с сервера для заданного client_id.
         Возвращает кортеж: (server, used_gb) или (server, ошибка).
         """
-        xui = AsyncApi(api_url, username=ADMIN_USERNAME, password=ADMIN_PASSWORD)
+        xui = AsyncApi(api_url, username=ADMIN_USERNAME, password=ADMIN_PASSWORD, logger=logger)
         try:
             traffic_info = await get_client_traffic(xui, client_id)
             if traffic_info["status"] == "success" and traffic_info["traffic"]:
@@ -378,7 +400,7 @@ async def get_user_traffic(session: Any, tg_id: int, email: str) -> dict[str, An
             for server, api_url in servers_map.items():
                 tasks.append(fetch_traffic(api_url, client_id, server))
 
-    results = await asyncio.gather(*tasks)
+    results = await asyncio.gather(*tasks, return_exceptions=True)
     for server, result in results:
         user_traffic_data[server] = result
 
@@ -422,6 +444,7 @@ async def toggle_client_on_cluster(cluster_id: str, email: str, client_id: str, 
                 server_info["api_url"],
                 username=ADMIN_USERNAME,
                 password=ADMIN_PASSWORD,
+                logger=logger,
             )
 
             inbound_id = server_info.get("inbound_id")
@@ -457,3 +480,51 @@ async def toggle_client_on_cluster(cluster_id: str, email: str, client_id: str, 
     except Exception as e:
         logger.error(f"Ошибка при изменении состояния клиента {email} в кластере {cluster_id}: {e}")
         return {"status": "error", "error": str(e)}
+
+
+async def reset_traffic_in_cluster(cluster_id: str, email: str) -> None:
+    """
+    Сбрасывает трафик клиента на всех серверах указанного кластера (или конкретного сервера).
+
+    Args:
+        cluster_id (str): ID кластера или имя сервера
+        email (str): Email клиента (будет преобразован в уникальный для SUPERNODE)
+    """
+    try:
+        servers = await get_servers()
+        cluster = servers.get(cluster_id)
+
+        if not cluster:
+            found_servers = []
+            for _, server_list in servers.items():
+                for server_info in server_list:
+                    if server_info.get("server_name", "").lower() == cluster_id.lower():
+                        found_servers.append(server_info)
+
+            if found_servers:
+                cluster = found_servers
+            else:
+                raise ValueError(f"Кластер или сервер с ID/именем {cluster_id} не найден.")
+
+        tasks = []
+        for server_info in cluster:
+            api_url = server_info["api_url"]
+            inbound_id = server_info.get("inbound_id")
+            server_name = server_info.get("server_name", "unknown")
+
+            if not inbound_id:
+                logger.warning(f"INBOUND_ID отсутствует для сервера {server_name}. Пропуск.")
+                continue
+
+            xui = AsyncApi(api_url, username=ADMIN_USERNAME, password=ADMIN_PASSWORD, logger=logger)
+
+            unique_email = f"{email}_{server_name.lower()}" if SUPERNODE else email
+
+            tasks.append(xui.client.reset_stats(int(inbound_id), unique_email))
+
+        await asyncio.gather(*tasks, return_exceptions=True)
+        logger.info(f"✅ Трафик клиента {email} успешно сброшен на всех серверах кластера {cluster_id}")
+
+    except Exception as e:
+        logger.error(f"❌ Ошибка при сбросе трафика клиента {email} в кластере {cluster_id}: {e}")
+        raise

@@ -1,9 +1,11 @@
 import asyncio
 import uuid
+
 from datetime import datetime, timedelta
 from typing import Any
 
 import pytz
+
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardButton, Message
@@ -11,7 +13,6 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from py3xui import AsyncApi
 
 from bot import bot
-from client import delete_client
 from config import (
     ADMIN_PASSWORD,
     ADMIN_USERNAME,
@@ -40,20 +41,35 @@ from database import (
     update_balance,
     update_trial,
 )
-from handlers.buttons.add_subscribe import (
+from handlers.buttons import (
+    BACK,
+    CONNECT_DEVICE,
+    CONNECT_PHONE,
     DOWNLOAD_ANDROID_BUTTON,
     DOWNLOAD_IOS_BUTTON,
     IMPORT_ANDROID,
     IMPORT_IOS,
+    MAIN_MENU,
+    PAYMENT,
     PC_BUTTON,
+    SUPPORT,
     TV_BUTTON,
 )
 from handlers.keys.key_utils import create_client_on_server, create_key_on_cluster
 from handlers.payments.robokassa_pay import handle_custom_amount_input
 from handlers.payments.yookassa_pay import process_custom_amount_input
-from handlers.texts import DISCOUNTS, key_message_success
+from handlers.texts import (
+    CREATING_CONNECTION_MSG,
+    DISCOUNTS,
+    INSUFFICIENT_FUNDS_MSG,
+    SELECT_COUNTRY_MSG,
+    SELECT_TARIFF_PLAN_MSG,
+    key_message_success,
+)
 from handlers.utils import edit_or_send_message, generate_random_email, get_least_loaded_cluster
 from logger import logger
+from panels.three_xui import delete_client
+
 
 router = Router()
 
@@ -91,9 +107,11 @@ async def handle_key_creation(
             updated = await update_trial(tg_id, 1, session)
             if updated:
                 await edit_or_send_message(
-                    target_message=message_or_query if isinstance(message_or_query, Message) else message_or_query.message,
-                    text="⏳ Пожалуйста, подождите, создаем вам подключение...",
-                    reply_markup=None,  
+                    target_message=message_or_query
+                    if isinstance(message_or_query, Message)
+                    else message_or_query.message,
+                    text=CREATING_CONNECTION_MSG,
+                    reply_markup=None,
                 )
 
                 await create_key(tg_id, expiry_time, state, session, message_or_query)
@@ -104,7 +122,7 @@ async def handle_key_creation(
     builder = InlineKeyboardBuilder()
     for index, (plan_id, price) in enumerate(RENEWAL_PRICES.items()):
         discount_text = ""
-        if plan_id in DISCOUNTS:
+        if DISCOUNTS and plan_id in DISCOUNTS:
             discount_percentage = DISCOUNTS[plan_id]
             discount_text = f" ({discount_percentage}% скидка)"
             if index == len(RENEWAL_PRICES) - 1:
@@ -115,7 +133,7 @@ async def handle_key_creation(
                 callback_data=f"select_plan_{plan_id}",
             )
         )
-    builder.row(InlineKeyboardButton(text="👤 Личный кабинет", callback_data="profile"))
+    builder.row(InlineKeyboardButton(text=MAIN_MENU, callback_data="profile"))
 
     if isinstance(message_or_query, CallbackQuery):
         target_message = message_or_query.message
@@ -124,7 +142,7 @@ async def handle_key_creation(
 
     await edit_or_send_message(
         target_message=target_message,
-        text="💳 Выберите тарифный план для создания нового ключа:",
+        text=SELECT_TARIFF_PLAN_MSG,
         reply_markup=builder.as_markup(),
         media_path=None,
     )
@@ -162,11 +180,11 @@ async def select_tariff_plan(callback_query: CallbackQuery, session: Any):
             await handle_custom_amount_input(callback_query, session)
         else:
             builder = InlineKeyboardBuilder()
-            builder.row(InlineKeyboardButton(text="💳 Пополнить баланс", callback_data="pay"))
-            builder.row(InlineKeyboardButton(text="👤 Личный кабинет", callback_data="profile"))
+            builder.row(InlineKeyboardButton(text=PAYMENT, callback_data="pay"))
+            builder.row(InlineKeyboardButton(text=MAIN_MENU, callback_data="profile"))
             await edit_or_send_message(
                 target_message=callback_query.message,
-                text=f"💳 Недостаточно средств. Для продолжения необходимо пополнить баланс на {required_amount}₽.",
+                text=INSUFFICIENT_FUNDS_MSG.format(required_amount=required_amount),
                 reply_markup=builder.as_markup(),
                 media_path=None,
             )
@@ -176,7 +194,7 @@ async def select_tariff_plan(callback_query: CallbackQuery, session: Any):
 
     await edit_or_send_message(
         target_message=callback_query.message,
-        text="⏳ Подождите, создаем вам подключение...",
+        text=CREATING_CONNECTION_MSG,
         reply_markup=builder.as_markup(),
     )
 
@@ -222,19 +240,19 @@ async def create_key(
             else:
                 callback_data = f"select_country|{country}|{ts}"
             builder.row(InlineKeyboardButton(text=country, callback_data=callback_data))
-        builder.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="profile"))
+        builder.row(InlineKeyboardButton(text=MAIN_MENU, callback_data="profile"))
 
         if target_message:
             await edit_or_send_message(
                 target_message=target_message,
-                text="🌍 Пожалуйста, выберите страну для вашего ключа:",
+                text=SELECT_COUNTRY_MSG,
                 reply_markup=builder.as_markup(),
                 media_path=None,
             )
         else:
             await bot.send_message(
                 chat_id=tg_id,
-                text="🌍 Пожалуйста, выберите страну для вашего ключа:",
+                text=SELECT_COUNTRY_MSG,
                 reply_markup=builder.as_markup(),
             )
         return
@@ -259,7 +277,7 @@ async def create_key(
                 create_key_on_cluster(least_loaded_cluster, tg_id, client_id, email, expiry_timestamp, plan)
             )
         ]
-        await asyncio.gather(*tasks)
+        await asyncio.gather(*tasks, return_exceptions=True)
         logger.info(f"[Key Creation] Ключ создан на кластере {least_loaded_cluster} для пользователя {tg_id}")
         await store_key(
             tg_id,
@@ -284,23 +302,21 @@ async def create_key(
         return
 
     builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text="💬 Поддержка", url=SUPPORT_CHAT_URL))
+    builder.row(InlineKeyboardButton(text=SUPPORT, url=SUPPORT_CHAT_URL))
     if CONNECT_PHONE_BUTTON:
-        builder.row(InlineKeyboardButton(text="📱 Подключить телефон", callback_data=f"connect_phone|{key_name}"))
+        builder.row(InlineKeyboardButton(text=CONNECT_PHONE, callback_data=f"connect_phone|{key_name}"))
+        builder.row(
+            InlineKeyboardButton(text=PC_BUTTON, callback_data=f"connect_pc|{email}"),
+            InlineKeyboardButton(text=TV_BUTTON, callback_data=f"connect_tv|{email}"),
+        )
     else:
         builder.row(
-            InlineKeyboardButton(text=DOWNLOAD_IOS_BUTTON, url=DOWNLOAD_IOS),
-            InlineKeyboardButton(text=DOWNLOAD_ANDROID_BUTTON, url=DOWNLOAD_ANDROID),
+            InlineKeyboardButton(
+                text=CONNECT_DEVICE,
+                callback_data=f"connect_device|{key_name}",
+            )
         )
-        builder.row(
-            InlineKeyboardButton(text=IMPORT_IOS, url=f"{CONNECT_IOS}{public_link}"),
-            InlineKeyboardButton(text=IMPORT_ANDROID, url=f"{CONNECT_ANDROID}{public_link}"),
-        )
-    builder.row(
-        InlineKeyboardButton(text=PC_BUTTON, callback_data=f"connect_pc|{email}"),
-        InlineKeyboardButton(text=TV_BUTTON, callback_data=f"connect_tv|{email}"),
-    )
-    builder.row(InlineKeyboardButton(text="👤 Личный кабинет", callback_data="profile"))
+    builder.row(InlineKeyboardButton(text=MAIN_MENU, callback_data="profile"))
 
     expiry_time_local = expiry_time.replace(tzinfo=None).astimezone(moscow_tz)
     remaining_time = expiry_time_local - datetime.now(moscow_tz)
@@ -347,7 +363,7 @@ async def change_location_callback(callback_query: CallbackQuery, session: Any):
         for country in countries:
             callback_data = f"select_country|{country}|{ts}|{old_key_name}"
             builder.row(InlineKeyboardButton(text=country, callback_data=callback_data))
-        builder.row(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"view_key|{old_key_name}"))
+        builder.row(InlineKeyboardButton(text=BACK, callback_data=f"view_key|{old_key_name}"))
 
         await edit_or_send_message(
             target_message=callback_query.message,
@@ -449,6 +465,7 @@ async def finalize_key_creation(
                         old_server_info["api_url"],
                         username=ADMIN_USERNAME,
                         password=ADMIN_PASSWORD,
+                        logger=logger,
                     )
                     deletion_success = await delete_client(
                         xui,
@@ -508,9 +525,9 @@ async def finalize_key_creation(
         return
 
     builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text="💬 Поддержка", url=SUPPORT_CHAT_URL))
+    builder.row(InlineKeyboardButton(text=SUPPORT, url=SUPPORT_CHAT_URL))
     if CONNECT_PHONE_BUTTON:
-        builder.row(InlineKeyboardButton(text="📱 Подключить телефон", callback_data=f"connect_phone|{key_name}"))
+        builder.row(InlineKeyboardButton(text=CONNECT_PHONE, callback_data=f"connect_phone|{key_name}"))
     else:
         builder.row(
             InlineKeyboardButton(text=DOWNLOAD_IOS_BUTTON, url=DOWNLOAD_IOS),
@@ -524,7 +541,7 @@ async def finalize_key_creation(
         InlineKeyboardButton(text=PC_BUTTON, callback_data=f"connect_pc|{email}"),
         InlineKeyboardButton(text=TV_BUTTON, callback_data=f"connect_tv|{email}"),
     )
-    builder.row(InlineKeyboardButton(text="👤 Личный кабинет", callback_data="profile"))
+    builder.row(InlineKeyboardButton(text=MAIN_MENU, callback_data="profile"))
 
     remaining_time = expiry_time - datetime.now(moscow_tz)
     days = remaining_time.days

@@ -42,6 +42,24 @@ CREATE TABLE IF NOT EXISTS keys
     PRIMARY KEY (tg_id, client_id)
 );
 
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'keys' AND column_name = 'is_frozen'
+    ) THEN
+        ALTER TABLE keys ADD COLUMN is_frozen BOOLEAN DEFAULT FALSE;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'keys' AND column_name = 'alias'
+    ) THEN
+        ALTER TABLE keys ADD COLUMN alias TEXT;
+    END IF;
+END$$;
+
+
 CREATE TABLE IF NOT EXISTS referrals
 (
     referred_tg_id BIGINT PRIMARY KEY NOT NULL,
