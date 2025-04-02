@@ -1,7 +1,9 @@
 import asyncio
+import html
 import locale
 import os
 import time
+import re
 
 from datetime import datetime, timedelta
 from io import BytesIO
@@ -87,6 +89,7 @@ from handlers.payments.robokassa_pay import handle_custom_amount_input
 from handlers.payments.yookassa_pay import process_custom_amount_input
 from handlers.texts import (
     ANDROID_DESCRIPTION_TEMPLATE,
+    CHOOSE_DEVICE_TEXT,
     DELETE_KEY_CONFIRM_MSG,
     DISCOUNTS,
     FREEZE_SUBSCRIPTION_CONFIRM_MSG,
@@ -153,7 +156,7 @@ def build_keys_response(records):
             client_id = record["client_id"]
             expiry_time = record.get("expiry_time")
 
-            key_display = alias.strip() if alias else email
+            key_display = html.escape(alias.strip() if alias else email)
 
             if expiry_time:
                 expiry_date_full = datetime.fromtimestamp(expiry_time / 1000, tz=moscow_tz)
@@ -182,11 +185,15 @@ def build_keys_response(records):
 async def handle_rename_key(callback: CallbackQuery, state: FSMContext):
     client_id = callback.data.split("|")[1]
     await state.set_state(RenameKeyState.waiting_for_new_alias)
-
     await state.update_data(client_id=client_id, target_message=callback.message)
 
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text=BACK, callback_data="view_keys"))
+
     await edit_or_send_message(
-        target_message=callback.message, text="✏️ Введите новое имя подписки (до 10 символов):", reply_markup=None
+        target_message=callback.message,
+        text="✏️ Введите новое имя подписки (до 10 символов):",
+        reply_markup=builder.as_markup()
     )
 
 
@@ -195,7 +202,11 @@ async def handle_new_alias_input(message: Message, state: FSMContext, session: A
     alias = message.text.strip()
 
     if len(alias) > 10:
-        await message.answer("❌ Имя слишком длинное. Введите до 10 символов.")
+        await message.answer("❌ Имя слишком длинное. Введите до 10 символов.\nПовторите ввод.")
+        return
+
+    if not alias or not re.match(r"^[a-zA-Zа-яА-ЯёЁ0-9@._-]+$", alias):
+        await message.answer("❌ Введены недопустимые символы или имя пустое. Используйте только буквы, цифры и @._-\nПовторите ввод.")
         return
 
     data = await state.get_data()
@@ -312,7 +323,7 @@ async def process_callback_view_key(callback_query: CallbackQuery, session: Any)
                     builder.row(
                         InlineKeyboardButton(
                             text=QR,
-                            callback_data=f"show_qr|{key}",
+                            callback_data=f"show_qr|{key_name}",
                         )
                     )
                 if ENABLE_DELETE_KEY_BUTTON:
@@ -363,13 +374,9 @@ async def process_callback_view_key(callback_query: CallbackQuery, session: Any)
 @router.callback_query(F.data.startswith("show_qr|"))
 async def show_qr_code(callback_query: types.CallbackQuery, session: Any):
     try:
-        key_value = callback_query.data.split("|")[1]
+        key_name = callback_query.data.split("|")[1]
 
-        record = await session.fetchrow(
-            "SELECT key, email FROM keys WHERE key = $1",
-            key_value,
-        )
-
+        record = await session.fetchrow("SELECT key, email FROM keys WHERE email = $1", key_name)
         if not record:
             await callback_query.message.answer("❌ Подписка не найдена.")
             return
@@ -420,7 +427,7 @@ async def handle_connect_device(callback_query: CallbackQuery):
 
         await edit_or_send_message(
             target_message=callback_query.message,
-            text="📲 <b>Выберите устройство, которое хотите подключить:</b>",
+            text=CHOOSE_DEVICE_TEXT,
             reply_markup=builder.as_markup(),
             media_path=None,
         )
@@ -688,6 +695,7 @@ async def process_callback_connect_ios(callback_query: CallbackQuery):
     builder.row(InlineKeyboardButton(text=DOWNLOAD_IOS_BUTTON, url=DOWNLOAD_IOS))
     builder.row(InlineKeyboardButton(text=IMPORT_IOS, url=f"{CONNECT_IOS}{key_link}"))
     builder.row(InlineKeyboardButton(text=MANUAL_INSTRUCTIONS, callback_data="instructions"))
+    builder.row(InlineKeyboardButton(text=BACK, callback_data=f"view_key|{email}"))
     builder.row(InlineKeyboardButton(text=MAIN_MENU, callback_data="profile"))
 
     await edit_or_send_message(
@@ -726,6 +734,7 @@ async def process_callback_connect_android(callback_query: CallbackQuery):
     builder.row(InlineKeyboardButton(text=DOWNLOAD_ANDROID_BUTTON, url=DOWNLOAD_ANDROID))
     builder.row(InlineKeyboardButton(text=IMPORT_ANDROID, url=f"{CONNECT_ANDROID}{key_link}"))
     builder.row(InlineKeyboardButton(text=MANUAL_INSTRUCTIONS, callback_data="instructions"))
+    builder.row(InlineKeyboardButton(text=BACK, callback_data=f"view_key|{email}"))
     builder.row(InlineKeyboardButton(text=MAIN_MENU, callback_data="profile"))
 
     await edit_or_send_message(
@@ -839,13 +848,13 @@ async def process_callback_renew_key(callback_query: CallbackQuery, session: Any
             for plan_id, plan_details in RENEWAL_PLANS.items():
                 months = plan_details["months"]
                 price = plan_details["price"]
-                discount = DISCOUNTS.get(plan_id, 0)
 
-                button_text = f"📅 {months} " \
-              f"{'месяц' if months == 1 else 'месяца' if 2 <= months <= 4 else 'месяцев'} " \
-              f"({price} руб.)" + (
-                    f" {discount}% скидка" if discount > 0 else ""
-                )
+                discount = DISCOUNTS.get(plan_id, 0) if isinstance(DISCOUNTS, dict) else 0
+
+                button_text = f"📅 {months} месяц{'а' if months > 1 else ''} ({price} руб.)"
+                if discount > 0:
+                    button_text += f" {discount}% скидка"
+
                 builder.row(
                     InlineKeyboardButton(
                         text=button_text,
@@ -871,7 +880,8 @@ async def process_callback_renew_key(callback_query: CallbackQuery, session: Any
         else:
             await callback_query.message.answer("<b>Ключ не найден.</b>")
     except Exception as e:
-        logger.error(e)
+        logger.error(f"Ошибка в process_callback_renew_key: {e}")
+        await callback_query.message.answer("❌ Произошла ошибка при обработке. Попробуйте позже.")
 
 
 @router.callback_query(F.data.startswith("renew_plan|"))

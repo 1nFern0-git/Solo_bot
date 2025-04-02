@@ -8,7 +8,7 @@ import pytz
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, InlineKeyboardButton, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, Message, InputFile
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from py3xui import AsyncApi
 
@@ -16,11 +16,7 @@ from bot import bot
 from config import (
     ADMIN_PASSWORD,
     ADMIN_USERNAME,
-    CONNECT_ANDROID,
-    CONNECT_IOS,
     CONNECT_PHONE_BUTTON,
-    DOWNLOAD_ANDROID,
-    DOWNLOAD_IOS,
     NOTIFY_EXTRA_DAYS,
     PUBLIC_LINK,
     RENEWAL_PRICES,
@@ -45,10 +41,6 @@ from handlers.buttons import (
     BACK,
     CONNECT_DEVICE,
     CONNECT_PHONE,
-    DOWNLOAD_ANDROID_BUTTON,
-    DOWNLOAD_IOS_BUTTON,
-    IMPORT_ANDROID,
-    IMPORT_IOS,
     MAIN_MENU,
     PAYMENT,
     PC_BUTTON,
@@ -302,7 +294,6 @@ async def create_key(
         return
 
     builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text=SUPPORT, url=SUPPORT_CHAT_URL))
     if CONNECT_PHONE_BUTTON:
         builder.row(InlineKeyboardButton(text=CONNECT_PHONE, callback_data=f"connect_phone|{key_name}"))
         builder.row(
@@ -316,6 +307,7 @@ async def create_key(
                 callback_data=f"connect_device|{key_name}",
             )
         )
+    builder.row(InlineKeyboardButton(text=SUPPORT, url=SUPPORT_CHAT_URL))
     builder.row(InlineKeyboardButton(text=MAIN_MENU, callback_data="profile"))
 
     expiry_time_local = expiry_time.replace(tzinfo=None).astimezone(moscow_tz)
@@ -323,17 +315,23 @@ async def create_key(
     days = remaining_time.days
     key_message_text = key_message_success(public_link, f"⏳ Осталось дней: {days} 📅")
 
+    default_media_path = "img/pic.jpg"
+
     if target_message:
         await edit_or_send_message(
-            target_message=target_message, text=key_message_text, reply_markup=builder.as_markup(), media_path=None
-        )
-    else:
-        await bot.send_message(
-            chat_id=tg_id,
+            target_message=target_message,
             text=key_message_text,
             reply_markup=builder.as_markup(),
+            media_path=default_media_path,
         )
-
+    else:
+        photo = InputFile(default_media_path)
+        await bot.send_photo(
+            chat_id=tg_id,
+            photo=photo,
+            caption=key_message_text,
+            reply_markup=builder.as_markup(),
+        )
     if state:
         await state.clear()
 
@@ -528,19 +526,17 @@ async def finalize_key_creation(
     builder.row(InlineKeyboardButton(text=SUPPORT, url=SUPPORT_CHAT_URL))
     if CONNECT_PHONE_BUTTON:
         builder.row(InlineKeyboardButton(text=CONNECT_PHONE, callback_data=f"connect_phone|{key_name}"))
+        builder.row(
+            InlineKeyboardButton(text=PC_BUTTON, callback_data=f"connect_pc|{email}"),
+            InlineKeyboardButton(text=TV_BUTTON, callback_data=f"connect_tv|{email}"),
+        )
     else:
         builder.row(
-            InlineKeyboardButton(text=DOWNLOAD_IOS_BUTTON, url=DOWNLOAD_IOS),
-            InlineKeyboardButton(text=DOWNLOAD_ANDROID_BUTTON, url=DOWNLOAD_ANDROID),
+            InlineKeyboardButton(
+                text=CONNECT_DEVICE,
+                callback_data=f"connect_device|{key_name}",
+            )
         )
-        builder.row(
-            InlineKeyboardButton(text=IMPORT_IOS, url=f"{CONNECT_IOS}{public_link}"),
-            InlineKeyboardButton(text=IMPORT_ANDROID, url=f"{CONNECT_ANDROID}{public_link}"),
-        )
-    builder.row(
-        InlineKeyboardButton(text=PC_BUTTON, callback_data=f"connect_pc|{email}"),
-        InlineKeyboardButton(text=TV_BUTTON, callback_data=f"connect_tv|{email}"),
-    )
     builder.row(InlineKeyboardButton(text=MAIN_MENU, callback_data="profile"))
 
     remaining_time = expiry_time - datetime.now(moscow_tz)

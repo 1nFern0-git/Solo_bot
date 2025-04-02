@@ -1,9 +1,11 @@
 import html
+from io import BytesIO
 import os
 
-from typing import Any
-
 import asyncpg
+import qrcode
+
+from typing import Any, Optional
 
 from aiogram import F, Router
 from aiogram.enums import ParseMode
@@ -15,6 +17,7 @@ from aiogram.types import (
     InlineQueryResultArticle,
     InputTextMessageContent,
     Message,
+    User
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
@@ -47,6 +50,7 @@ from handlers.buttons import (
     MAIN_MENU,
     MY_SUBS,
     PAYMENT,
+    QR,
     TOP_FIVE,
 )
 from handlers.texts import BALANCE_HISTORY_HEADER, BALANCE_MANAGEMENT_TEXT, INVITE_TEXT_NON_INLINE, TOP_REFERRALS_TEXT
@@ -68,13 +72,26 @@ async def process_callback_view_profile(
     admin: bool,
 ):
     if isinstance(callback_query_or_message, CallbackQuery):
-        chat_id = callback_query_or_message.message.chat.id
-        username = html.escape(callback_query_or_message.from_user.full_name)
+        chat = callback_query_or_message.message.chat
+        from_user = callback_query_or_message.from_user
+        chat_id = chat.id
         target_message = callback_query_or_message.message
     else:
-        chat_id = callback_query_or_message.chat.id
-        username = html.escape(callback_query_or_message.from_user.full_name)
+        chat = callback_query_or_message.chat
+        from_user = callback_query_or_message.from_user
+        chat_id = chat.id
         target_message = callback_query_or_message
+
+    user = chat if chat.type == "private" else from_user
+
+    if getattr(user, "full_name", None):
+        username = html.escape(user.full_name)
+    elif getattr(user, "first_name", None):
+        username = html.escape(user.first_name)
+    elif getattr(user, "username", None):
+        username = "@" + html.escape(user.username)
+    else:
+        username = "Пользователь"
 
     image_path = os.path.join("img", "profile.jpg")
     logger.info(f"Переход в профиль. Используется изображение: {image_path}")
@@ -236,6 +253,7 @@ async def invite_handler(callback_query_or_message: Message | CallbackQuery):
     else:
         invite_text = INVITE_TEXT_NON_INLINE.format(referral_link=referral_link)
         builder.button(text=INVITE, switch_inline_query=invite_text)
+    builder.button(text=QR, callback_data=f"show_referral_qr|{chat_id}")
     if TOP_REFERRAL_BUTTON:
         builder.button(text=TOP_FIVE, callback_data="top_referrals")
     builder.button(text=MAIN_MENU, callback_data="profile")
@@ -276,10 +294,69 @@ async def inline_referral_handler(inline_query: InlineQuery):
     await inline_query.answer(results=results, cache_time=86400, is_personal=True)
 
 
+@router.callback_query(F.data.startswith("show_referral_qr|"))
+async def show_referral_qr(callback_query: CallbackQuery):
+    try:
+        chat_id = callback_query.data.split("|")[1]
+        referral_link = get_referral_link(chat_id)
+
+        qr = qrcode.QRCode(version=1, box_size=10, border=4)
+        qr.add_data(referral_link)
+        qr.make(fit=True)
+
+        img = qr.make_image(fill_color="black", back_color="white")
+        buffer = BytesIO()
+        img.save(buffer, format="PNG")
+        buffer.seek(0)
+
+        qr_path = f"/tmp/qrcode_referral_{chat_id}.png"
+        with open(qr_path, "wb") as f:
+            f.write(buffer.read())
+
+        builder = InlineKeyboardBuilder()
+        builder.row(InlineKeyboardButton(text=BACK, callback_data="invite"))
+        builder.row(InlineKeyboardButton(text=MAIN_MENU, callback_data="profile"))
+
+        await edit_or_send_message(
+            target_message=callback_query.message,
+            text="📷 <b>Ваш QR-код для реферальной ссылки.</b>",
+            reply_markup=builder.as_markup(),
+            media_path=qr_path,
+        )
+
+        os.remove(qr_path)
+
+    except Exception as e:
+        logger.error(f"Ошибка при генерации QR-кода для реферальной ссылки: {e}", exc_info=True)
+        await callback_query.message.answer("❌ Произошла ошибка при создании QR-кода.")
+        
+
 @router.callback_query(F.data == "top_referrals")
 async def top_referrals_handler(callback_query: CallbackQuery):
     conn = await asyncpg.connect(DATABASE_URL)
     try:
+        user_referral_count = await conn.fetchval(
+            "SELECT COUNT(*) FROM referrals WHERE referrer_tg_id = $1",
+            callback_query.from_user.id
+        ) or 0
+
+        personal_block = "Твоё место в рейтинге:\n"
+        if user_referral_count > 0:
+            user_position = await conn.fetchval(
+                """
+                SELECT COUNT(*) + 1 FROM (
+                    SELECT COUNT(*) as cnt 
+                    FROM referrals 
+                    GROUP BY referrer_tg_id 
+                    HAVING COUNT(*) > $1
+                ) AS better_users
+                """,
+                user_referral_count
+            )
+            personal_block += f"{user_position}. {callback_query.from_user.id} - {user_referral_count} чел."
+        else:
+            personal_block += "Ты еще не приглашал пользователей в проект."
+
         top_referrals = await conn.fetch(
             """
             SELECT referrer_tg_id, COUNT(*) as referral_count
@@ -292,14 +369,13 @@ async def top_referrals_handler(callback_query: CallbackQuery):
 
         is_admin = callback_query.from_user.id in ADMIN_ID
         rows = ""
-
         for i, row in enumerate(top_referrals, 1):
             tg_id = str(row["referrer_tg_id"])
             count = row["referral_count"]
             display_id = tg_id if is_admin else f"{tg_id[:5]}*****"
             rows += f"{i}. {display_id} - {count} чел.\n"
 
-        text = TOP_REFERRALS_TEXT.format(rows=rows)
+        text = TOP_REFERRALS_TEXT.format(personal_block=personal_block, rows=rows)
 
         builder = InlineKeyboardBuilder()
         builder.row(InlineKeyboardButton(text=BACK, callback_data="invite"))
