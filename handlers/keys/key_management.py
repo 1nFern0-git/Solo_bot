@@ -8,7 +8,7 @@ import pytz
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, InlineKeyboardButton, Message, InputFile
+from aiogram.types import CallbackQuery, InlineKeyboardButton, Message, FSInputFile
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from py3xui import AsyncApi
 
@@ -36,6 +36,7 @@ from database import (
     store_key,
     update_balance,
     update_trial,
+    check_server_name_by_cluster,
 )
 from handlers.buttons import (
     BACK,
@@ -96,20 +97,14 @@ async def handle_key_creation(
             extra_days = NOTIFY_EXTRA_DAYS if trial_status == -1 else 0
             expiry_time = current_time + timedelta(days=TRIAL_TIME + extra_days)
             logger.info(f"Доступен {TRIAL_TIME + extra_days}-дневный пробный период пользователю {tg_id}.")
-            updated = await update_trial(tg_id, 1, session)
-            if updated:
-                await edit_or_send_message(
-                    target_message=message_or_query
-                    if isinstance(message_or_query, Message)
-                    else message_or_query.message,
-                    text=CREATING_CONNECTION_MSG,
-                    reply_markup=None,
-                )
-
-                await create_key(tg_id, expiry_time, state, session, message_or_query)
-                return
-            else:
-                logger.error(f"Не удалось обновить статус триального периода для пользователя {tg_id}.")
+            await edit_or_send_message(
+                target_message=message_or_query if isinstance(message_or_query, Message) else message_or_query.message,
+                text=CREATING_CONNECTION_MSG,
+                reply_markup=None,
+            )
+            await state.update_data(is_trial=True)
+            await create_key(tg_id, expiry_time, state, session, message_or_query)
+            return
 
     builder = InlineKeyboardBuilder()
     for index, (plan_id, price) in enumerate(RENEWAL_PRICES.items()):
@@ -144,7 +139,7 @@ async def handle_key_creation(
 
 
 @router.callback_query(F.data.startswith("select_plan_"))
-async def select_tariff_plan(callback_query: CallbackQuery, session: Any):
+async def select_tariff_plan(callback_query: CallbackQuery, session: Any, state: FSMContext):
     tg_id = callback_query.message.chat.id
     plan_id = callback_query.data.split("_")[-1]
     plan_price = RENEWAL_PRICES.get(plan_id)
@@ -191,9 +186,8 @@ async def select_tariff_plan(callback_query: CallbackQuery, session: Any):
     )
 
     expiry_time = datetime.now(moscow_tz) + timedelta(days=duration_days)
-    await create_key(tg_id, expiry_time, None, session, callback_query, None, plan_id)
-    await update_balance(tg_id, -plan_price, session)
-
+    await state.update_data(plan_id=plan_id)
+    await create_key(tg_id, expiry_time, state, session, callback_query)
 
 async def create_key(
     tg_id: int,
@@ -214,19 +208,54 @@ async def create_key(
     if USE_COUNTRY_SELECTION:
         logger.info("[Country Selection] USE_COUNTRY_SELECTION включен. Получение наименее загруженного кластера")
         least_loaded_cluster = await get_least_loaded_cluster()
-        logger.info(
-            f"[Country Selection] Наименее загруженный кластер: {least_loaded_cluster}. Получаем список серверов"
-        )
+        logger.info(f"[Country Selection] Наименее загруженный кластер: {least_loaded_cluster}. Получаем список серверов")
         servers = await session.fetch(
-            "SELECT server_name FROM servers WHERE cluster_name = $1",
+            "SELECT server_name, api_url FROM servers WHERE cluster_name = $1",
             least_loaded_cluster,
         )
-        countries = [server["server_name"] for server in servers]
-        logger.info(f"[Country Selection] Список серверов: {countries}")
+        if not servers:
+            logger.error(f"Нет серверов в кластере {least_loaded_cluster}")
+            error_message = "❌ Нет доступных серверов для создания ключа."
+            if target_message:
+                await edit_or_send_message(
+                    target_message=target_message, text=error_message, reply_markup=None, media_path=None
+                )
+            else:
+                await bot.send_message(chat_id=tg_id, text=error_message)
+            return
+
+        available_servers = []
+        tasks = []
+        for server in servers:
+            server_info = {
+                "server_name": server["server_name"],
+                "api_url": server["api_url"],
+            }
+            task = asyncio.create_task(check_server_availability(server_info))
+            tasks.append(task)
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for server, result in zip(servers, results):
+            if result is True:
+                available_servers.append(server["server_name"])
+
+        if not available_servers:
+            logger.error(f"Нет доступных серверов в кластере {least_loaded_cluster}")
+            error_message = "❌ Нет доступных серверов для создания ключа."
+            if target_message:
+                await edit_or_send_message(
+                    target_message=target_message, text=error_message, reply_markup=None, media_path=None
+                )
+            else:
+                await bot.send_message(chat_id=tg_id, text=error_message)
+            return
+
+        logger.info(f"[Country Selection] Список доступных серверов: {available_servers}")
 
         builder = InlineKeyboardBuilder()
         ts = int(expiry_time.timestamp())
-        for country in countries:
+        for country in available_servers:
             if old_key_name:
                 callback_data = f"select_country|{country}|{ts}|{old_key_name}"
             else:
@@ -280,7 +309,18 @@ async def create_key(
             least_loaded_cluster,
             session,
         )
-        await update_trial(tg_id, 1, session)
+
+        data = {}
+        if state:
+            data = await state.get_data()
+
+        if data.get("is_trial"):
+            trial_status = await get_trial(tg_id, session)
+            if trial_status in [0, -1]:
+                await update_trial(tg_id, 1, session)
+        if data.get("plan_id"):
+            plan_price = RENEWAL_PRICES.get(data["plan_id"])
+            await update_balance(tg_id, -plan_price, session)
         logger.info(f"[Database] Ключ сохранён в базе данных для пользователя {tg_id}")
     except Exception as e:
         logger.error(f"[Error] Ошибка при создании ключа для пользователя {tg_id}: {e}")
@@ -324,8 +364,9 @@ async def create_key(
             reply_markup=builder.as_markup(),
             media_path=default_media_path,
         )
+
     else:
-        photo = InputFile(default_media_path)
+        photo = FSInputFile(default_media_path)
         await bot.send_photo(
             chat_id=tg_id,
             photo=photo,
@@ -353,12 +394,48 @@ async def change_location_callback(callback_query: CallbackQuery, session: Any):
         expiry_timestamp = record["expiry_time"]
         ts = int(expiry_timestamp / 1000)
 
-        servers = await session.fetch("SELECT server_name FROM servers")
-        countries = [row["server_name"] for row in servers]
-        logger.info(f"Доступные страны для смены локации: {countries}")
+        current_server = record["server_id"]
+
+        cluster_info = await check_server_name_by_cluster(current_server, session)
+        if not cluster_info:
+            await callback_query.answer("❌ Кластер для текущего сервера не найден", show_alert=True)
+            return
+
+        cluster_name = cluster_info["cluster_name"]
+
+        servers = await session.fetch(
+            "SELECT server_name, api_url FROM servers WHERE cluster_name = $1 AND server_name != $2",
+            cluster_name,
+            current_server,
+        )
+        if not servers:
+            await callback_query.answer("❌ Доступных серверов в кластере не найдено", show_alert=True)
+            return
+
+        available_servers = []
+        tasks = []
+        for server in servers:
+            server_info = {
+                "server_name": server["server_name"],
+                "api_url": server["api_url"],
+            }
+            task = asyncio.create_task(check_server_availability(server_info))
+            tasks.append(task)
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for server, result in zip(servers, results):
+            if result is True:
+                available_servers.append(server["server_name"])
+
+        if not available_servers:
+            await callback_query.answer("❌ Нет доступных серверов для смены локации", show_alert=True)
+            return
+
+        logger.info(f"Доступные страны для смены локации: {available_servers}")
 
         builder = InlineKeyboardBuilder()
-        for country in countries:
+        for country in available_servers:
             callback_data = f"select_country|{country}|{ts}|{old_key_name}"
             builder.row(InlineKeyboardButton(text=country, callback_data=callback_data))
         builder.row(InlineKeyboardButton(text=BACK, callback_data=f"view_key|{old_key_name}"))
@@ -375,7 +452,7 @@ async def change_location_callback(callback_query: CallbackQuery, session: Any):
 
 
 @router.callback_query(F.data.startswith("select_country|"))
-async def handle_country_selection(callback_query: CallbackQuery, session: Any):
+async def handle_country_selection(callback_query: CallbackQuery, session: Any, state: FSMContext):
     """
     Обрабатывает выбор страны.
     Формат callback data:
@@ -402,7 +479,7 @@ async def handle_country_selection(callback_query: CallbackQuery, session: Any):
     logger.info(f"Пользователь {tg_id} выбрал страну: {selected_country}")
     logger.info(f"Получено время истечения (timestamp): {ts}")
 
-    await finalize_key_creation(tg_id, expiry_time, selected_country, None, session, callback_query, old_key_name)
+    await finalize_key_creation(tg_id, expiry_time, selected_country, state, session, callback_query, old_key_name)
 
 
 async def finalize_key_creation(
@@ -423,7 +500,16 @@ async def finalize_key_creation(
     expiry_time = expiry_time.astimezone(moscow_tz)
 
     if old_key_name:
+        old_key_details = await get_key_details(old_key_name, session)
+        if not old_key_details:
+            await callback_query.message.answer("❌ Ключ не найден. Попробуйте снова.")
+            return
+
         key_name = old_key_name
+        client_id = old_key_details["client_id"]
+        email = old_key_details["email"]
+        expiry_timestamp = old_key_details["expiry_time"]
+        public_link = old_key_details["key"]
     else:
         while True:
             key_name = generate_random_email()
@@ -432,10 +518,10 @@ async def finalize_key_creation(
                 break
             logger.warning(f"Key name '{key_name}' already exists for user {tg_id}. Generating a new one.")
 
-    client_id = str(uuid.uuid4())
-    email = key_name.lower()
-    expiry_timestamp = int(expiry_time.timestamp() * 1000)
-    public_link = f"{PUBLIC_LINK}{email}/{tg_id}"
+        client_id = str(uuid.uuid4())
+        email = key_name.lower()
+        expiry_timestamp = int(expiry_time.timestamp() * 1000)
+        public_link = f"{PUBLIC_LINK}{email}/{tg_id}"
 
     try:
         server_info = await session.fetchrow(
@@ -447,12 +533,8 @@ async def finalize_key_creation(
             raise ValueError(f"Сервер {selected_country} не найден.")
 
         if old_key_name:
-            old_key_details = await get_key_details(old_key_name, session)
-            old_client_id = old_key_details.get("client_id") if old_key_details else None
-            old_email = old_key_details.get("email") if old_key_details else None
-            old_server_id = old_key_details.get("server_id") if old_key_details else None
-
-            if old_client_id and old_email and old_server_id:
+            old_server_id = old_key_details.get("server_id")
+            if old_server_id:
                 old_server_info = await session.fetchrow(
                     "SELECT api_url, inbound_id, server_name FROM servers WHERE server_name = $1",
                     old_server_id,
@@ -468,11 +550,11 @@ async def finalize_key_creation(
                     deletion_success = await delete_client(
                         xui,
                         old_server_info["inbound_id"],
-                        old_email,
-                        old_client_id,
+                        email,
+                        client_id,
                     )
                     if not deletion_success:
-                        raise ValueError(f"Не удалось удалить клиента с сервера {old_server_id}.")
+                        logger.warning(f"Не удалось удалить клиента с сервера {old_server_id}, но продолжаем процесс.")
 
         semaphore = asyncio.Semaphore(2)
         await create_client_on_server(
@@ -490,13 +572,9 @@ async def finalize_key_creation(
             await session.execute(
                 """
                 UPDATE keys
-                SET client_id = $1, email = $2, expiry_time = $3, key = $4, server_id = $5
-                WHERE tg_id = $6 AND email = $7
+                SET server_id = $1
+                WHERE tg_id = $2 AND email = $3
                 """,
-                client_id,
-                email,
-                expiry_timestamp,
-                public_link,
                 selected_country,
                 tg_id,
                 old_key_name,
@@ -516,6 +594,14 @@ async def finalize_key_creation(
                 public_link,
                 selected_country,
             )
+            data = await state.get_data()
+            if data.get("is_trial"):
+                trial_status = await get_trial(tg_id, session)
+                if trial_status in [0, -1]:
+                    await update_trial(tg_id, 1, session)
+            if data.get("plan_id"):
+                plan_price = RENEWAL_PRICES.get(data["plan_id"])
+                await update_balance(tg_id, -plan_price, session)
 
     except Exception as e:
         logger.error(f"Error while creating the key for user {tg_id}: {e}")
@@ -543,9 +629,41 @@ async def finalize_key_creation(
     days = remaining_time.days
     key_message_text = key_message_success(public_link, f"⏳ Осталось дней: {days} 📅")
 
+    default_media_path = "img/pic.jpg"
+
     await edit_or_send_message(
-        target_message=callback_query.message, text=key_message_text, reply_markup=builder.as_markup(), media_path=None
+        target_message=callback_query.message,
+        text=key_message_text,
+        reply_markup=builder.as_markup(),
+        media_path=default_media_path, 
     )
 
     if state:
         await state.clear()
+
+async def check_server_availability(server_info: dict) -> bool:
+    """
+    Проверяет доступность сервера через API.
+
+    Args:
+        server_info (dict): Информация о сервере (api_url, username, password).
+
+    Returns:
+        bool: True, если сервер доступен, False в противном случае.
+    """
+    try:
+        xui = AsyncApi(
+            server_info["api_url"],
+            username=ADMIN_USERNAME,
+            password=ADMIN_PASSWORD,
+            logger=logger,
+        )
+        await asyncio.wait_for(xui.login(), timeout=5.0)
+        logger.info(f"Сервер {server_info.get('server_name', 'unknown')} доступен.")
+        return True
+    except asyncio.TimeoutError:
+        logger.warning(f"Сервер {server_info.get('server_name', 'unknown')} не ответил вовремя.")
+        return False
+    except Exception as e:
+        logger.warning(f"Сервер {server_info.get('server_name', 'unknown')} недоступен: {e}")
+        return False

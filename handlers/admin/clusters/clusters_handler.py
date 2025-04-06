@@ -274,7 +274,6 @@ async def handle_cluster_availability(
     callback_query: types.CallbackQuery, callback_data: AdminClusterCallback, session: Any
 ):
     cluster_name = callback_data.data
-
     servers = await get_servers(session)
     cluster_servers = servers.get(cluster_name, [])
 
@@ -286,25 +285,28 @@ async def handle_cluster_availability(
         f"🖥️ Проверка доступности серверов для кластера {cluster_name}.\n\n"
         "Это может занять до 1 минуты, пожалуйста, подождите..."
     )
-
     await callback_query.message.edit_text(text=text)
 
     total_online_users = 0
     result_text = f"<b>🖥️ Проверка доступности серверов</b>\n\n⚙️ Кластер: <b>{cluster_name}</b>\n\n"
 
     for server in cluster_servers:
-        xui = AsyncApi(server["api_url"], username=ADMIN_USERNAME, password=ADMIN_PASSWORD, logger=logger)
-
+        xui = AsyncApi(server["api_url"], username=ADMIN_USERNAME, password=ADMIN_PASSWORD, logger=None)
         try:
             await xui.login()
-            online_users = len(await xui.client.online())
-            total_online_users += online_users
-            result_text += f"🌍 <b>{server['server_name']}</b> - онлайн: {online_users}\n"
+            online_clients = await xui.client.online()
+            inbound_id = int(server["inbound_id"])
+            online_inbound_users = 0
+            for client_email in online_clients:
+                client = await xui.client.get_by_email(client_email)
+                if client and client.inbound_id == inbound_id:
+                    online_inbound_users += 1
+            total_online_users += online_inbound_users
+            result_text += f"🌍 <b>{server['server_name']}</b> - {online_inbound_users} онлайн\n"
         except Exception as e:
-            result_text += f"❌ <b>{server['server_name']}</b> - ошибка: {e}\n"
+            result_text += f"❌ <b>{server['server_name']}</b> - ошибка: {str(e) if str(e).strip() else 'Сервер недоступен'}\n"
 
     result_text += f"\n👥 Всего пользователей онлайн: {total_online_users}"
-
     await callback_query.message.edit_text(text=result_text, reply_markup=build_admin_back_kb("clusters"))
 
 
@@ -616,7 +618,7 @@ async def handle_new_cluster_name_input(message: Message, state: FSMContext, ses
                 )
 
         await message.answer(
-            text=f"✅ Название кластера успешно изменено с '{old_cluster_name}' на '{new_cluster_name}'!\n\n⚠️ Не забудьте сделать \"Синхронизацию\".",
+            text=f"✅ Название кластера успешно изменено с '{old_cluster_name}' на '{new_cluster_name}'!",
             reply_markup=build_admin_back_kb("clusters"),
         )
     except Exception as e:
@@ -722,10 +724,7 @@ async def handle_new_server_name_input(message: Message, state: FSMContext, sess
                     old_server_name
                 )
 
-        # Формируем текст сообщения с учетом USE_COUNTRY_SELECTION
-        base_text = f"✅ Название сервера успешно изменено с '{old_server_name}' на '{new_server_name}' в кластере '{cluster_name}'!"
-        sync_reminder = "\n\n⚠️ Не забудьте сделать \"Синхронизацию\"."
-        final_text = base_text + (sync_reminder if USE_COUNTRY_SELECTION else "")
+        final_text = f"✅ Название сервера успешно изменено с '{old_server_name}' на '{new_server_name}' в кластере '{cluster_name}'!"
 
         await message.answer(
             text=final_text,
