@@ -4,23 +4,24 @@ import random
 import re
 import time
 import urllib.parse
+
 from datetime import datetime
 
 import aiohttp
 import asyncpg
 import pytz
+
 from aiohttp import web
 
 from config import (
     DATABASE_URL,
     PROJECT_NAME,
-    SUB_MESSAGE,
     SUPERNODE,
     SUPPORT_CHAT_URL,
     TOTAL_GB,
     TRANSITION_DATE_STR,
-    USE_COUNTRY_SELECTION,
     USERNAME_BOT,
+    USE_COUNTRY_SELECTION,
 )
 from database import get_key_details, get_servers
 from handlers.utils import convert_to_bytes
@@ -84,7 +85,7 @@ async def combine_unique_lines(urls: list[str], identifier: str, query_string: s
     logger.info(f"Составлены URL-адреса: {urls_with_query}")
 
     tasks = [fetch_url_content(url, identifier) for url in urls_with_query]
-    results = await asyncio.gather(*tasks)
+    results = await asyncio.gather(*tasks, return_exceptions=True)
     all_lines = set()
     for lines in results:
         all_lines.update(filter(None, lines))
@@ -275,7 +276,7 @@ def prepare_headers(
             "subscription-userinfo": subscription_userinfo,
         }
     elif "Hiddify" in user_agent:
-        parts = subscription_info.split(' - ')[0].split(': ')
+        parts = subscription_info.split(" - ")[0].split(": ")
         key_info = parts[1] if len(parts) > 1 else parts[0]
 
         encoded_project_name = f"{project_name}\n📄 Подписка: {key_info}"
@@ -326,7 +327,7 @@ async def handle_subscription(request: web.Request, old_subscription: bool = Fal
         stored_tg_id = client_data.get("tg_id")
         server_id = client_data["server_id"]
 
-        if not old_subscription and str(tg_id) != str(stored_tg_id):
+        if not old_subscription and int(tg_id) != int(stored_tg_id):
             logger.warning(f"Неверный tg_id для клиента с email {email}.")
             return web.Response(text="❌ Неверные данные. Получите свой ключ в боте.", status=403)
 

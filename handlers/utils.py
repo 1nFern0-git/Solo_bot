@@ -7,6 +7,7 @@ import string
 import aiofiles
 import aiohttp
 import asyncpg
+
 from aiogram.types import BufferedInputFile, InlineKeyboardMarkup, InputMediaPhoto, Message
 
 from bot import bot
@@ -58,39 +59,45 @@ def generate_random_email(length: int = 6) -> str:
 
 async def get_least_loaded_cluster() -> str:
     """
-    Определяет кластер с наименьшей загрузкой, исключая кластер с названием 'Private'.
+    Определяет кластер с наименьшей загрузкой, исключая "Private".
 
     Returns:
         str: Идентификатор наименее загруженного кластера.
     """
     servers = await get_servers()
+    server_to_cluster = {}
+    cluster_loads = dict.fromkeys(servers.keys(), 0)
 
-    # Исключаем кластер с названием 'Private'
-    filtered_servers = {cluster_id: servers[cluster_id] for cluster_id in servers if cluster_id != "Private"}
+    for cluster_name, cluster_servers in servers.items():
+        for server in cluster_servers:
+            server_to_cluster[server["server_name"]] = cluster_name
 
-    if not filtered_servers:
-        logger.warning("Нет доступных кластеров после фильтрации.")
-        return "cluster1"  # Возвращаем стандартный кластер
-
-    cluster_loads: dict[str, int] = {cluster_id: 0 for cluster_id in filtered_servers.keys()}
+    logger.info(f"Сопоставление серверов и кластеров: {server_to_cluster}")
 
     async with asyncpg.create_pool(DATABASE_URL) as pool:
         async with pool.acquire() as conn:
             keys = await get_all_keys(conn)
             for key in keys:
-                cluster_id = key["server_id"]
+                server_id = key["server_id"]
+                cluster_id = server_to_cluster.get(server_id, server_id)
+
                 if cluster_id in cluster_loads:
                     cluster_loads[cluster_id] += 1
+                else:
+                    logger.warning(f"⚠️ Сервер {server_id} не найден в известных кластерах!")
 
-    logger.info(f"Cluster loads after filtering: {cluster_loads}")
+    # Исключаем "Private" из выбора
+    if "Private" in cluster_loads:
+        del cluster_loads["Private"]
+
+    logger.info(f"Загруженность кластеров после запроса к БД: {cluster_loads}")
 
     if not cluster_loads:
-        logger.warning("No clusters found in database or configuration after filtering.")
+        logger.warning("⚠️ В базе данных или конфигурации нет доступных кластеров!")
         return "cluster1"
 
     least_loaded_cluster = min(cluster_loads, key=lambda k: (cluster_loads[k], k))
-
-    logger.info(f"Least loaded cluster selected: {least_loaded_cluster}")
+    logger.info(f"✅ Выбран наименее загруженный кластер: {least_loaded_cluster}")
 
     return least_loaded_cluster
 
@@ -154,6 +161,27 @@ def format_time_until_deletion(seconds: int) -> str:
     return " и ".join(parts) if parts else "менее минуты"
 
 
+def get_plural_form(num: int, form1: str, form2: str, form3: str) -> str:
+    n = abs(num) % 100
+    if 10 < n < 20:
+        return form3
+    return {1: form1, 2: form2, 3: form2, 4: form2}.get(n % 10, form3)
+
+def format_days(days: int) -> str:
+    """
+    Форматирует количество дней с правильным склонением.
+    
+    Args:
+        days (int): Количество дней.
+    
+    Returns:
+        str: Строка с числом и склонённым словом "день/дня/дней".
+    """
+    if days <= 0:
+        return "0 дней"
+    return f"{days} {get_plural_form(days, 'день', 'дня', 'дней')}"
+
+
 async def edit_or_send_message(
     target_message: Message,
     text: str,
@@ -206,7 +234,7 @@ async def edit_or_send_message(
                 disable_web_page_preview=disable_web_page_preview,
             )
             return
-        except Exception as e:
+        except Exception:
             await target_message.answer(
                 text=text,
                 reply_markup=reply_markup,
