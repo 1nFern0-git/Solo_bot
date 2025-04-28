@@ -115,7 +115,7 @@ def build_keys_response(records):
 
             response_message += f"• <b>{key_display}</b> ({formatted_date_full})\n"
 
-        response_message += "</blockquote>\n\n<i>Нажмите на ✏️, чтобы переименовать подписку.</i>"
+        response_message += "</blockquote>\n\n<i>Нажмите на ✏️, чтобы переименовать подписку.\nДля добавления подписки на новое устройство, нажмите ➕.</i>"
     else:
         response_message = NO_SUBSCRIPTIONS_MSG
 
