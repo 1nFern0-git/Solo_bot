@@ -25,7 +25,8 @@ def generate_random_email(length: int = 8) -> str:
 
 async def get_least_loaded_cluster() -> str:
     """
-    Возвращает кластер с наименьшей загрузкой, где есть хотя бы один сервер с доступным лимитом.
+    Возвращает кластер с наименьшей загрузкой, где есть хотя бы один сервер с доступным лимитом,
+    исключая кластер с названием 'Private'.
     """
     servers = await get_servers()
     server_to_cluster = {}
@@ -47,6 +48,8 @@ async def get_least_loaded_cluster() -> str:
 
             available_clusters = {}
             for cluster_name, cluster_servers in servers.items():
+                if cluster_name == "Private":
+                    continue  # исключаем Private
                 for server in cluster_servers:
                     if server.get("enabled", True) and await check_server_key_limit(server, conn):
                         available_clusters[cluster_name] = cluster_loads[cluster_name]
@@ -60,7 +63,6 @@ async def get_least_loaded_cluster() -> str:
     logger.info(f"✅ Выбран наименее загруженный кластер с лимитом: {least_loaded_cluster}")
 
     return least_loaded_cluster
-
 
 async def check_server_key_limit(server_info: dict, conn) -> bool:
     """
