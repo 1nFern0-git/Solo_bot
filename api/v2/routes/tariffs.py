@@ -118,7 +118,7 @@ async def get_tariff_groups(session: AsyncSession = Depends(get_session)):
     """Публичный список групп тарифов — уникальные значения колонки group_code."""
     q = (
         select(Tariff.group_code)
-        .where(Tariff.is_active is True, Tariff.group_code.isnot(None), Tariff.group_code != "")
+        .where(Tariff.is_active.is_(True), Tariff.group_code.isnot(None), Tariff.group_code != "")
         .distinct()
         .order_by(Tariff.group_code)
     )
@@ -143,7 +143,7 @@ async def get_tariffs_public(
     if isinstance(cached, list):
         return cached
 
-    q = select(Tariff).where(Tariff.is_active is True).order_by(Tariff.sort_order.asc().nulls_last(), Tariff.price_rub.asc())
+    q = select(Tariff).where(Tariff.is_active.is_(True)).order_by(Tariff.sort_order.asc().nulls_last(), Tariff.price_rub.asc())
     if tariff_ids:
         try:
             ids = [int(x.strip()) for x in tariff_ids.split(",") if x.strip()]
@@ -155,9 +155,9 @@ async def get_tariffs_public(
     elif group_code:
         q = q.where(Tariff.group_code == group_code)
     if filter_vless == "router":
-        q = q.where(Tariff.vless is True)
+        q = q.where(Tariff.vless.is_(True))
     elif filter_vless == "app":
-        q = q.where(Tariff.vless is False)
+        q = q.where(Tariff.vless.is_(False))
     result = await session.execute(q)
     rows = result.scalars().all()
     payload = [_tariff_to_public(t).model_dump() for t in rows]
