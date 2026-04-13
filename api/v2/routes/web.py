@@ -1,19 +1,71 @@
+import re
 import uuid
+
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel
-from sqlalchemy import select, delete
+from datetime import datetime, timedelta, timezone
+
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.depends import get_session, verify_identity_admin
-from api.v2.schemas import WebPageResponse, WebPageUpdate, WebBlockResponse, WebTheme
-from api.v2.schemas.web import WebUploadResponse
-from database.models import WebPage, WebBlock, WebTheme as WebThemeModel
+from api.v2.schemas import WebBlockResponse, WebPageResponse, WebPageUpdate, WebTheme
+from api.v2.schemas.web import (
+    WebPageVariantCreate,
+    WebPageVariantSummary,
+    WebPageVariantUpdate,
+    WebPageVariantsResponse,
+    WebUploadResponse,
+)
+from database.models import (
+    WebBlock,
+    WebCustomElementBuild,
+    WebFlow,
+    WebFlowEvent,
+    WebPage,
+    WebPageVariant,
+    WebPageVariantBlock,
+    WebTheme as WebThemeModel,
+)
+from logger import logger
+
 
 UPLOAD_DIR = Path("static/web_uploads")
 ALLOWED_EXTENSIONS = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".mp4", ".webm"})
 MAX_FILE_SIZE = 100 * 1024 * 1024
+
+_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9\-]*$")
+
+EXTENSION_CONTENT_TYPES: dict[str, frozenset[str]] = {
+    ".png": frozenset({"image/png"}),
+    ".jpg": frozenset({"image/jpeg"}),
+    ".jpeg": frozenset({"image/jpeg"}),
+    ".gif": frozenset({"image/gif"}),
+    ".webp": frozenset({"image/webp"}),
+    ".svg": frozenset({"image/svg+xml", "text/xml", "application/xml", "text/plain"}),
+    ".mp4": frozenset({"video/mp4"}),
+    ".webm": frozenset({"video/webm"}),
+}
+
+
+def _sanitize_svg(data: bytes) -> bytes:
+    import re as _re
+    text = data.decode("utf-8", errors="replace")
+    text = _re.sub(r"<script[^>]*>.*?</script>", "", text, flags=_re.DOTALL | _re.IGNORECASE)
+    text = _re.sub(r"<style[^>]*>.*?</style>", "", text, flags=_re.DOTALL | _re.IGNORECASE)
+    text = _re.sub(r"\bon\w+\s*=\s*[\"'][^\"']*[\"']", "", text, flags=_re.IGNORECASE)
+    text = _re.sub(r"\bon\w+\s*=\s*\S+", "", text, flags=_re.IGNORECASE)
+    text = _re.sub(r"(?:href|xlink:href)\s*=\s*[\"']\s*javascript:[^\"']*[\"']", "", text, flags=_re.IGNORECASE)
+    text = _re.sub(r"(?:href|xlink:href)\s*=\s*[\"']\s*data:\s*text/html[^\"']*[\"']", "", text, flags=_re.IGNORECASE)
+    text = _re.sub(r"(?:href|xlink:href)\s*=\s*[\"']\s*vbscript:[^\"']*[\"']", "", text, flags=_re.IGNORECASE)
+    text = _re.sub(r"<foreignObject[^>]*>.*?</foreignObject>", "", text, flags=_re.DOTALL | _re.IGNORECASE)
+    text = _re.sub(r"<iframe[^>]*>.*?</iframe>", "", text, flags=_re.DOTALL | _re.IGNORECASE)
+    text = _re.sub(r"<embed[^>]*>", "", text, flags=_re.IGNORECASE)
+    text = _re.sub(r"<object[^>]*>.*?</object>", "", text, flags=_re.DOTALL | _re.IGNORECASE)
+    return text.encode("utf-8")
+
 
 router = APIRouter(tags=["Web"])
 
@@ -22,7 +74,47 @@ class WebPagesListResponse(BaseModel):
     slugs: list[str]
 
 
-KNOWN_PAGE_SLUGS = ["landing", "tariffs", "faq", "login", "dashboard"]
+KNOWN_PAGE_SLUGS = [
+    "landing",
+    "tariffs",
+    "faq",
+    "login",
+    "dashboard",
+    "checkout",
+    "gift-entry",
+    "referral-entry",
+    "partner-entry",
+    "payment-success",
+    "payment-failure",
+    "dashboard-keys",
+    "dashboard-profile",
+    "dashboard-instructions",
+    "dashboard-referrals",
+]
+
+DEFAULT_VARIANT_KEY = "default"
+DEFAULT_VARIANT_NAME = "Основной"
+
+
+def _normalize_variant_key(value: str | None) -> str:
+    raw = (value or "").strip().lower()
+    normalized = re.sub(r"[^a-z0-9]+", "-", raw).strip("-")
+    if not normalized:
+        return DEFAULT_VARIANT_KEY
+    return normalized[:64].strip("-") or DEFAULT_VARIANT_KEY
+
+
+def _normalize_variant_name(value: str | None, fallback: str) -> str:
+    name = (value or "").strip()
+    return name[:255] if name else fallback
+
+
+def _variant_summary(row: WebPageVariant) -> WebPageVariantSummary:
+    return WebPageVariantSummary(
+        key=row.variant_key,
+        name=row.name or row.variant_key,
+        is_active=bool(row.is_active),
+    )
 
 
 @router.get("/api/web/pages", response_model=WebPagesListResponse)
@@ -46,69 +138,296 @@ async def get_or_create_page(session: AsyncSession, slug: str) -> WebPage:
     return page
 
 
-@router.get("/api/web/pages/{slug}", response_model=WebPageResponse)
-async def get_web_page(
-    slug: str,
-    session: AsyncSession = Depends(get_session),
-):
-    await get_or_create_page(session, slug)
+async def _list_variants(session: AsyncSession, slug: str) -> list[WebPageVariant]:
+    result = await session.execute(
+        select(WebPageVariant)
+        .where(WebPageVariant.page_slug == slug)
+        .order_by(WebPageVariant.is_active.desc(), WebPageVariant.created_at, WebPageVariant.variant_key)
+    )
+    return list(result.scalars().all())
 
+
+async def _get_theme_tokens_for_legacy_page(session: AsyncSession, slug: str) -> dict:
+    theme_result = await session.execute(select(WebThemeModel).where(WebThemeModel.page_slug == slug))
+    theme_row = theme_result.scalar_one_or_none()
+    return dict(theme_row.tokens or {}) if theme_row else {}
+
+
+async def _get_legacy_blocks(session: AsyncSession, slug: str) -> list[WebBlock]:
     blocks_result = await session.execute(
         select(WebBlock).where(WebBlock.page_slug == slug).order_by(WebBlock.order, WebBlock.id)
     )
-    blocks = [WebBlockResponse.model_validate(b) for b in blocks_result.scalars().all()]
+    return list(blocks_result.scalars().all())
 
-    theme_result = await session.execute(select(WebThemeModel).where(WebThemeModel.page_slug == slug))
-    theme_row = theme_result.scalar_one_or_none()
-    theme = WebTheme(tokens=theme_row.tokens) if theme_row else None
 
-    return WebPageResponse(slug=slug, blocks=blocks, theme=theme)
+async def _ensure_page_variants(session: AsyncSession, slug: str) -> list[WebPageVariant]:
+    await get_or_create_page(session, slug)
+    variants = await _list_variants(session, slug)
+    if variants:
+        if not any(variant.is_active for variant in variants):
+            variants[0].is_active = True
+            await session.flush()
+            variants = await _list_variants(session, slug)
+        return variants
+
+    legacy_blocks = await _get_legacy_blocks(session, slug)
+    theme_tokens = await _get_theme_tokens_for_legacy_page(session, slug)
+    variant = WebPageVariant(
+        page_slug=slug,
+        variant_key=DEFAULT_VARIANT_KEY,
+        name=DEFAULT_VARIANT_NAME,
+        is_active=True,
+        theme_tokens=theme_tokens,
+    )
+    session.add(variant)
+    await session.flush()
+    for legacy_block in legacy_blocks:
+        session.add(
+            WebPageVariantBlock(
+                variant_id=variant.id,
+                order=legacy_block.order,
+                type=legacy_block.type,
+                data=legacy_block.data,
+            )
+        )
+    await session.flush()
+    return await _list_variants(session, slug)
+
+
+async def _resolve_variant(
+    session: AsyncSession,
+    slug: str,
+    variant_key: str | None,
+) -> tuple[WebPageVariant, list[WebPageVariant]]:
+    variants = await _ensure_page_variants(session, slug)
+    desired_key = _normalize_variant_key(variant_key) if variant_key else ""
+    current = None
+    if desired_key:
+        current = next((variant for variant in variants if variant.variant_key == desired_key), None)
+        if current is None:
+            raise HTTPException(404, "Вариант страницы не найден")
+    else:
+        current = next((variant for variant in variants if variant.is_active), variants[0])
+    return current, variants
+
+
+async def _get_variant_blocks(session: AsyncSession, variant_id: str) -> list[WebBlockResponse]:
+    blocks_result = await session.execute(
+        select(WebPageVariantBlock)
+        .where(WebPageVariantBlock.variant_id == variant_id)
+        .order_by(WebPageVariantBlock.order, WebPageVariantBlock.id)
+    )
+    return [WebBlockResponse.model_validate(block) for block in blocks_result.scalars().all()]
+
+
+async def _build_page_response(
+    session: AsyncSession,
+    slug: str,
+    current: WebPageVariant,
+    variants: list[WebPageVariant] | None = None,
+) -> WebPageResponse:
+    current_variants = variants or await _list_variants(session, slug)
+    active = next((variant for variant in current_variants if variant.is_active), current)
+    blocks = await _get_variant_blocks(session, current.id)
+    theme = WebTheme(tokens=dict(current.theme_tokens or {}))
+    return WebPageResponse(
+        slug=slug,
+        blocks=blocks,
+        theme=theme,
+        variant_key=current.variant_key,
+        active_variant_key=active.variant_key,
+        variants=[_variant_summary(variant) for variant in current_variants],
+    )
+
+
+async def _set_active_variant(session: AsyncSession, slug: str, variant_key: str) -> list[WebPageVariant]:
+    variants = await _list_variants(session, slug)
+    matched = False
+    for variant in variants:
+        is_target = variant.variant_key == variant_key
+        variant.is_active = is_target
+        matched = matched or is_target
+    if not matched:
+        raise HTTPException(404, "Вариант страницы не найден")
+    await session.flush()
+    return await _list_variants(session, slug)
+
+
+def _generate_variant_key(existing_keys: set[str], requested_key: str | None, requested_name: str | None) -> str:
+    base = _normalize_variant_key(requested_key or requested_name)
+    if not base:
+        base = DEFAULT_VARIANT_KEY
+    if base not in existing_keys:
+        return base
+    suffix = 2
+    while True:
+        candidate = f"{base}-{suffix}"
+        if candidate not in existing_keys:
+            return candidate[:64]
+        suffix += 1
+
+
+@router.get("/api/web/pages/{slug}", response_model=WebPageResponse)
+async def get_web_page(
+    slug: str,
+    variant: str | None = Query(default=None),
+    session: AsyncSession = Depends(get_session),
+):
+    if not slug or len(slug) > 64 or not _SLUG_RE.match(slug):
+        raise HTTPException(400, "Некорректный slug страницы")
+    current, variants = await _resolve_variant(session, slug, variant)
+    return await _build_page_response(session, slug, current, variants)
 
 
 @router.put("/api/web/pages/{slug}", response_model=WebPageResponse)
 async def update_web_page(
     slug: str,
     body: WebPageUpdate,
+    variant: str | None = Query(default=None),
     session: AsyncSession = Depends(get_session),
     identity=Depends(verify_identity_admin),
 ):
-    await get_or_create_page(session, slug)
-
-    await session.execute(delete(WebBlock).where(WebBlock.page_slug == slug))
+    current, _ = await _resolve_variant(session, slug, variant)
+    await session.execute(delete(WebPageVariantBlock).where(WebPageVariantBlock.variant_id == current.id))
 
     for block in body.blocks:
         session.add(
-            WebBlock(
-                page_slug=slug,
+            WebPageVariantBlock(
+                variant_id=current.id,
                 order=block.order,
                 type=block.type,
                 data=block.data,
             )
         )
 
-    theme_row = None
     if body.theme is not None:
-        result = await session.execute(select(WebThemeModel).where(WebThemeModel.page_slug == slug))
-        theme_row = result.scalar_one_or_none()
-        if theme_row is None:
-            theme_row = WebThemeModel(page_slug=slug, tokens=body.theme.tokens)
-            session.add(theme_row)
-        else:
-            theme_row.tokens = body.theme.tokens
+        current.theme_tokens = body.theme.tokens
 
     await session.flush()
+    refreshed_variants = await _list_variants(session, slug)
+    refreshed_current = next((item for item in refreshed_variants if item.id == current.id), current)
+    return await _build_page_response(session, slug, refreshed_current, refreshed_variants)
 
-    blocks_result = await session.execute(
-        select(WebBlock).where(WebBlock.page_slug == slug).order_by(WebBlock.order, WebBlock.id)
+
+@router.get("/api/web/pages/{slug}/variants", response_model=WebPageVariantsResponse)
+async def get_web_page_variants(
+    slug: str,
+    variant: str | None = Query(default=None),
+    session: AsyncSession = Depends(get_session),
+):
+    current, variants = await _resolve_variant(session, slug, variant)
+    active = next((item for item in variants if item.is_active), current)
+    return WebPageVariantsResponse(
+        slug=slug,
+        active_variant_key=active.variant_key,
+        current_variant_key=current.variant_key,
+        variants=[_variant_summary(item) for item in variants],
     )
-    blocks = [WebBlockResponse.model_validate(b) for b in blocks_result.scalars().all()]
 
-    if theme_row is None:
-        theme_result = await session.execute(select(WebThemeModel).where(WebThemeModel.page_slug == slug))
-        theme_row = theme_result.scalar_one_or_none()
-    theme = WebTheme(tokens=theme_row.tokens) if theme_row else None
 
-    return WebPageResponse(slug=slug, blocks=blocks, theme=theme)
+@router.post("/api/web/pages/{slug}/variants", response_model=WebPageVariantsResponse)
+async def create_web_page_variant(
+    slug: str,
+    body: WebPageVariantCreate,
+    session: AsyncSession = Depends(get_session),
+    identity=Depends(verify_identity_admin),
+):
+    source_variant, variants = await _resolve_variant(session, slug, body.from_variant_key)
+    existing_keys = {variant.variant_key for variant in variants}
+    variant_key = _generate_variant_key(existing_keys, body.key, body.name)
+    if variant_key in existing_keys:
+        raise HTTPException(400, "Вариант с таким ключом уже существует")
+
+    variant_name = _normalize_variant_name(body.name, f"Вариант {len(variants) + 1}")
+    new_variant = WebPageVariant(
+        page_slug=slug,
+        variant_key=variant_key,
+        name=variant_name,
+        is_active=False,
+        theme_tokens=dict(source_variant.theme_tokens or {}),
+    )
+    session.add(new_variant)
+    await session.flush()
+
+    source_blocks = await _get_variant_blocks(session, source_variant.id)
+    for block in source_blocks:
+        session.add(
+            WebPageVariantBlock(
+                variant_id=new_variant.id,
+                order=block.order,
+                type=block.type,
+                data=block.data,
+            )
+        )
+    await session.flush()
+
+    refreshed = await _list_variants(session, slug)
+    return WebPageVariantsResponse(
+        slug=slug,
+        active_variant_key=next((item.variant_key for item in refreshed if item.is_active), DEFAULT_VARIANT_KEY),
+        current_variant_key=new_variant.variant_key,
+        variants=[_variant_summary(item) for item in refreshed],
+    )
+
+
+@router.patch("/api/web/pages/{slug}/variants/{variant_key}", response_model=WebPageVariantsResponse)
+async def update_web_page_variant(
+    slug: str,
+    variant_key: str,
+    body: WebPageVariantUpdate,
+    session: AsyncSession = Depends(get_session),
+    identity=Depends(verify_identity_admin),
+):
+    current, variants = await _resolve_variant(session, slug, variant_key)
+    if body.name is not None:
+        current.name = _normalize_variant_name(body.name, current.name or current.variant_key)
+    if body.make_active is True:
+        variants = await _set_active_variant(session, slug, current.variant_key)
+        current = next((item for item in variants if item.variant_key == current.variant_key), current)
+    else:
+        await session.flush()
+        variants = await _list_variants(session, slug)
+
+    active = next((item for item in variants if item.is_active), current)
+    return WebPageVariantsResponse(
+        slug=slug,
+        active_variant_key=active.variant_key,
+        current_variant_key=current.variant_key,
+        variants=[_variant_summary(item) for item in variants],
+    )
+
+
+@router.delete("/api/web/pages/{slug}/variants/{variant_key}", response_model=WebPageVariantsResponse)
+async def delete_web_page_variant(
+    slug: str,
+    variant_key: str,
+    session: AsyncSession = Depends(get_session),
+    identity=Depends(verify_identity_admin),
+):
+    current, variants = await _resolve_variant(session, slug, variant_key)
+    if len(variants) <= 1:
+        raise HTTPException(400, "Нельзя удалить единственный вариант страницы")
+
+    replacement = next((item for item in variants if item.variant_key != current.variant_key), None)
+    await session.execute(delete(WebPageVariant).where(WebPageVariant.id == current.id))
+    await session.flush()
+
+    if current.is_active and replacement is not None:
+        replacement_variants = await _set_active_variant(session, slug, replacement.variant_key)
+    else:
+        replacement_variants = await _list_variants(session, slug)
+
+    current_variant_key = replacement.variant_key if replacement is not None else DEFAULT_VARIANT_KEY
+    active_variant_key = next(
+        (item.variant_key for item in replacement_variants if item.is_active),
+        current_variant_key,
+    )
+    return WebPageVariantsResponse(
+        slug=slug,
+        active_variant_key=active_variant_key,
+        current_variant_key=current_variant_key,
+        variants=[_variant_summary(item) for item in replacement_variants],
+    )
 
 
 @router.post("/api/web/upload", response_model=WebUploadResponse)
@@ -125,18 +444,271 @@ async def upload_media(
             400,
             f"Разрешены только: {', '.join(sorted(ALLOWED_EXTENSIONS))}",
         )
+    if file.content_type:
+        allowed_types = EXTENSION_CONTENT_TYPES.get(ext)
+        if allowed_types and file.content_type.lower() not in allowed_types:
+            raise HTTPException(
+                400,
+                f"Тип файла ({file.content_type}) не соответствует расширению ({ext})",
+            )
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    chunks: list[bytes] = []
     size = 0
     for chunk in file.file:
         size += len(chunk)
         if size > MAX_FILE_SIZE:
-            raise HTTPException(400, f"Размер файла не более {MAX_FILE_SIZE // (1024*1024)} МБ")
-    await file.seek(0)
+            raise HTTPException(400, f"Размер файла не более {MAX_FILE_SIZE // (1024 * 1024)} МБ")
+        chunks.append(chunk)
     name = f"{uuid.uuid4().hex}{ext}"
     path = UPLOAD_DIR / name
+    file_data = b"".join(chunks)
+    if ext == ".svg":
+        file_data = _sanitize_svg(file_data)
     with open(path, "wb") as f:
-        while chunk := await file.read(64 * 1024):
-            f.write(chunk)
+        f.write(file_data)
     url = f"/api/web/uploads/{name}"
+    logger.info(
+        "[WebUpload] admin={} file={} -> {} ({} bytes)",
+        identity.id,
+        file.filename,
+        name,
+        len(file_data),
+    )
     return WebUploadResponse(url=url)
 
+
+# ── Custom Element Builds ──
+
+
+class CustomElementBuildCreate(BaseModel):
+    label: str = ""
+    slug: str = ""
+    runtime: str = "react-component"
+    source_kind: str = "inline-code"
+    source_value: str = ""
+    export_name: str = "default"
+    props_schema_text: str = ""
+    sample_props_text: str = ""
+    events_text: str = ""
+    notes: str = ""
+
+
+class CustomElementBuildUpdate(BaseModel):
+    status: str | None = None
+    summary: str | None = None
+    next_steps: list[str] | None = None
+    artifact: dict | None = None
+    upload_meta: dict | None = None
+    worker_id: str | None = None
+
+
+def _build_to_dict(b: WebCustomElementBuild) -> dict:
+    return {
+        "id": b.id,
+        "label": b.label,
+        "slug": b.slug,
+        "runtime": b.runtime,
+        "sourceKind": b.source_kind,
+        "sourceValue": b.source_value,
+        "exportName": b.export_name,
+        "propsSchemaText": b.props_schema_text,
+        "samplePropsText": b.sample_props_text,
+        "eventsText": b.events_text,
+        "notes": b.notes,
+        "status": b.status,
+        "summary": b.summary,
+        "nextSteps": b.next_steps or [],
+        "artifact": b.artifact,
+        "upload": b.upload_meta,
+        "workerId": b.worker_id,
+        "workerClaimedAt": b.worker_claimed_at.isoformat() if b.worker_claimed_at else None,
+        "completedAt": b.completed_at.isoformat() if b.completed_at else None,
+        "createdAt": b.created_at.isoformat() if b.created_at else None,
+        "updatedAt": b.updated_at.isoformat() if b.updated_at else None,
+    }
+
+
+@router.get("/custom-element-builds")
+async def list_custom_element_builds(
+    session: AsyncSession = Depends(get_session),
+    _identity=Depends(verify_identity_admin),
+):
+    result = await session.execute(
+        select(WebCustomElementBuild).order_by(WebCustomElementBuild.created_at.desc())
+    )
+    builds = result.scalars().all()
+    return [_build_to_dict(b) for b in builds]
+
+
+@router.post("/custom-element-builds")
+async def create_custom_element_build(
+    body: CustomElementBuildCreate,
+    session: AsyncSession = Depends(get_session),
+    _identity=Depends(verify_identity_admin),
+):
+    build = WebCustomElementBuild(
+        id=str(uuid.uuid4()),
+        label=body.label,
+        slug=body.slug,
+        runtime=body.runtime,
+        source_kind=body.source_kind,
+        source_value=body.source_value,
+        export_name=body.export_name,
+        props_schema_text=body.props_schema_text,
+        sample_props_text=body.sample_props_text,
+        events_text=body.events_text,
+        notes=body.notes,
+        status="queued",
+    )
+    session.add(build)
+    return _build_to_dict(build)
+
+
+@router.get("/custom-element-builds/{build_id}")
+async def get_custom_element_build(
+    build_id: str,
+    session: AsyncSession = Depends(get_session),
+    _identity=Depends(verify_identity_admin),
+):
+    build = await session.get(WebCustomElementBuild, build_id)
+    if not build:
+        raise HTTPException(404, "Build not found")
+    return _build_to_dict(build)
+
+
+@router.patch("/custom-element-builds/{build_id}")
+async def update_custom_element_build(
+    build_id: str,
+    body: CustomElementBuildUpdate,
+    session: AsyncSession = Depends(get_session),
+    _identity=Depends(verify_identity_admin),
+):
+    build = await session.get(WebCustomElementBuild, build_id)
+    if not build:
+        raise HTTPException(404, "Build not found")
+    if body.status is not None:
+        build.status = body.status
+    if body.summary is not None:
+        build.summary = body.summary
+    if body.next_steps is not None:
+        build.next_steps = body.next_steps
+    if body.artifact is not None:
+        build.artifact = body.artifact
+    if body.upload_meta is not None:
+        build.upload_meta = body.upload_meta
+    if body.worker_id is not None:
+        build.worker_id = body.worker_id
+    return _build_to_dict(build)
+
+
+@router.delete("/custom-element-builds/{build_id}")
+async def delete_custom_element_build(
+    build_id: str,
+    session: AsyncSession = Depends(get_session),
+    _identity=Depends(verify_identity_admin),
+):
+    build = await session.get(WebCustomElementBuild, build_id)
+    if not build:
+        raise HTTPException(404, "Build not found")
+    await session.delete(build)
+    return {"ok": True}
+
+
+# ── Flow Analytics ──
+
+
+class FlowEventBatch(BaseModel):
+    events: list[dict]
+
+
+@router.post("/analytics/flow-events")
+async def ingest_flow_events(
+    body: FlowEventBatch,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+):
+    try:
+        from core.redis_cache import cache_incr_checked
+        from api.v2.routes.auth._fallback_limiter import check_and_increment
+        ip = (request.client.host if request.client else "") or "unknown"
+        count, redis_ok = await cache_incr_checked(f"analytics_rate:{ip}", 60)
+        if not redis_ok:
+            count = check_and_increment(f"analytics_rate:{ip}", 60, 60)
+        if count > 60:
+            raise HTTPException(status_code=429, detail="Too many events")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+    created = 0
+    for raw in body.events[:100]:
+        flow_id = str(raw.get("flowId", ""))
+        node_id = str(raw.get("nodeId", ""))
+        event_type = str(raw.get("eventType", ""))
+        if not flow_id or not node_id or not event_type:
+            continue
+        ev = WebFlowEvent(
+            id=str(uuid.uuid4()),
+            flow_id=flow_id,
+            node_id=node_id,
+            node_type=str(raw.get("nodeType", "")),
+            event_type=event_type,
+            ab_variant=raw.get("abVariant") or None,
+            device=raw.get("device") or None,
+            locale=raw.get("locale") or None,
+            authenticated=raw.get("authenticated"),
+            event_metadata=raw.get("collectedDataSnapshot") or None,
+        )
+        session.add(ev)
+        created += 1
+    return {"ingested": created}
+
+
+@router.get("/analytics/flow-funnel/{flow_id}")
+async def get_flow_funnel(
+    flow_id: str,
+    days: int = Query(default=30, ge=1, le=365),
+    session: AsyncSession = Depends(get_session),
+    _identity=Depends(verify_identity_admin),
+):
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    rows = (
+        await session.execute(
+            select(
+                WebFlowEvent.node_id,
+                WebFlowEvent.node_type,
+                WebFlowEvent.event_type,
+                func.count().label("cnt"),
+            )
+            .where(WebFlowEvent.flow_id == flow_id)
+            .where(WebFlowEvent.created_at >= since)
+            .group_by(WebFlowEvent.node_id, WebFlowEvent.node_type, WebFlowEvent.event_type)
+        )
+    ).all()
+
+    nodes: dict[str, dict] = {}
+    for node_id, node_type, event_type, cnt in rows:
+        if node_id not in nodes:
+            nodes[node_id] = {"nodeId": node_id, "nodeType": node_type, "entered": 0, "exited": 0, "completed": 0}
+        if event_type == "flow_step_entered":
+            nodes[node_id]["entered"] = cnt
+        elif event_type == "flow_step_exited":
+            nodes[node_id]["exited"] = cnt
+        elif event_type == "flow_completed":
+            nodes[node_id]["completed"] = cnt
+
+    flow = await session.get(WebFlow, flow_id)
+    if flow and flow.nodes:
+        node_order = {n["id"]: i for i, n in enumerate(flow.nodes) if isinstance(n, dict)}
+    else:
+        node_order = {}
+
+    funnel = sorted(nodes.values(), key=lambda n: node_order.get(n["nodeId"], 999))
+
+    for i, node in enumerate(funnel):
+        prev_entered = funnel[i - 1]["entered"] if i > 0 else node["entered"]
+        node["dropOff"] = round(
+            (1 - node["entered"] / prev_entered) * 100, 1
+        ) if prev_entered > 0 else 0
+
+    return {"flowId": flow_id, "days": days, "funnel": funnel}

@@ -4,7 +4,8 @@ from pydantic import BaseModel
 
 
 class PaymentBase(BaseModel):
-    tg_id: int
+    user_id: int
+    tg_id: int | None = None
     amount: float
     payment_system: str
     status: str
@@ -19,8 +20,8 @@ class PaymentResponse(PaymentBase):
 
 
 class ReferralResponse(BaseModel):
-    referred_tg_id: int
-    referrer_tg_id: int
+    referred_user_id: int
+    referrer_user_id: int
     reward_issued: bool = False
 
     class Config:
@@ -37,11 +38,13 @@ class NotificationResponse(BaseModel):
 
 
 class GiftBase(BaseModel):
-    sender_tg_id: int
-    recipient_tg_id: int | None = None
+    sender_user_id: int
+    recipient_user_id: int | None = None
     selected_months: int
     expiry_time: datetime
     gift_link: str
+    telegram_gift_link: str | None = None
+    site_gift_link: str | None = None
     is_used: bool = False
     is_unlimited: bool = False
     max_usages: int | None = None
@@ -66,7 +69,8 @@ class GiftUsageResponse(BaseModel):
 
 
 class ManualBanResponse(BaseModel):
-    tg_id: int
+    user_id: int
+    tg_id: int | None = None
     banned_at: datetime
     reason: str
     banned_by: int
@@ -77,7 +81,8 @@ class ManualBanResponse(BaseModel):
 
 
 class TemporaryDataResponse(BaseModel):
-    tg_id: int
+    user_id: int
+    tg_id: int | None = None
     state: str
     data: dict
     updated_at: datetime
@@ -87,7 +92,8 @@ class TemporaryDataResponse(BaseModel):
 
 
 class BlockedUserResponse(BaseModel):
-    tg_id: int
+    user_id: int
+    tg_id: int | None = None
 
     class Config:
         from_attributes = True

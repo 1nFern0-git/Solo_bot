@@ -20,11 +20,11 @@ from database import (
 from database.models import Tariff
 from filters.admin import IsAdminFilter
 from middlewares.session import release_session_early
-from handlers.keys.operations import renew_key_in_cluster
+from services.operations import renew_key_in_cluster
 from logger import logger
 
 from .keyboard import AdminUserEditorCallback, build_editor_kb
-from .utils import resolve_admin_key
+from services.users_utils import resolve_admin_key
 from .users_states import RenewTariffState
 from .users_keys import handle_key_edit
 

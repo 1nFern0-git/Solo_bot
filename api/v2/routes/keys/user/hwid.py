@@ -1,0 +1,75 @@
+"""User-facing key endpoints (/api/keys/*).
+
+Регистрирует эндпоинты на ``user_router`` из ``_common``. Импорт этого модуля
+из ``__init__.py`` запускает регистрацию декораторов.
+"""
+
+from .._common import *  # noqa: F401,F403 — подтягиваем все имена для endpoints
+from .._common import (
+    _key_actions_config,
+    _resolve_available_location_servers,
+    _resolve_billing_user_id,
+    _resolve_default_web_payment_provider,
+    _resolve_public_base_url,
+    _normalize_expiry_ms,
+    router,
+    user_router,
+)
+
+
+@user_router.post("/{client_id}/reset-hwid", response_model=AccountKeyResetHwidResponse)
+async def user_key_reset_hwid(
+    client_id: str,
+    request: Request,
+    force_web: bool = Query(False),
+    session: AsyncSession = Depends(get_session),
+    identity=Depends(verify_identity_token),
+):
+    actions = _key_actions_config()
+    if not force_web and not actions.hwid_reset_enabled:
+        raise HTTPException(status_code=403, detail="Сброс устройств отключен в настройках")
+    billing_user_id = await _resolve_billing_user_id(request, identity, session)
+    db_key = (
+        await session.execute(
+            select(Key).where(Key.user_id == billing_user_id, Key.client_id == client_id).limit(1)
+        )
+    ).scalar_one_or_none()
+    if db_key is None:
+        raise HTTPException(status_code=404, detail="Подписка не найдена")
+    server_id = str(getattr(db_key, "server_id", "") or "")
+    if not server_id:
+        raise HTTPException(status_code=400, detail="У подписки не указан сервер")
+
+    async def _reset_devices(api):
+        devices = await api.get_user_hwid_devices(client_id)
+        if not devices:
+            return 0, 0
+        reset_local = 0
+        for device in devices:
+            hwid = device.get("hwid")
+            if hwid and await api.delete_user_hwid_device(client_id, hwid):
+                reset_local += 1
+        return len(devices), reset_local
+
+    reset_result = await with_remnawave_api(
+        session,
+        server_id,
+        _reset_devices,
+        fallback_any=True,
+        timeout_sec=12.0,
+    )
+    if reset_result is None:
+        raise HTTPException(status_code=502, detail="Не удалось выполнить сброс устройств")
+    total_devices, reset_devices = reset_result
+    await invalidate_remnawave_profile(
+        session,
+        server_id,
+        str(client_id),
+        fallback_any=True,
+    )
+    return AccountKeyResetHwidResponse(
+        ok=True,
+        message="Устройства сброшены" if total_devices > 0 else "Устройства не были привязаны",
+        total_devices=int(total_devices),
+        reset_devices=int(reset_devices),
+    )

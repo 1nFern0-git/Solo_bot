@@ -257,8 +257,8 @@ async def handle_referral_link_safe(part, message, state, session, user_data):
     try:
         referrer_id = int(part.split("referral")[1].strip("_"))
         await handle_referral_link(referrer_id, message, state, session, user_data)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("[Referral] Ошибка обработки реферальной ссылки '{}': {}", part, e)
 
 
 async def prompt_subscription(callback: CallbackQuery):

@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from database.access.resolution import resolve_user_optional
 from database.models import ScheduledBroadcast
 
 
@@ -34,8 +35,16 @@ async def create_scheduled_broadcast(
     messages_per_second: int,
     status: str = SCHEDULED_BROADCAST_STATUS_SCHEDULED,
 ) -> ScheduledBroadcast:
+    created_by_uid = None
+    mirror_tg = created_by_tg_id
+    if created_by_tg_id is not None:
+        cu = await resolve_user_optional(session, created_by_tg_id)
+        if cu is not None:
+            created_by_uid = cu.id
+            mirror_tg = cu.tg_id
     broadcast = ScheduledBroadcast(
-        created_by_tg_id=created_by_tg_id,
+        created_by_user_id=created_by_uid,
+        created_by_tg_id=mirror_tg,
         send_to=send_to,
         cluster_name=cluster_name,
         text=text,
@@ -47,7 +56,7 @@ async def create_scheduled_broadcast(
         status=status,
     )
     session.add(broadcast)
-    await session.commit()
+    await session.flush()
     await session.refresh(broadcast)
     return broadcast
 
@@ -91,9 +100,7 @@ async def update_scheduled_broadcast(
         .values(**values)
     )
     if not result.rowcount:
-        await session.rollback()
         return None
-    await session.commit()
     return await get_scheduled_broadcast(session, broadcast_id)
 
 
@@ -112,9 +119,7 @@ async def cancel_scheduled_broadcast(session: AsyncSession, broadcast_id: str) -
         )
     )
     if not result.rowcount:
-        await session.rollback()
         return None
-    await session.commit()
     return await get_scheduled_broadcast(session, broadcast_id)
 
 
@@ -148,9 +153,7 @@ async def claim_due_scheduled_broadcasts(session: AsyncSession, limit: int = 10)
         if claim_result.rowcount:
             claimed_ids.append(broadcast_id)
     if not claimed_ids:
-        await session.rollback()
         return []
-    await session.commit()
     result = await session.execute(
         select(ScheduledBroadcast)
         .where(ScheduledBroadcast.id.in_(claimed_ids))
@@ -177,9 +180,7 @@ async def start_scheduled_broadcast(session: AsyncSession, broadcast_id: str) ->
         )
     )
     if not result.rowcount:
-        await session.rollback()
         return None
-    await session.commit()
     return await get_scheduled_broadcast(session, broadcast_id)
 
 
@@ -200,7 +201,6 @@ async def mark_scheduled_broadcast_sent(
             updated_at=datetime.utcnow(),
         )
     )
-    await session.commit()
     return await get_scheduled_broadcast(session, broadcast_id)
 
 
@@ -218,5 +218,4 @@ async def mark_scheduled_broadcast_failed(
             updated_at=datetime.utcnow(),
         )
     )
-    await session.commit()
     return await get_scheduled_broadcast(session, broadcast_id)

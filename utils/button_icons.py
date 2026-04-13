@@ -7,6 +7,7 @@ _UniqueGiftColors = getattr(aiogram.types, "UniqueGiftColors", None)
 if _UniqueGiftColors is not None:
     _cfg = getattr(_UniqueGiftColors, "model_config", None)
     _base = dict(_cfg) if _cfg is not None else {}
+    _base.pop("protected_namespaces", None)
     _UniqueGiftColors.model_config = ConfigDict(**_base, protected_namespaces=())
 
 _OriginalInlineKeyboardButton = aiogram.types.InlineKeyboardButton

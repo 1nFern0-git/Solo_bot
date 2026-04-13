@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_key_by_client_id, get_key_by_email, get_keys
 from database.models import Key
-from handlers.payments.currency_rates import format_for_user
+from services.payments.currency_rates import format_for_user
 
 
 def key_owned_by_user(record: dict | None, user_id: int) -> bool:

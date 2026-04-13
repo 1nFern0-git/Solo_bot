@@ -873,6 +873,9 @@ async def list_audit_events(
         limit=min(5000, need),
     )
     merged = _dedupe_event_like(redis_events + db_events)
+    for ev in merged:
+        if ev.created_at is not None and ev.created_at.tzinfo is None:
+            ev.created_at = ev.created_at.replace(tzinfo=timezone.utc)
     merged.sort(key=lambda e: (e.created_at, getattr(e, "id", 0)), reverse=True)
     return merged[offset : offset + limit]
 

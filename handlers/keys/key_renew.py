@@ -28,13 +28,14 @@ from database import (
     update_key_expiry,
 )
 from database.models import Key, Server
+from database.access.resolution import notify_telegram_chat_id
 from database.notifications import check_hot_lead_discount
 from database.tariffs import create_subgroup_hash, find_subgroup_by_hash, get_tariffs
 from handlers.buttons import BACK, MAIN_MENU, MY_SUB, PAYMENT
-from handlers.keys.operations import renew_key_in_cluster
-from handlers.payments.currency_rates import format_for_user
+from services.operations import renew_key_in_cluster
+from services.payments.currency_rates import format_for_user
 from handlers.payments.fast_payment_flow import try_fast_payment_flow
-from handlers.tariffs.tariff_display import GB, get_effective_limits_for_key
+from services.tariffs.tariff_display import GB, get_effective_limits_for_key
 from handlers.texts import (
     DISCOUNT_OFFER_MESSAGE,
     DISCOUNT_OFFER_STEP2,
@@ -69,8 +70,6 @@ def normalize_expiry_ms(raw_value: int | float | None) -> int:
         return 0
     value = int(raw_value)
     if value > 10**13:
-        value //= 1000
-    elif value < 10**10:
         value *= 1000
     return value
 
@@ -548,6 +547,7 @@ async def process_callback_renew_plan(callback_query: CallbackQuery, state: FSMC
                         "cost": cost,
                         "required_amount": required_amount,
                         "new_expiry_time": new_expiry_time,
+                        "selected_duration_days": duration_days,
                         "total_gb": total_gb,
                         "email": email,
                     },
@@ -605,7 +605,7 @@ async def handle_renew_config_confirm(callback_query: CallbackQuery, state: FSMC
             await callback_query.message.answer("❌ Данные для продления не найдены.")
             return
 
-        from handlers.tariffs.buy.key_tariffs import calculate_config_price
+        from services.tariffs import calculate_config_price
 
         tariff = await get_tariff_by_id(session, int(tariff_id))
         if not tariff or not tariff.get("configurable"):
@@ -637,6 +637,7 @@ async def handle_renew_config_confirm(callback_query: CallbackQuery, state: FSMC
                         "cost": cost,
                         "required_amount": required_amount,
                         "new_expiry_time": int(new_expiry_time),
+                        "selected_duration_days": int(tariff["duration_days"]),
                         "total_gb": int(selected_traffic_gb or 0),
                         "email": email,
                         "selected_device_limit": selected_devices,
@@ -709,13 +710,18 @@ async def complete_key_renewal(
     selected_traffic_limit: int | None = None,
     selected_price_rub: int | None = None,
 ):
-    """Продлевает подписку, обновляет лимиты и данные в БД."""
+    """Продлевает подписку через сервис и отправляет Telegram-уведомление."""
+    from services.keys import execute_renewal
+    from services.errors import ServiceError
+
     try:
         logger.info(f"[Info] Продление ключа {client_id} по тарифу ID={tariff_id} (Start)")
 
+        tg_notify = await notify_telegram_chat_id(session, tg_id)
+        renewal_hook_chat = tg_notify if tg_notify is not None else tg_id
+
         waiting_message = None
         wait_text = "⏳ Подождите. Идет продление подписки…"
-
         try:
             if callback_query:
                 await edit_or_send_message(
@@ -723,85 +729,56 @@ async def complete_key_renewal(
                     text=wait_text,
                     reply_markup=None,
                 )
+            elif tg_notify is not None:
+                waiting_message = await bot.send_message(tg_notify, wait_text)
             else:
-                waiting_message = await bot.send_message(tg_id, wait_text)
+                logger.info(f"[Renew] Нет Telegram-чата для экрана ожидания (ref={tg_id}), пропуск")
         except Exception as e:
             logger.warning(f"[Renew] Не удалось показать экран ожидания: {e}")
-
-        tariff = await get_tariff_by_id(session, tariff_id)
-        if not tariff:
-            logger.error(f"[Error] Тариф с id={tariff_id} не найден.")
-            return
 
         key_info = await get_key_details(session, email)
         if not key_info:
             logger.error(f"[Error] Ключ с client_id={client_id} не найден в БД.")
             return
 
-        new_tariff_device_limit = tariff.get("device_limit")
-        new_tariff_traffic_limit_gb = tariff.get("traffic_limit")
+        server_or_cluster = key_info["server_id"]
 
-        if new_tariff_device_limit is None:
-            final_device_limit = None
-        elif selected_device_limit is not None:
-            final_device_limit = int(selected_device_limit)
-        else:
-            final_device_limit = new_tariff_device_limit
-
-        if new_tariff_traffic_limit_gb is None:
-            final_traffic_limit = None
-        elif selected_traffic_limit is not None:
-            final_traffic_limit = int(selected_traffic_limit)
-        else:
-            final_traffic_limit = int(new_tariff_traffic_limit_gb)
-
-        if tariff.get("configurable"):
-            selected_traffic_gb_effective = int(final_traffic_limit) if final_traffic_limit is not None else None
-            selected_device_limit_effective = int(final_device_limit) if final_device_limit is not None else None
-
-            device_limit_effective, traffic_limit_bytes_effective = await get_effective_limits_for_key(
+        try:
+            await release_session_early(session)
+            result = await execute_renewal(
                 session=session,
-                tariff_id=int(tariff_id),
-                selected_device_limit=selected_device_limit_effective,
-                selected_traffic_gb=selected_traffic_gb_effective,
+                billing_user_id=tg_id,
+                client_id=client_id,
+                key_email=email,
+                key_server_id=server_or_cluster,
+                tariff_id=tariff_id,
+                new_expiry_time=new_expiry_time,
+                total_gb=total_gb,
+                cost=cost,
+                selected_device_limit=selected_device_limit,
+                selected_traffic_limit=selected_traffic_limit,
+                selected_price_rub=selected_price_rub,
             )
+        except ServiceError as e:
+            logger.error(f"[Error] Сервис продления: {e.message}")
+            return
 
-            traffic_limit_gb_effective = int(traffic_limit_bytes_effective / GB) if traffic_limit_bytes_effective else 0
-            total_gb = int(traffic_limit_gb_effective)
-        else:
-            device_limit_effective = final_device_limit
-            traffic_limit_gb_effective = int(final_traffic_limit) if final_traffic_limit is not None else 0
-            total_gb = int(traffic_limit_gb_effective)
+        tariff = await get_tariff_by_id(session, tariff_id)
+        tariff_name = tariff["name"] if tariff else ""
+        subgroup_title = tariff.get("subgroup_title", "") if tariff else ""
 
-        cfg = normalize_tariff_config(tariff)
-        raw_device_options = cfg.get("device_options") or tariff.get("device_options") or []
-        raw_traffic_options = cfg.get("traffic_options_gb") or tariff.get("traffic_options_gb") or []
+        device_limit_effective = selected_device_limit
+        traffic_limit_gb_effective = selected_traffic_limit or 0
 
-        device_int_options: list[int] = []
-        for value in raw_device_options:
-            try:
-                device_int_options.append(int(value))
-            except (TypeError, ValueError):
-                continue
-
-        traffic_int_options: list[int] = []
-        for value in raw_traffic_options:
-            try:
-                traffic_int_options.append(int(value))
-            except (TypeError, ValueError):
-                continue
-
-        has_device_choice = len(device_int_options) > 1
-        has_traffic_choice = len(traffic_int_options) > 1
-
-        if selected_price_rub is None:
-            stored_price = key_info.get("selected_price_rub")
-            if stored_price is not None:
-                final_price_rub = int(stored_price)
-            else:
-                final_price_rub = int(cost)
-        else:
-            final_price_rub = int(selected_price_rub)
+        if tariff and tariff.get("configurable"):
+            sel_dev = int(selected_device_limit) if selected_device_limit is not None else None
+            sel_trf = int(selected_traffic_limit) if selected_traffic_limit is not None else None
+            dev_eff, trf_bytes = await get_effective_limits_for_key(
+                session=session, tariff_id=tariff_id,
+                selected_device_limit=sel_dev, selected_traffic_gb=sel_trf,
+            )
+            device_limit_effective = dev_eff
+            traffic_limit_gb_effective = int(trf_bytes / GB) if trf_bytes else 0
 
         formatted_expiry_date = datetime.fromtimestamp(new_expiry_time / 1000, tz=moscow_tz).strftime("%d %B %Y, %H:%M")
         formatted_expiry_date = formatted_expiry_date.replace(
@@ -810,90 +787,17 @@ async def complete_key_renewal(
         )
 
         response_message = get_renewal_message(
-            tariff_name=tariff["name"],
+            tariff_name=tariff_name,
             traffic_limit=traffic_limit_gb_effective,
             device_limit=device_limit_effective,
             expiry_date=formatted_expiry_date,
-            subgroup_title=tariff.get("subgroup_title", ""),
+            subgroup_title=subgroup_title,
         )
-
-        current_subgroup = None
-        try:
-            current_tariff_id = key_info.get("tariff_id")
-            if current_tariff_id:
-                current_tariff = await get_tariff_by_id(session, int(current_tariff_id))
-                if current_tariff:
-                    current_subgroup = current_tariff.get("subgroup_title")
-        except Exception as e:
-            logger.warning(f"[Renew] Не удалось определить текущую подгруппу: {e}")
-
-        target_subgroup = tariff.get("subgroup_title")
-        old_subgroup = current_subgroup
-
-        server_or_cluster = key_info["server_id"]
-        cluster_id = await resolve_cluster_name(session, server_or_cluster)
-        if not cluster_id:
-            logger.error(f"[Error] Кластер для {server_or_cluster} не найден.")
-            return
-
-        await release_session_early(session)
-        await renew_key_in_cluster(
-            cluster_id=cluster_id,
-            email=email,
-            client_id=client_id,
-            new_expiry_time=new_expiry_time,
-            total_gb=total_gb,
-            session=session,
-            hwid_device_limit=device_limit_effective,
-            reset_traffic=True,
-            target_subgroup=target_subgroup,
-            old_subgroup=old_subgroup,
-            plan=tariff_id,
-        )
-
-        key_row = await get_key_details(session, email)
-        effective_client_id = key_row["client_id"] if key_row else client_id
-
-        await update_key_expiry(session, effective_client_id, new_expiry_time)
-
-        update_values = {"tariff_id": tariff_id}
-
-        if not tariff.get("configurable"):
-            if new_tariff_device_limit is None:
-                update_values["selected_device_limit"] = None
-                update_values["current_device_limit"] = None
-            else:
-                update_values["selected_device_limit"] = new_tariff_device_limit
-                update_values["current_device_limit"] = final_device_limit
-
-            if new_tariff_traffic_limit_gb is None:
-                update_values["selected_traffic_limit"] = None
-                update_values["current_traffic_limit"] = None
-            else:
-                update_values["selected_traffic_limit"] = new_tariff_traffic_limit_gb
-                update_values["current_traffic_limit"] = final_traffic_limit
-
-        await session.execute(update(Key).where(Key.email == email).values(**update_values))
-        await update_balance(session, tg_id, -cost)
-
-        if tariff.get("configurable"):
-            await save_key_config_with_mode(
-                session=session,
-                email=email,
-                selected_devices=final_device_limit,
-                selected_traffic_gb=final_traffic_limit,
-                total_price=int(final_price_rub),
-                has_device_choice=has_device_choice,
-                has_traffic_choice=has_traffic_choice,
-                config_mode="renewal",
-            )
-            if has_device_choice or has_traffic_choice:
-                await reset_key_current_limits_to_selected(session, effective_client_id)
 
         builder = InlineKeyboardBuilder()
         builder.row(InlineKeyboardButton(text=MY_SUB, callback_data=build_key_callback("view_key", client_id, email)))
         hook_commands = await process_renewal_complete(
-            chat_id=tg_id, admin=False, session=session, email=email, client_id=client_id
+            chat_id=renewal_hook_chat, admin=False, session=session, email=email, client_id=client_id
         )
         if hook_commands:
             builder = insert_hook_buttons(builder, hook_commands)
@@ -915,11 +819,14 @@ async def complete_key_renewal(
                     reply_markup=builder.as_markup(),
                     media_path=renewal_media_path,
                 )
+            elif tg_notify is not None:
+                await bot.send_message(tg_notify, response_message, reply_markup=builder.as_markup())
             else:
-                await bot.send_message(tg_id, response_message, reply_markup=builder.as_markup())
+                logger.info(f"[Renew] Нет Telegram-чата для итогового сообщения (ref={tg_id}), пропуск")
         except Exception as e:
             logger.error(f"[Error] Ошибка при выводе финального сообщения: {e}")
-            await bot.send_message(tg_id, response_message, reply_markup=builder.as_markup())
+            if tg_notify is not None:
+                await bot.send_message(tg_notify, response_message, reply_markup=builder.as_markup())
 
         logger.info(f"[Info] Продление ключа {client_id} завершено успешно (User: {tg_id})")
 

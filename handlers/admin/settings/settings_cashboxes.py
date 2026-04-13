@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.bootstrap import PAYMENTS_CONFIG, update_payments_config
 from core.settings.providers_order_config import PROVIDERS_ORDER, update_providers_order
 from filters.admin import IsAdminFilter
-from handlers.payments.providers import PROVIDERS_BASE, _get_effective_order
+from services.payments.providers import PROVIDERS_BASE, _get_effective_order
 
 from ..panel.keyboard import AdminPanelCallback
 from .keyboard import PAYMENT_PROVIDER_TITLES, build_providers_order_kb, build_settings_cashboxes_kb

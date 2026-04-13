@@ -1,4 +1,6 @@
 import os
+import re
+import shutil
 import subprocess
 import sys
 import traceback
@@ -10,13 +12,25 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 
-from config import DB_NAME, DB_PASSWORD, DB_USER, PG_HOST, PG_PORT
+from config import DB_NAME, DB_PASSWORD, DB_USER, PG_HOST, PG_IN_DOCKER, PG_PORT
 from core.executor import run_io
 from filters.admin import IsAdminFilter
 from logger import logger
+from utils.backup import _find_docker_postgres_container
+
+_PG_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _safe_pg_identifier(value: str, label: str) -> str:
+    if not _PG_IDENT_RE.match(value):
+        raise ValueError(f"Недопустимый PostgreSQL-идентификатор ({label}): {value!r}")
+    return value
 
 from . import router
 from .keyboard import AdminPanelCallback, build_back_to_db_menu, build_database_kb, build_export_db_sources_kb
+
+
+DOCKER_POSTGRES_CONTAINER = "solobot-postgres"
 
 
 def sync_restore_database(
@@ -33,46 +47,153 @@ def sync_restore_database(
         if f.read(5) == b"PGDMP":
             is_custom_dump = True
 
-    try:
+    use_docker = PG_IN_DOCKER
+    docker_container = _find_docker_postgres_container() if use_docker else None
+
+    if use_docker and not docker_container:
+        return False, f"Контейнер PostgreSQL '{DOCKER_POSTGRES_CONTAINER}' не найден или не запущен"
+
+    def _run_admin_psql(sql: str) -> None:
+        if use_docker:
+            subprocess.run(
+                [
+                    "docker",
+                    "exec",
+                    "-e",
+                    f"PGPASSWORD={db_password}",
+                    docker_container,
+                    "psql",
+                    "-U",
+                    db_user,
+                    "-h",
+                    "127.0.0.1",
+                    "-p",
+                    "5432",
+                    "-d",
+                    "postgres",
+                    "-c",
+                    sql,
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            return
+
+        if shutil.which("psql") is None:
+            raise FileNotFoundError("psql не найден на хосте и контейнер PostgreSQL не обнаружен")
+
+        env = os.environ.copy()
+        env["PGPASSWORD"] = db_password
         subprocess.run(
             [
-                "sudo", "-u", "postgres", "psql", "-d", "postgres",
+                "psql",
+                "-U",
+                db_user,
+                "-h",
+                pg_host,
+                "-p",
+                pg_port,
+                "-d",
+                "postgres",
                 "-c",
-                f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{db_name}' AND pid <> pg_backend_pid();",
+                sql,
             ],
             check=True,
+            capture_output=True,
+            text=True,
+            env=env,
         )
-        subprocess.run(
-            ["sudo", "-u", "postgres", "psql", "-d", "postgres", "-c", f"DROP DATABASE IF EXISTS {db_name};"],
-            check=True,
+
+    try:
+        safe_name = _safe_pg_identifier(db_name, "db_name")
+        safe_user = _safe_pg_identifier(db_user, "db_user")
+        _run_admin_psql(
+            f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{safe_name}' AND pid <> pg_backend_pid();"
         )
-        subprocess.run(
-            ["sudo", "-u", "postgres", "psql", "-d", "postgres", "-c", f"CREATE DATABASE {db_name} OWNER {db_user};"],
-            check=True,
-        )
+        _run_admin_psql(f"DROP DATABASE IF EXISTS {safe_name};")
+        _run_admin_psql(f"CREATE DATABASE {safe_name} OWNER {safe_user};")
+    except ValueError as e:
+        return False, str(e)
     except subprocess.CalledProcessError as e:
         return False, (e.stderr or e.stdout or str(e))
 
-    os.environ["PGPASSWORD"] = db_password
     try:
-        if is_custom_dump:
-            result = subprocess.run(
-                [
-                    "pg_restore", f"--dbname={db_name}", "-U", db_user,
-                    "-h", pg_host, "-p", pg_port, "--no-owner", "--exit-on-error", tmp_path,
-                ],
-                capture_output=True,
-                text=True,
-            )
+        if use_docker:
+            with open(tmp_path, "rb") as dump_file:
+                if is_custom_dump:
+                    result = subprocess.run(
+                        [
+                            "docker",
+                            "exec",
+                            "-i",
+                            "-e",
+                            f"PGPASSWORD={db_password}",
+                            docker_container,
+                            "pg_restore",
+                            f"--dbname={db_name}",
+                            "-U",
+                            db_user,
+                            "-h",
+                            "127.0.0.1",
+                            "-p",
+                            "5432",
+                            "--no-owner",
+                            "--exit-on-error",
+                        ],
+                        stdin=dump_file,
+                        capture_output=True,
+                    )
+                else:
+                    result = subprocess.run(
+                        [
+                            "docker",
+                            "exec",
+                            "-i",
+                            "-e",
+                            f"PGPASSWORD={db_password}",
+                            docker_container,
+                            "psql",
+                            "-U",
+                            db_user,
+                            "-h",
+                            "127.0.0.1",
+                            "-p",
+                            "5432",
+                            "-d",
+                            db_name,
+                        ],
+                        stdin=dump_file,
+                        capture_output=True,
+                    )
         else:
-            result = subprocess.run(
-                ["psql", "-U", db_user, "-h", pg_host, "-p", pg_port, "-d", db_name, "-f", tmp_path],
-                capture_output=True,
-                text=True,
-            )
-        return result.returncode == 0, result.stderr or ""
-    finally:
-        del os.environ["PGPASSWORD"]
+            env = os.environ.copy()
+            env["PGPASSWORD"] = db_password
+            if is_custom_dump:
+                if shutil.which("pg_restore") is None:
+                    return False, "pg_restore не найден на хосте и контейнер PostgreSQL не обнаружен"
+                result = subprocess.run(
+                    [
+                        "pg_restore", f"--dbname={db_name}", "-U", db_user,
+                        "-h", pg_host, "-p", pg_port, "--no-owner", "--exit-on-error", tmp_path,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    env=env,
+                )
+            else:
+                if shutil.which("psql") is None:
+                    return False, "psql не найден на хосте и контейнер PostgreSQL не обнаружен"
+                result = subprocess.run(
+                    ["psql", "-U", db_user, "-h", pg_host, "-p", pg_port, "-d", db_name, "-f", tmp_path],
+                    capture_output=True,
+                    text=True,
+                    env=env,
+                )
+        stderr = result.stderr.decode("utf-8", errors="replace") if isinstance(result.stderr, bytes) else result.stderr
+        return result.returncode == 0, stderr or ""
+    except Exception as e:
+        return False, str(e)
 
 
 class DatabaseState(StatesGroup):

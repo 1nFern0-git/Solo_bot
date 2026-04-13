@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 import tarfile
 
@@ -21,6 +22,7 @@ from config import (
     DB_NAME,
     DB_PASSWORD,
     DB_USER,
+    PG_IN_DOCKER,
     PG_HOST,
     PG_PORT,
     BACKUP_CREATE_ARCHIVE,
@@ -30,6 +32,60 @@ from config import (
     BACKUP_INCLUDE_IMG,
 )
 from logger import logger
+
+
+DOCKER_POSTGRES_CONTAINER = "solobot-postgres"
+
+
+def _find_docker_postgres_container() -> str | None:
+    if shutil.which("docker") is None:
+        return None
+    result = subprocess.run(
+        ["docker", "inspect", "-f", "{{.State.Running}}", DOCKER_POSTGRES_CONTAINER],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0 and result.stdout.strip().lower() == "true":
+        return DOCKER_POSTGRES_CONTAINER
+    return None
+
+
+def _get_postgres_execution_target() -> tuple[str, str | None]:
+    if PG_IN_DOCKER:
+        container = _find_docker_postgres_container()
+        if container:
+            return "docker", container
+        raise FileNotFoundError(
+            f"PostgreSQL настроен на Docker, но контейнер '{DOCKER_POSTGRES_CONTAINER}' не найден или не запущен"
+        )
+    return "host", None
+
+
+def _create_database_backup_via_docker(filename: Path, container: str) -> None:
+    with open(filename, "wb") as dump_file:
+        result = subprocess.run(
+            [
+                "docker",
+                "exec",
+                "-e",
+                f"PGPASSWORD={DB_PASSWORD}",
+                container,
+                "pg_dump",
+                "-U",
+                DB_USER,
+                "-h",
+                "127.0.0.1",
+                "-p",
+                "5432",
+                "-F",
+                "c",
+                DB_NAME,
+            ],
+            stdout=dump_file,
+            stderr=subprocess.PIPE,
+        )
+    if result.returncode != 0:
+        raise subprocess.CalledProcessError(result.returncode, result.args, stderr=result.stderr)
 
 
 async def backup_database(bot_instance: Bot | None = None) -> Exception | None:
@@ -85,38 +141,45 @@ def _create_database_backup() -> tuple[str | None, Exception | None]:
     filename = backup_dir / f"{DB_NAME}-backup-{date_formatted}-{pid_suffix}.sql"
 
     try:
-        os.environ["PGPASSWORD"] = DB_PASSWORD
+        target, container = _get_postgres_execution_target()
 
-        subprocess.run(
-            [
-                "pg_dump",
-                "-U",
-                DB_USER,
-                "-h",
-                PG_HOST,
-                "-p",
-                PG_PORT,
-                "-F",
-                "c",
-                "-f",
-                str(filename),
-                DB_NAME,
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        logger.info("[Backup] БД создана: {}", filename)
+        if target == "docker" and container:
+            _create_database_backup_via_docker(filename, container)
+            logger.info("[Backup] БД создана через Docker-контейнер {}: {}", container, filename)
+        elif shutil.which("pg_dump") is not None:
+            env = os.environ.copy()
+            env["PGPASSWORD"] = DB_PASSWORD
+            subprocess.run(
+                [
+                    "pg_dump",
+                    "-U",
+                    DB_USER,
+                    "-h",
+                    PG_HOST,
+                    "-p",
+                    PG_PORT,
+                    "-F",
+                    "c",
+                    "-f",
+                    str(filename),
+                    DB_NAME,
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+            logger.info("[Backup] БД создана через host pg_dump: {}", filename)
+        else:
+            raise FileNotFoundError("PostgreSQL недоступен: не найден контейнер и отсутствует host pg_dump")
         return str(filename), None
     except subprocess.CalledProcessError as e:
-        logger.error("[Backup] pg_dump: {}", e.stderr)
+        stderr = e.stderr.decode("utf-8", errors="replace") if isinstance(e.stderr, bytes) else e.stderr
+        logger.error("[Backup] pg_dump: {}", stderr)
         return None, e
     except Exception as e:
         logger.error("[Backup] Непредвиденная ошибка: {}", e)
         return None, e
-    finally:
-        if "PGPASSWORD" in os.environ:
-            del os.environ["PGPASSWORD"]
 
 
 def _create_backup_archive() -> tuple[str | None, Exception | None]:

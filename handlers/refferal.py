@@ -29,9 +29,10 @@ from database import (
     get_referral_stats,
 )
 from database.models import Referral
+from database.access.resolution import resolve_user_optional
 from database.tariffs import get_tariffs
 from handlers.buttons import BACK, INVITE, MAIN_MENU, QR, TOP_FIVE
-from handlers.payments.currency_rates import format_for_user
+from services.payments.currency_rates import format_for_user
 from handlers.texts import (
     INVITE_MESSAGE_TEMPLATE,
     INVITE_TEXT_NON_INLINE,
@@ -200,16 +201,22 @@ async def show_referral_qr(callback_query: CallbackQuery):
 @router.callback_query(F.data == "top_referrals")
 async def top_referrals_handler(callback_query: CallbackQuery, session: AsyncSession):
     user_id = callback_query.from_user.id
+    u = await resolve_user_optional(session, user_id)
+    uid = u.id if u is not None else None
 
-    result = await session.execute(select(func.count()).select_from(Referral).where(Referral.referrer_tg_id == user_id))
-    user_referral_count = result.scalar_one() or 0
+    user_referral_count = 0
+    if uid is not None:
+        result = await session.execute(
+            select(func.count()).select_from(Referral).where(Referral.referrer_user_id == uid)
+        )
+        user_referral_count = result.scalar_one() or 0
 
     personal_block = "Твоё место в рейтинге:\n"
     if user_referral_count > 0:
         subquery = (
             select(func.count().label("cnt"))
             .select_from(Referral)
-            .group_by(Referral.referrer_tg_id)
+            .group_by(Referral.referrer_user_id)
             .having(func.count() > user_referral_count)
             .subquery()
         )
@@ -221,10 +228,10 @@ async def top_referrals_handler(callback_query: CallbackQuery, session: AsyncSes
 
     result = await session.execute(
         select(
-            Referral.referrer_tg_id,
-            func.count(Referral.referred_tg_id).label("referral_count"),
+            Referral.referrer_user_id,
+            func.count(Referral.referred_user_id).label("referral_count"),
         )
-        .group_by(Referral.referrer_tg_id)
+        .group_by(Referral.referrer_user_id)
         .order_by(desc("referral_count"))
         .limit(5)
     )
@@ -233,7 +240,7 @@ async def top_referrals_handler(callback_query: CallbackQuery, session: AsyncSes
     is_admin = user_id in ADMIN_ID
     rows = ""
     for index, row in enumerate(top_referrals, 1):
-        referrer_id = str(row.referrer_tg_id)
+        referrer_id = str(row.referrer_user_id)
         count = row.referral_count
         display_id = referrer_id if is_admin else f"{referrer_id[:5]}*****"
         rows += f"{index}. {display_id} - {count} чел.\n"
@@ -287,17 +294,19 @@ async def handle_referral_link(
                 is_bot=getattr(user, "is_bot", False),
             )
 
-        if not inserted:
+        if inserted is None:
             await message.answer("❌ Вы уже зарегистрированы и не можете стать рефералом.")
             return
 
         await add_referral(session, user_id, referrer_tg_id)
 
         try:
-            await bot.send_message(
-                referrer_tg_id,
-                NEW_REFERRAL_NOTIFICATION.format(referred_id=user_id),
-            )
+            ref_notifier = await resolve_user_optional(session, referrer_tg_id)
+            if ref_notifier is not None and ref_notifier.tg_id is not None:
+                await bot.send_message(
+                    int(ref_notifier.tg_id),
+                    NEW_REFERRAL_NOTIFICATION.format(referred_id=user_id),
+                )
         except Exception as error:
             logger.error(f"Не удалось отправить уведомление пригласившему ({referrer_tg_id}): {error}")
 

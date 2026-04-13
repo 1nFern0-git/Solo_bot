@@ -33,3 +33,62 @@ def verify_telegram_login(
     computed = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
 
     return hmac.compare_digest(computed, received_hash)
+
+
+def verify_webapp_init_data(
+    init_data: str,
+    bot_token: str,
+    *,
+    max_age_seconds: int = 86400,
+) -> dict | None:
+    """
+    Валидирует Telegram WebApp initData (HMAC-SHA256).
+    Возвращает dict с user_id или None если невалидно.
+    https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app
+    """
+    import json
+    from urllib.parse import parse_qs
+
+    if not init_data or not bot_token:
+        return None
+
+    parsed = parse_qs(init_data, keep_blank_values=True)
+    received_hash = parsed.get("hash", [""])[0]
+    if not received_hash:
+        return None
+
+    auth_date_str = parsed.get("auth_date", [""])[0]
+    try:
+        auth_date = int(auth_date_str)
+        if auth_date < time.time() - max_age_seconds:
+            return None
+    except (TypeError, ValueError):
+        return None
+
+    check_pairs = []
+    for key in sorted(parsed.keys()):
+        if key == "hash":
+            continue
+        check_pairs.append(f"{key}={parsed[key][0]}")
+    data_check_string = "\n".join(check_pairs)
+
+    secret_key = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
+    computed = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+
+    if not hmac.compare_digest(computed, received_hash):
+        return None
+
+    user_raw = parsed.get("user", [""])[0]
+    user_id = None
+    if user_raw:
+        try:
+            user_data = json.loads(user_raw)
+            user_id = user_data.get("id")
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    return {
+        "user_id": user_id,
+        "auth_date": auth_date,
+        "user_raw": user_raw,
+    }

@@ -11,6 +11,7 @@ from config import DISCOUNT_ACTIVE_HOURS
 from core.bootstrap import NOTIFICATIONS_CONFIG
 from database import get_keys, get_tariffs, get_tariffs_for_cluster
 from database.models import Notification
+from database.access.resolution import resolve_user_optional
 from handlers.buttons import MAIN_MENU, RENEW_KEY_NOTIFICATION
 from handlers.keys.utils import build_key_callback
 from handlers.notifications.notify_kb import build_tariffs_keyboard
@@ -26,10 +27,14 @@ router = Router()
 @router.callback_query(F.data == "hot_lead_discount")
 async def handle_discount_entry(callback: CallbackQuery, session: AsyncSession):
     tg_id = callback.from_user.id
+    u = await resolve_user_optional(session, tg_id)
+    if u is None:
+        await callback.message.edit_text("❌ Скидка недоступна.")
+        return
 
     result = await session.execute(
         select(Notification.last_notification_time).where(
-            Notification.tg_id == tg_id,
+            Notification.user_id == u.id,
             Notification.notification_type == "hot_lead_step_2",
         )
     )
@@ -109,10 +114,14 @@ async def handle_discount_tariff_selection(callback: CallbackQuery, session: Asy
 @router.callback_query(F.data == "hot_lead_final_discount")
 async def handle_ultra_discount(callback: CallbackQuery, session: AsyncSession):
     tg_id = callback.from_user.id
+    u = await resolve_user_optional(session, tg_id)
+    if u is None:
+        await callback.message.edit_text("❌ Скидка недоступна.")
+        return
 
     result = await session.execute(
         select(Notification.last_notification_time).where(
-            Notification.tg_id == tg_id,
+            Notification.user_id == u.id,
             Notification.notification_type == "hot_lead_step_3",
         )
     )

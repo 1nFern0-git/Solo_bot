@@ -1,5 +1,5 @@
-from typing import Any
 from math import ceil
+from typing import Any
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
@@ -8,7 +8,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy import select
 
-from config import USE_NEW_PAYMENT_FLOW, TRIBUTE_LINK
+from config import TRIBUTE_LINK, USE_NEW_PAYMENT_FLOW
 from core.bootstrap import PAYMENTS_CONFIG
 from core.settings.buttons_config import BUTTONS_CONFIG
 from core.settings.money_config import get_currency_mode
@@ -17,21 +17,21 @@ from database import (
     create_coupon_usage,
     get_balance,
     get_coupon_by_code,
+    has_any_coupon_usage,
     update_coupon_usage_count,
 )
 from database.coupons import apply_percent_coupon
-from database.models import CouponUsage
 from database.temporary_data import create_temporary_data
 from handlers import buttons as btn
 from handlers.payments.currency_flow import (
     build_currency_choice_kb,
-    shortfall_lead_text,
     currency_label,
+    shortfall_lead_text,
 )
-from handlers.payments.providers import get_providers_with_hooks, sort_provider_names
-from handlers.texts import FAST_PAY_CHOOSE_CURRENCY, FAST_PAY_CHOOSE_PROVIDER, FASTFLOW_COUPON_APPLIED_TEMPLATE
+from handlers.texts import FASTFLOW_COUPON_APPLIED_TEMPLATE, FAST_PAY_CHOOSE_CURRENCY, FAST_PAY_CHOOSE_PROVIDER
 from handlers.utils import edit_or_send_message
 from logger import logger
+from services.payments.providers import get_providers_with_hooks, sort_provider_names
 
 
 router = Router()
@@ -392,10 +392,7 @@ async def fastflow_apply_coupon(message: Message, state: FSMContext, session: An
         return
 
     if bool(getattr(coupon, "new_users_only", False)):
-        used_any = await session.scalar(
-            select(CouponUsage.id).where(CouponUsage.user_id == message.from_user.id).limit(1)
-        )
-        if used_any:
+        if await has_any_coupon_usage(session, message.from_user.id):
             await message.answer(new_users_only_text, reply_markup=back_markup)
             return
 

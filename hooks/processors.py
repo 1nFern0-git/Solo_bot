@@ -6,17 +6,21 @@ from .hooks import run_hooks
 
 
 async def process_cluster_override(
-    tg_id: int,
-    state_data: dict,
     session: Any,
+    tg_id: int | None = None,
+    state_data: dict | None = None,
     plan: int | None = None,
     **kwargs,
 ) -> str | None:
-    """Обрабатывает хук cluster_override и возвращает название кластера."""
+    """Обрабатывает хук cluster_override и возвращает название кластера.
+
+    tg_id и state_data опциональны — хук может вызываться из контекстов
+    балансировщика (services.clusters.select_cluster), где этих данных нет.
+    """
     results = await run_hooks(
         "cluster_override",
         tg_id=tg_id,
-        state_data=state_data,
+        state_data=state_data if state_data is not None else {},
         session=session,
         plan=plan,
         **kwargs,
@@ -158,7 +162,7 @@ async def process_get_cryptolink_after_renewal(
     try:
         from config import REMNAWAVE_LOGIN, REMNAWAVE_PASSWORD
         from database import get_tariff_by_id
-        from handlers.keys.operations.utils import is_plan_vless
+        from services.operations.utils import is_plan_vless
         from panels.remnawave import RemnawaveAPI
 
         remna = RemnawaveAPI(remnawave_nodes[0]["api_url"])

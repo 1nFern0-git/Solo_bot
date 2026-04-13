@@ -28,4 +28,13 @@ from api.v1.schemas import (
 )
 from api.v1.schemas.keys import KeyBase, KeyCreateRequest, KeyUpdate
 from api.v1.schemas.settings import SettingResponse, SettingUpsert
-from api.v2.schemas.web import WebBlockResponse, WebTheme, WebPageResponse, WebPageUpdate
+from api.v2.schemas.web import (
+    WebBlockResponse,
+    WebTheme,
+    WebPageResponse,
+    WebPageUpdate,
+    WebPageVariantCreate,
+    WebPageVariantSummary,
+    WebPageVariantUpdate,
+    WebPageVariantsResponse,
+)

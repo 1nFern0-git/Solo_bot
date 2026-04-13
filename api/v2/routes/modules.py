@@ -1,4 +1,5 @@
 import pkgutil
+
 from pathlib import Path
 from typing import Literal
 
@@ -7,8 +8,10 @@ from pydantic import BaseModel
 
 from api.depends import verify_identity_admin
 from core.executor import run_io
+from logger import logger
 from utils.modules_loader import _is_safe_module_name
 from utils.modules_manager import manager
+
 
 router = APIRouter(prefix="/modules", tags=["Modules"])
 
@@ -117,5 +120,6 @@ async def control_module(module_name: str, payload: ModuleAction, identity=Depen
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        logger.error("[Modules] action failed for {}: {}", name, exc)
+        raise HTTPException(status_code=500, detail="Ошибка при выполнении операции модуля") from exc
     return {"item": _module_state(name)}

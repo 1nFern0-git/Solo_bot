@@ -1,0 +1,234 @@
+from datetime import UTC, datetime
+
+from sqlalchemy import delete, func, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from database.models import User, WebNotification, WebPushSubscription
+from logger import logger
+
+
+async def upsert_push_subscription(
+    session: AsyncSession,
+    *,
+    user_id: int,
+    identity_id: str | None,
+    endpoint: str,
+    keys_json: dict,
+) -> WebPushSubscription:
+    """Upsert push subscription by endpoint (unique)."""
+    stmt = pg_insert(WebPushSubscription).values(
+        user_id=user_id,
+        identity_id=identity_id,
+        endpoint=endpoint,
+        keys_json=keys_json,
+        created_at=datetime.now(UTC),
+    ).on_conflict_do_update(
+        index_elements=["endpoint"],
+        set_={
+            "user_id": user_id,
+            "identity_id": identity_id,
+            "keys_json": keys_json,
+            "created_at": datetime.now(UTC),
+        },
+    ).returning(WebPushSubscription)
+    result = await session.execute(stmt)
+    return result.scalar_one()
+
+
+async def get_push_subscriptions_by_user(
+    session: AsyncSession, user_id: int,
+) -> list[WebPushSubscription]:
+    result = await session.execute(
+        select(WebPushSubscription).where(WebPushSubscription.user_id == user_id)
+    )
+    return list(result.scalars().all())
+
+
+async def get_push_subscriptions_by_identity(
+    session: AsyncSession, identity_id: str,
+) -> list[WebPushSubscription]:
+    result = await session.execute(
+        select(WebPushSubscription).where(WebPushSubscription.identity_id == identity_id)
+    )
+    return list(result.scalars().all())
+
+
+async def delete_push_subscription_by_endpoint(
+    session: AsyncSession, endpoint: str,
+) -> None:
+    await session.execute(
+        delete(WebPushSubscription).where(WebPushSubscription.endpoint == endpoint)
+    )
+
+
+async def get_notifications_for_identity(
+    session: AsyncSession,
+    identity_id: str,
+    limit: int = 20,
+    offset: int = 0,
+) -> list[WebNotification]:
+    result = await session.execute(
+        select(WebNotification)
+        .where(WebNotification.identity_id == identity_id)
+        .order_by(WebNotification.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    return list(result.scalars().all())
+
+
+async def count_unread_for_identity(
+    session: AsyncSession, identity_id: str,
+) -> int:
+    result = await session.execute(
+        select(func.count())
+        .select_from(WebNotification)
+        .where(
+            WebNotification.identity_id == identity_id,
+            WebNotification.read is False,
+        )
+    )
+    return result.scalar() or 0
+
+
+async def mark_all_read_for_identity(
+    session: AsyncSession, identity_id: str,
+) -> int:
+    result = await session.execute(
+        update(WebNotification)
+        .where(
+            WebNotification.identity_id == identity_id,
+            WebNotification.read is False,
+        )
+        .values(read=True)
+    )
+    return result.rowcount
+
+
+async def resolve_identity_id_by_tg_id(
+    session: AsyncSession, tg_id: int,
+) -> str | None:
+    """Resolve identity_id from user's tg_id."""
+    result = await session.execute(
+        select(User.identity_id).where(User.tg_id == tg_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def create_notification(
+    session: AsyncSession,
+    *,
+    user_id: int,
+    identity_id: str | None,
+    type: str = "system",
+    title: str,
+    message: str = "",
+    data: dict | None = None,
+) -> WebNotification:
+    notif = WebNotification(
+        user_id=user_id,
+        identity_id=identity_id,
+        type=type,
+        title=title,
+        message=message,
+        data=data,
+    )
+    session.add(notif)
+    await session.flush()
+    return notif
+
+
+def _render_template(template: str, **kwargs: object) -> str:
+    """Safe format — unknown placeholders stay as-is."""
+    try:
+        return template.format_map(
+            {k: str(v) for k, v in kwargs.items() if v is not None}
+            | type("_Defaults", (), {"__missing__": lambda self, k: f"{{{k}}}"})()
+        )
+    except Exception:
+        return template
+
+
+def _get_web_config_str(key: str, default: str) -> str:
+    try:
+        from core.settings.web_config import WEB_CONFIG
+        val = WEB_CONFIG.get(key)
+        return str(val).strip() if val else default
+    except Exception:
+        return default
+
+
+async def notify_web(
+    session: AsyncSession,
+    *,
+    tg_id: int,
+    type: str = "system",
+    title: str | None = None,
+    message: str | None = None,
+    data: dict | None = None,
+    template_vars: dict | None = None,
+) -> WebNotification | None:
+    """Создаёт web-уведомление по tg_id.
+
+    title/message — если None, берутся из WEB_CONFIG шаблонов по type.
+    template_vars — подстановки в шаблон ({email}, {amount}, {name}, {duration}).
+    """
+    try:
+        identity_id = await resolve_identity_id_by_tg_id(session, tg_id)
+        if not identity_id:
+            return None
+
+        vars_ = template_vars or {}
+
+        type_key_map = {
+            "payment": ("WEB_NOTIFY_PAYMENT_TITLE", "WEB_NOTIFY_PAYMENT_MESSAGE"),
+            "key_created": ("WEB_NOTIFY_KEY_CREATED_TITLE", "WEB_NOTIFY_KEY_CREATED_MESSAGE"),
+            "key_expiry": ("WEB_NOTIFY_KEY_EXPIRY_TITLE", "WEB_NOTIFY_KEY_EXPIRY_MESSAGE"),
+            "gift_received": ("WEB_NOTIFY_GIFT_TITLE", "WEB_NOTIFY_GIFT_MESSAGE"),
+        }
+        title_key, msg_key = type_key_map.get(type, (None, None))
+
+        resolved_title = title
+        if resolved_title is None and title_key:
+            resolved_title = _render_template(_get_web_config_str(title_key, ""), **vars_)
+        resolved_title = resolved_title or type
+
+        resolved_message = message
+        if resolved_message is None and msg_key:
+            resolved_message = _render_template(_get_web_config_str(msg_key, ""), **vars_)
+        resolved_message = resolved_message or ""
+
+        notif = await create_notification(
+            session,
+            user_id=tg_id,
+            identity_id=identity_id,
+            type=type,
+            title=resolved_title,
+            message=resolved_message,
+            data=data,
+        )
+
+
+        try:
+            from services.web_push import push_enabled, send_push_to_many
+            if push_enabled():
+                subs = await get_push_subscriptions_by_identity(session, identity_id)
+                if subs:
+                    sub_infos = [
+                        {"endpoint": s.endpoint, "keys": s.keys_json}
+                        for s in subs
+                    ]
+                    sent = await send_push_to_many(
+                        sub_infos,
+                        title=resolved_title,
+                        body=resolved_message,
+                        url="/dashboard/notifications",
+                    )
+                    logger.debug("[notify_web] push sent to {}/{} subscriptions", sent, len(sub_infos))
+        except Exception as push_err:
+            logger.warning("[notify_web] push delivery failed: {}", push_err)
+
+        return notif
+    except Exception:
+        return None

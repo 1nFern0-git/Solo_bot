@@ -77,7 +77,7 @@ async def fetch_successful_payment_rows_db(
         Payment.created_at,
     )
     stmt = (
-        select(Payment.payment_system, Payment.payment_id, Payment.tg_id)
+        select(Payment.payment_system, Payment.payment_id, Payment.user_id)
         .where(
             Payment.status == "success",
             Payment.payment_system.notin_(PAYMENT_SYSTEMS_EXCLUDED),

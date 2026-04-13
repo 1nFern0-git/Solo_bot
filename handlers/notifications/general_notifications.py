@@ -47,13 +47,13 @@ from database.tariffs import (
     get_tariff_by_id,
     get_tariffs_for_cluster,
 )
-from handlers.keys.operations import delete_key_from_cluster, renew_key_in_cluster
+from services.operations import delete_key_from_cluster, renew_key_in_cluster
 from handlers.notifications.notify_kb import (
     build_change_tariff_kb,
     build_notification_expired_kb,
     build_notification_kb,
 )
-from handlers.tariffs.tariff_display import GB, get_effective_limits_for_key, resolve_price_to_charge
+from services.tariffs.tariff_display import GB, get_effective_limits_for_key, resolve_price_to_charge
 from handlers.texts import (
     KEY_CANNOT_RENEW_CURRENT,
     KEY_DELETED_MSG,
@@ -109,7 +109,7 @@ async def preload_notification_data(session: AsyncSession) -> dict[str, Any]:
             User.balance.label("user_balance"),
         )
         .outerjoin(Tariff, Key.tariff_id == Tariff.id)
-        .outerjoin(User, Key.tg_id == User.tg_id)
+        .outerjoin(User, Key.user_id == User.id)
         .where(Key.is_frozen.is_(False))
     )
 
@@ -182,11 +182,11 @@ async def execute_bulk_updates(session: AsyncSession, bulk_updates: dict[str, An
 
         to_add = bulk_updates.get("notifications_to_add") or []
         if to_add:
-            await bulk_add_notifications(session, to_add, commit=False)
+            await bulk_add_notifications(session, to_add)
 
         to_delete = bulk_updates.get("notifications_to_delete") or []
         if to_delete:
-            await bulk_delete_notifications(session, to_delete, commit=False)
+            await bulk_delete_notifications(session, to_delete)
 
         if to_add or to_delete:
             logger.info(
@@ -507,9 +507,14 @@ async def notify_expiring_keys(
                 "notification_id": notification_id,
                 "email": email,
             })
+            try:
+                from database.web_notifications import notify_web
+                await notify_web(ctx.session, tg_id=tg_id, type="key_expiry", template_vars={"email": email}, data={"email": email})
+            except Exception as e:
+                logger.warning("[Notifications] Ошибка web-уведомления key_expiry tg_id={}: {}", tg_id, e)
 
-    
-    renew_results: list[tuple[Any, str, bool, Optional[dict], Optional[int]]] = [] 
+
+    renew_results: list[tuple[Any, str, bool, Optional[dict], Optional[int]]] = []
     use_parallel = (
         notify_renew_enabled
         and renew_candidates

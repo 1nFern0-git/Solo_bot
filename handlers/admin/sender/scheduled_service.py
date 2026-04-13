@@ -157,8 +157,9 @@ async def execute_broadcast_payload(payload: dict, bot: Bot | None = None) -> di
             async with async_session_maker() as session:
                 try:
                     await save_blocked_user_ids(session, blocked_ids)
-                except Exception:
-                    pass
+                    await session.commit()
+                except Exception as e:
+                    logger.warning("[Broadcast] Ошибка сохранения blocked_ids: {}", e)
         return {
             "success": True,
             "message": "Broadcast completed",
@@ -186,6 +187,7 @@ async def execute_scheduled_broadcast(broadcast: ScheduledBroadcast, bot: Bot | 
 async def process_due_scheduled_broadcasts_once(bot: Bot, limit: int = 3) -> int:
     async with async_session_maker() as session:
         broadcasts = await claim_due_scheduled_broadcasts(session, limit=limit)
+        await session.commit()
     processed = 0
     for broadcast in broadcasts:
         processed += 1
@@ -196,9 +198,11 @@ async def process_due_scheduled_broadcasts_once(bot: Bot, limit: int = 3) -> int
                     await mark_scheduled_broadcast_sent(session, broadcast.id, result)
                 else:
                     await mark_scheduled_broadcast_failed(session, broadcast.id, result.get("message", "Broadcast failed"))
+                await session.commit()
         except Exception as exc:
             async with async_session_maker() as session:
                 await mark_scheduled_broadcast_failed(session, broadcast.id, str(exc))
+                await session.commit()
     return processed
 
 

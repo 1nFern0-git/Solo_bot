@@ -2,11 +2,13 @@ import asyncio
 import json
 import os
 import time
+
 from importlib import import_module
 from typing import Any
 
 from config import REDIS_URL
 from logger import logger
+
 
 _REDIS_CLIENTS: dict[tuple[int, int], Any] = {}
 _REDIS_UNAVAILABLE_UNTIL = 0.0
@@ -148,6 +150,22 @@ async def cache_incr(key: str, ttl_sec: float) -> int:
         return 1
 
 
+async def cache_incr_checked(key: str, ttl_sec: float) -> tuple[int, bool]:
+    """Возвращает (value, redis_available). redis_available=False значит клиент
+    должен применить fallback-логику (например, in-memory limiter).
+    """
+    client = await _get_redis()
+    if client is None:
+        return 1, False
+    try:
+        value = await client.incr(key)
+        if value == 1:
+            await client.expire(key, max(1, int(ttl_sec)))
+        return int(value), True
+    except Exception:
+        return 1, False
+
+
 async def cache_delete_pattern(pattern: str) -> int:
     client = await _get_redis()
     if client is None:
@@ -266,3 +284,7 @@ async def cache_lmove_batch(source: str, destination: str, count: int) -> list[A
     except Exception as exc:
         logger.warning(f"[Redis] lmove_batch({source}->{destination}) не удался: {exc}")
         return []
+
+
+async def redis_connection_ok() -> bool:
+    return await _get_redis() is not None

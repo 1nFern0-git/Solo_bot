@@ -26,6 +26,7 @@ from bot import bot
 from config import ADMIN_ID
 from database import get_servers
 from database.models import Key, Notification, Server
+from database.access.resolution import resolve_user_optional
 from hooks.processors import process_cluster_balancer
 from logger import logger
 
@@ -89,98 +90,47 @@ async def generate_random_email(
 
 
 async def get_least_loaded_cluster(session: AsyncSession) -> str:
-    servers = await get_servers(session)
-    server_to_cluster = {}
-    cluster_loads = {}
-
-    for cluster_name, cluster_servers in servers.items():
-        cluster_loads[cluster_name] = 0
-        for server in cluster_servers:
-            server_to_cluster[server["server_name"]] = cluster_name
-
-    result = await session.execute(select(Key))
-    keys = result.scalars().all()
-
-    for key in keys:
-        server_id = key.server_id
-        cluster_id = server_to_cluster.get(server_id, server_id)
-        if cluster_id in cluster_loads:
-            cluster_loads[cluster_id] += 1
-
-    available_clusters = {}
-    for cluster_name, cluster_servers in servers.items():
-        enabled_servers = [server for server in cluster_servers if server.get("enabled", True)]
-
-        if not enabled_servers:
-            continue
-
-        available_servers = []
-        for server in enabled_servers:
-            if await check_server_key_limit(server, session):
-                available_servers.append(server)
-
-        if available_servers:
-            available_clusters[cluster_name] = cluster_loads[cluster_name]
-        else:
-            continue
-
-    filtered_clusters = await process_cluster_balancer(available_clusters=available_clusters, session=session)
-    if filtered_clusters:
-        available_clusters = filtered_clusters
-
-    if not available_clusters:
-        logger.warning("❌ Нет доступных кластеров с лимитом ключей!")
-        raise ValueError("⚠️ Сервисы временно недоступны. Попробуйте позже.")
-
-    least_loaded_cluster = min(available_clusters, key=lambda k: (available_clusters[k], k))
-    logger.info(
-        f"Выбран наименее загруженный кластер: {least_loaded_cluster} (загрузка: {available_clusters[least_loaded_cluster]})"
-    )
-    return least_loaded_cluster
+    """Делегирует в services.clusters.select_cluster()."""
+    from services.clusters import select_cluster
+    result = await select_cluster(session)
+    return result.cluster_name
 
 
 async def check_server_key_limit(server_info: dict, session: AsyncSession) -> bool:
-    server_name = server_info.get("server_name")
-    cluster_name = server_info.get("cluster_name")
-    max_keys = server_info.get("max_keys")
+    """Делегирует в services.clusters.check_server_key_limit() с Telegram-callback для уведомлений."""
+    from services.clusters import check_server_key_limit as _svc_check
 
-    if not max_keys:
-        return True
-
-    identifier = cluster_name if cluster_name else server_name
-
-    result = await session.execute(select(func.count()).select_from(Key).where(Key.server_id == identifier))
-    total_keys = result.scalar() or 0
-
-    if total_keys >= max_keys:
-        logger.warning(f"[Key Limit] Сервер {server_name} достиг лимита: {total_keys}/{max_keys}")
-        return False
-
-    usage_percent = total_keys / max_keys
-
-    if usage_percent >= 0.9:
+    async def _notify_admin_capacity(server_name: str, total_keys: int, max_keys: int) -> None:
         notif_key = f"server_warn_{server_name}"
-
-        result = await session.execute(
-            select(Notification).where(Notification.tg_id == 0, Notification.notification_type == notif_key)
-        )
-        already_sent = result.scalar_one_or_none()
-
+        anchor_uid = None
+        if ADMIN_ID:
+            au = await resolve_user_optional(session, int(ADMIN_ID[0]))
+            if au is not None:
+                anchor_uid = au.id
+        already_sent = None
+        if anchor_uid is not None:
+            result = await session.execute(
+                select(Notification).where(
+                    Notification.user_id == anchor_uid,
+                    Notification.notification_type == notif_key,
+                )
+            )
+            already_sent = result.scalar_one_or_none()
         if not already_sent:
             for admin_id in ADMIN_ID:
                 try:
                     await bot.send_message(
                         admin_id,
-                        f"⚠️ Сервер <b>{server_name}</b> почти заполнен ({int(usage_percent * 100)}%)."
+                        f"⚠️ Сервер <b>{server_name}</b> почти заполнен ({int(total_keys / max_keys * 100)}%)."
                         f"\nРекомендуется создать новый для балансировки.",
                     )
                 except Exception:
                     pass
+            if anchor_uid is not None:
+                session.add(Notification(user_id=anchor_uid, notification_type=notif_key))
+                await session.commit()
 
-            session.add(Notification(tg_id=0, notification_type=notif_key))
-            await session.commit()
-
-    return True
+    return await _svc_check(server_info, session, on_capacity_warning=_notify_admin_capacity)
 
 
 async def handle_error(tg_id: int, callback_query: object | None = None, message: str = "") -> None:
@@ -444,15 +394,8 @@ def convert_to_bytes(value: float, unit: str) -> int:
 
 
 async def is_full_remnawave_cluster(cluster_id: str, session: AsyncSession) -> bool:
-    result = await session.execute(select(Server.panel_type).where(Server.cluster_name == cluster_id))
-    panel_types = result.scalars().all()
-
-    if panel_types:
-        return all(pt.lower() == "remnawave" for pt in panel_types)
-
-    result = await session.execute(select(Server.panel_type).where(Server.server_name == cluster_id))
-    panel_type = result.scalar_one_or_none()
-    return panel_type and panel_type.lower() == "remnawave"
+    from services.clusters import is_full_remnawave_cluster as _svc
+    return await _svc(cluster_id, session)
 
 
 def sanitize_key_name(key_name: str) -> str:

@@ -1,6 +1,7 @@
 import pytz
 
 from aiogram import F, Router, types
+from logger import logger
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.types import (
@@ -19,6 +20,7 @@ from database import (
     update_trial,
 )
 from database.models import Admin, Key, ManualBan, Payment, Referral, User
+from database.access.resolution import resolve_user_optional
 from filters.admin import IsAdminFilter
 from handlers.utils import sanitize_key_name
 from utils.csv_export import export_referrals_csv
@@ -216,6 +218,20 @@ async def handle_send_user_message(callback_query: CallbackQuery, state: FSMCont
                 text=text_message,
                 parse_mode="HTML",
             )
+        try:
+            import re
+            from database import async_session_maker
+            from database.web_notifications import notify_web
+            clean = re.sub(r"<[^>]+>", "", text_message or "").strip()
+            lines = clean.split("\n", 1)
+            title = lines[0][:120]
+            body = lines[1].strip()[:300] if len(lines) > 1 else ""
+            async with async_session_maker() as session:
+                await notify_web(session, tg_id=tg_id, type="message", title=title, message=body)
+                await session.commit()
+        except Exception as e:
+            logger.warning("[UserManage] Ошибка web-уведомления для tg_id={}: {}", tg_id, e)
+
         await callback_query.message.edit_text(
             text="✅ Сообщение успешно отправлено.",
             reply_markup=build_editor_kb(tg_id),
@@ -291,7 +307,7 @@ async def restore_trials(callback_query: types.CallbackQuery, session: AsyncSess
         update(User)
         .where(
             User.trial == 1,
-            ~exists(select(Key.tg_id).where(Key.tg_id == User.tg_id)),
+            ~exists(select(Key.user_id).where(Key.user_id == User.id)),
         )
         .values(trial=0)
     )
@@ -340,9 +356,16 @@ async def process_user_search(
 ) -> None:
     await state.clear()
 
-    stmt_user = select(User.username, User.balance, User.created_at, User.updated_at, User.trial).where(
-        User.tg_id == tg_id
-    )
+    u = await resolve_user_optional(session, tg_id)
+    if u is None:
+        await message.answer(
+            text="🚫 Пользователь с указанным ID не найден!",
+            reply_markup=build_admin_back_kb(),
+        )
+        return
+    uid = u.id
+
+    stmt_user = select(User.username, User.balance, User.created_at, User.updated_at, User.trial).where(User.id == uid)
     result_user = await session.execute(stmt_user)
     user_data = result_user.first()
 
@@ -360,40 +383,43 @@ async def process_user_search(
 
     trial_status = "использован" if trial == 1 else "доступен"
 
-    stmt_ref_count = select(func.count()).select_from(Referral).where(Referral.referrer_tg_id == tg_id)
+    stmt_ref_count = select(func.count()).select_from(Referral).where(Referral.referrer_user_id == uid)
     result_ref = await session.execute(stmt_ref_count)
     referral_count = result_ref.scalar_one()
 
-    stmt_ref_by = select(Referral.referrer_tg_id).where(Referral.referred_tg_id == tg_id).limit(1)
+    stmt_ref_by = select(Referral.referrer_user_id).where(Referral.referred_user_id == uid).limit(1)
     result_ref_by = await session.execute(stmt_ref_by)
-    referrer_tg_id = result_ref_by.scalar_one_or_none()
+    referrer_uid = result_ref_by.scalar_one_or_none()
 
     referrer_text = None
-    if referrer_tg_id:
-        stmt_referrer = select(User.username).where(User.tg_id == referrer_tg_id)
+    if referrer_uid:
+        stmt_referrer = select(User.username, User.tg_id).where(User.id == referrer_uid)
         result_referrer = await session.execute(stmt_referrer)
-        ref_username = result_referrer.scalar_one_or_none()
+        ref_row = result_referrer.first()
+        ref_username = ref_row[0] if ref_row else None
+        ref_tg = ref_row[1] if ref_row else None
+        ref_label = int(ref_tg) if ref_tg is not None else int(referrer_uid)
         if ref_username:
-            referrer_text = f"🤝 Пригласил: @{ref_username} ({referrer_tg_id})"
+            referrer_text = f"🤝 Пригласил: @{ref_username} ({ref_label})"
         else:
-            referrer_text = f"🤝 Пригласил: {referrer_tg_id}"
+            referrer_text = f"🤝 Пригласил: {ref_label}"
 
     stmt = select(
         func.count(Payment.id),
         func.coalesce(func.sum(Payment.amount), 0),
     ).where(
         Payment.status == "success",
-        Payment.tg_id == tg_id,
+        Payment.user_id == uid,
         Payment.payment_system != "admin",
     )
     result = await session.execute(stmt)
     topups_amount, topups_sum = result.one_or_none() or (0, 0)
 
-    stmt_keys = select(Key).where(Key.tg_id == tg_id)
+    stmt_keys = select(Key).where(Key.user_id == uid)
     result_keys = await session.execute(stmt_keys)
     key_records = result_keys.scalars().all()
 
-    stmt_ban = select(ManualBan).where(ManualBan.tg_id == tg_id).limit(1)
+    stmt_ban = select(ManualBan).where(ManualBan.user_id == uid).limit(1)
     result_ban = await session.execute(stmt_ban)
     ban_record = result_ban.scalar_one_or_none()
 

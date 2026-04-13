@@ -24,6 +24,7 @@ from database import (
     update_trial,
 )
 from database.models import Key
+from database.access.resolution import notify_telegram_chat_id, resolve_user_optional
 from handlers.buttons import (
     CONNECT_DEVICE,
     MAIN_MENU,
@@ -32,10 +33,10 @@ from handlers.buttons import (
     SUPPORT,
     TV_BUTTON,
 )
-from handlers.keys.operations import create_key_on_cluster
+from services.operations import create_key_on_cluster
 from handlers.keys.utils import build_key_callback
 from database import get_vless_enabled
-from handlers.tariffs.tariff_display import (
+from services.tariffs.tariff_display import (
     build_key_created_message,
     get_effective_limits_for_key,
     resolve_price_to_charge,
@@ -71,6 +72,7 @@ async def key_cluster_mode(
     selected_traffic_gb: int | None = None,
     selected_price_rub: int | None = None,
     skip_balance_charge: bool | None = None,
+    is_trial: bool | None = None,
 ):
     target_message = None
     safe_to_edit = False
@@ -81,6 +83,8 @@ async def key_cluster_mode(
     elif isinstance(message_or_query, Message):
         target_message = message_or_query
         safe_to_edit = True
+
+    tg_notify = await notify_telegram_chat_id(session, tg_id)
 
     while True:
         key_name = await generate_random_email(session=session)
@@ -93,8 +97,19 @@ async def key_cluster_mode(
     expiry_timestamp = int(expiry_time.timestamp() * 1000)
 
     try:
+        owner = await resolve_user_optional(session, tg_id)
+        if owner is None:
+            error_message = "Пользователь не найден."
+            if safe_to_edit:
+                await edit_or_send_message(target_message=target_message, text=error_message, reply_markup=None)
+            elif tg_notify is not None:
+                await bot.send_message(chat_id=tg_notify, text=error_message)
+            return
+        uid = owner.id
+
         data = await state.get_data() if state else {}
-        is_trial = data.get("is_trial", False)
+        if is_trial is None:
+            is_trial = data.get("is_trial", False)
         skip_balance_charge = bool(skip_balance_charge)
 
         if selected_device_limit is None:
@@ -134,8 +149,8 @@ async def key_cluster_mode(
                         text=error_message,
                         reply_markup=None,
                     )
-                else:
-                    await bot.send_message(chat_id=tg_id, text=error_message)
+                elif tg_notify is not None:
+                    await bot.send_message(chat_id=tg_notify, text=error_message)
                 return
 
         if device_limit is None:
@@ -165,7 +180,7 @@ async def key_cluster_mode(
 
         await session.execute(
             update(Key)
-            .where(Key.tg_id == tg_id, Key.email == email)
+            .where(Key.user_id == uid, Key.email == email)
             .values(
                 selected_device_limit=selected_device_limit,
                 selected_traffic_limit=selected_traffic_gb,
@@ -198,8 +213,8 @@ async def key_cluster_mode(
                 text=error_message,
                 reply_markup=None,
             )
-        else:
-            await bot.send_message(chat_id=tg_id, text=error_message)
+        elif tg_notify is not None:
+            await bot.send_message(chat_id=tg_notify, text=error_message)
         return
 
     vless_enabled = False
@@ -250,19 +265,23 @@ async def key_cluster_mode(
     builder.row(InlineKeyboardButton(text=SUPPORT, url=SUPPORT_CHAT_URL))
     builder.row(InlineKeyboardButton(text=MAIN_MENU, callback_data="profile"))
 
-    if await process_intercept_key_creation_message(
-        chat_id=tg_id,
+    if tg_notify is not None and await process_intercept_key_creation_message(
+        chat_id=tg_notify,
         session=session,
         target_message=message_or_query,
     ):
         return
 
-    hook_commands = await process_key_creation_complete(
-        chat_id=tg_id,
-        admin=False,
-        session=session,
-        email=email,
-        key_name=key_name,
+    hook_commands = (
+        await process_key_creation_complete(
+            chat_id=tg_notify,
+            admin=False,
+            session=session,
+            email=email,
+            key_name=key_name,
+        )
+        if tg_notify is not None
+        else []
     )
     if hook_commands:
         builder = insert_hook_buttons(builder, hook_commands)
@@ -283,9 +302,9 @@ async def key_cluster_mode(
             reply_markup=builder.as_markup(),
             media_path=default_media_path,
         )
-    else:
+    elif tg_notify is not None:
         await bot.send_message(
-            chat_id=tg_id,
+            chat_id=tg_notify,
             text=key_message_text,
             reply_markup=builder.as_markup(),
         )

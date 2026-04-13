@@ -3,10 +3,12 @@ import os
 import re
 import subprocess
 import sys
-from datetime import datetime, timezone, timedelta
+
+from datetime import datetime, timedelta, timezone
 from typing import Literal
 
 import psutil
+
 from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -23,10 +25,11 @@ from api.v2.schemas.audit import (
 )
 from audit import drain_audit_redis_to_db, get_audit_funnel, get_audit_stats, list_audit_events
 from config import API_TOKEN, BOT_SERVICE
-from database import async_session_maker
 from core.bootstrap import MANAGEMENT_CONFIG
 from core.executor import run_io
+from core.redis_cache import cache_incr
 from core.settings.management_config import update_management_config
+from database import async_session_maker
 from database.models import Key, ScheduledBroadcast, Server, User
 from database.scheduled_broadcasts import (
     cancel_scheduled_broadcast,
@@ -48,7 +51,16 @@ from handlers.admin.sender.scheduled_service import (
 from logger import logger
 from utils.backup import backup_database
 
+
 router = APIRouter()
+
+
+async def _admin_rate_limit(request_or_identity, action: str, max_calls: int, window_sec: int) -> None:
+    identity_id = getattr(request_or_identity, "id", "unknown")
+    key = f"admin_rl:{action}:{identity_id}"
+    count = await cache_incr(key, window_sec)
+    if count > max_calls:
+        raise HTTPException(status_code=429, detail="Слишком много запросов. Попробуйте позже.")
 
 
 class MaintenanceUpdate(BaseModel):
@@ -174,6 +186,7 @@ async def restart_bot(
     identity=Depends(verify_identity_admin),
 ):
     """Запуск перезапуска бота в фоне."""
+    await _admin_rate_limit(identity, "restart", max_calls=3, window_sec=60)
     background.add_task(_restart_bot)
     return {"status": "restarting"}
 
@@ -185,6 +198,7 @@ async def change_domain(
     session: AsyncSession = Depends(get_session),
 ):
     """Массовая замена домена в ключах и remnawave_link."""
+    await _admin_rate_limit(identity, "change_domain", max_calls=3, window_sec=300)
     domain = payload.domain.strip()
     if not domain or " " in domain or not re.fullmatch(r"[a-zA-Z0-9.-]+", domain):
         raise HTTPException(status_code=400, detail="Invalid domain")
@@ -211,11 +225,12 @@ async def restore_trials(
     session: AsyncSession = Depends(get_session),
 ):
     """Сбрасывает trial=0 у пользователей без ключей."""
+    await _admin_rate_limit(identity, "restore_trials", max_calls=3, window_sec=300)
     stmt = (
         update(User)
         .where(
             User.trial == 1,
-            ~exists(select(Key.tg_id).where(Key.tg_id == User.tg_id)),
+            ~exists(select(Key.user_id).where(Key.user_id == User.id)),
         )
         .values(trial=0)
     )
@@ -227,6 +242,7 @@ async def restore_trials(
 @router.post("/backup")
 async def trigger_backup(identity=Depends(verify_identity_admin)):
     """Запуск бэкапа БД в фоне."""
+    await _admin_rate_limit(identity, "backup", max_calls=2, window_sec=300)
 
     async def _run_backup() -> None:
         exception = await backup_database()
@@ -357,7 +373,7 @@ async def post_audit_drain(identity=Depends(verify_identity_admin_short)):
         return {"success": True, "drained": count}
     except Exception as exc:
         logger.warning("audit-drain failed: {}", exc)
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail="Внутренняя ошибка при дренаже аудита") from exc
 
 
 @router.post("/broadcast")
@@ -366,6 +382,7 @@ async def launch_broadcast(
     identity=Depends(verify_identity_admin_short),
 ):
     """Запуск рассылки по выбранной аудитории. Сессия БД не держится на время рассылки."""
+    await _admin_rate_limit(identity, "broadcast", max_calls=5, window_sec=300)
     try:
         prepared = prepare_broadcast_payload(
             send_to=payload.send_to,
@@ -475,14 +492,16 @@ async def send_broadcast_schedule_now(
     identity=Depends(verify_identity_admin_short),
     session: AsyncSession = Depends(get_session),
 ):
+    await _admin_rate_limit(identity, "broadcast_now", max_calls=5, window_sec=300)
     item = await start_scheduled_broadcast(session, broadcast_id)
     if item is None:
         raise HTTPException(status_code=409, detail="Scheduled broadcast can no longer be sent now")
     try:
         result = await execute_scheduled_broadcast(item, bot=_get_broadcast_bot())
     except Exception as exc:
+        logger.error("[Broadcast] send-now failed for {}: {}", broadcast_id, exc)
         await mark_scheduled_broadcast_failed(session, broadcast_id, str(exc))
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail="Ошибка при выполнении рассылки") from exc
     if result.get("success"):
         item = await mark_scheduled_broadcast_sent(session, broadcast_id, result)
     else:

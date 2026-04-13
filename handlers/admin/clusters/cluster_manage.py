@@ -10,7 +10,7 @@ from database import get_servers, update_key_expiry
 from database.models import Key, Server, Tariff
 from filters.admin import IsAdminFilter
 from middlewares.session import release_session_early
-from handlers.keys.operations import renew_key_in_cluster
+from services.operations import renew_key_in_cluster
 from logger import logger
 
 from ..panel.keyboard import build_admin_back_kb
@@ -45,7 +45,7 @@ async def handle_clusters_manage(
     result = await session.execute(select(Server.server_name).where(Server.cluster_name == cluster_name))
     server_names = [row[0] for row in result.all()]
     result = await session.execute(
-        select(func.count(func.distinct(Key.tg_id))).where(
+        select(func.count(func.distinct(Key.user_id))).where(
             (Key.server_id == cluster_name) | (Key.server_id.in_(server_names))
         )
     )

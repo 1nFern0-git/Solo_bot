@@ -1,11 +1,13 @@
-from typing import Iterable, List, Any
+from collections.abc import Iterable
+from typing import Any, List
+
 from aiogram.types import InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from handlers.texts import FAST_PAY_NOT_ENOUGH
-from handlers.buttons import RUB_CURRENCY, USD_CURRENCY, STARS, MAIN_MENU
 from config import TRIBUTE_LINK
-from .currency_rates import format_for_user
+from handlers.buttons import MAIN_MENU, RUB_CURRENCY, STARS, USD_CURRENCY
+from handlers.texts import FAST_PAY_NOT_ENOUGH
+from services.payments.currency_rates import format_for_user
 
 
 def build_currency_choice_kb(
@@ -41,7 +43,7 @@ async def shortfall_lead_text(
     *,
     force_currency: str | None = None,
 ) -> str:
-    if not isinstance(required_amount, (int, float)) or required_amount <= 0:
+    if not isinstance(required_amount, int | float) or required_amount <= 0:
         return "💳"
     amount_txt = await format_for_user(
         session, tg_id, float(required_amount), language_code, force_currency=force_currency
@@ -53,9 +55,9 @@ def filter_providers_by_currency(
     currency: str,
     providers: Iterable[str],
     rub_providers: Iterable[str],
-) -> List[str]:
+) -> list[str]:
     rub_set = {p.upper() for p in rub_providers}
-    out: List[str] = []
+    out: list[str] = []
     for p in providers:
         up = p.upper()
         if currency == "RUB":

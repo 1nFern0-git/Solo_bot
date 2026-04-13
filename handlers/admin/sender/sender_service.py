@@ -214,6 +214,7 @@ class BroadcastService:
             else:
                 async with async_session_maker() as session:
                     await save_blocked_user_ids(session, list(self.blocked_users))
+                    await session.commit()
         except Exception as e:
             logger.error(f"❌ Ошибка при сохранении заблокированных пользователей: {e}")
             if self._session is not None:
@@ -334,4 +335,36 @@ class BroadcastService:
             f"скорость: {avg_speed:.1f} сообщений/сек, время: {total_duration:.1f} сек"
         )
 
+        await self._create_web_notifications(messages)
+
         return stats
+
+    async def _create_web_notifications(self, messages: list[dict]) -> None:
+        """Создаёт web-уведомления для всех получателей рассылки."""
+        if not messages:
+            return
+        try:
+            from database.web_notifications import notify_web
+            text = messages[0].get("text", "")
+            import re
+            clean = re.sub(r"<[^>]+>", "", text).strip()
+            lines = clean.split("\n", 1)
+            title = (lines[0][:120] + "…") if len(lines[0]) > 120 else lines[0]
+            body = lines[1].strip()[:300] if len(lines) > 1 else ""
+
+            session = self._session
+            if session is None:
+                from database import async_session_maker
+                async with async_session_maker() as session:
+                    for msg in messages:
+                        tg_id = msg.get("tg_id")
+                        if tg_id and tg_id not in self.blocked_users:
+                            await notify_web(session, tg_id=tg_id, type="broadcast", title=title, message=body)
+                    await session.commit()
+            else:
+                for msg in messages:
+                    tg_id = msg.get("tg_id")
+                    if tg_id and tg_id not in self.blocked_users:
+                        await notify_web(session, tg_id=tg_id, type="broadcast", title=title, message=body)
+        except Exception as e:
+            logger.warning(f"[Broadcast] Ошибка создания web-уведомлений: {e}")

@@ -81,7 +81,11 @@ async def handle_admin_file_upload(message: Message, state: FSMContext):
         base_dir = os.path.abspath(".")
 
     await run_io(lambda: os.makedirs(base_dir, exist_ok=True))
-    dest_path = os.path.join(base_dir, file_name)
+    safe_name = os.path.basename(file_name)
+    dest_path = os.path.join(base_dir, safe_name)
+    if not os.path.abspath(dest_path).startswith(base_dir + os.sep):
+        await message.answer("❌ Недопустимое имя файла.")
+        return
 
     try:
         await message.bot.download(document, destination=dest_path)

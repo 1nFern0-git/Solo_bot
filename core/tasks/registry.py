@@ -1,7 +1,10 @@
 from core.tasks.cron_tasks import (
     AUDIT_DRAIN_TRIGGER,
     DAILY_STATS_REPORT_TRIGGER,
+    EXPIRED_GIFTS_CLEANUP_TRIGGER,
     STALE_PAYMENTS_SWEEP_TRIGGER,
+    cleanup_expired_gifts_job,
+    cleanup_expired_gifts_process_runner,
     scheduled_audit_drain,
     scheduled_audit_drain_process_runner,
     scheduled_stats_report,
@@ -96,6 +99,20 @@ def register_periodic_tasks() -> None:
             "sweep_stale_payments",
             sweep_stale_payments_job,
             STALE_PAYMENTS_SWEEP_TRIGGER,
+        )
+
+    if process_budget > 0:
+        periodic_task_manager.register_cron_task(
+            "cleanup_expired_gifts",
+            cleanup_expired_gifts_process_runner,
+            EXPIRED_GIFTS_CLEANUP_TRIGGER,
+            execution_mode="process",
+        )
+    else:
+        periodic_task_manager.register_cron_task(
+            "cleanup_expired_gifts",
+            cleanup_expired_gifts_job,
+            EXPIRED_GIFTS_CLEANUP_TRIGGER,
         )
 
     _TASKS_REGISTERED = True

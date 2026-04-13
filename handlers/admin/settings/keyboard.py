@@ -80,8 +80,12 @@ def build_settings_kb() -> InlineKeyboardMarkup:
         text="Тарификация",
         callback_data=AdminPanelCallback(action="settings_tariffs").pack(),
     )
+    builder.button(
+        text="🌐 Сайт",
+        callback_data=AdminPanelCallback(action="settings_web").pack(),
+    )
 
-    builder.adjust(2, 2, 2)
+    builder.adjust(2, 2, 2, 1)
     builder.row(build_admin_back_btn())
 
     return builder.as_markup()

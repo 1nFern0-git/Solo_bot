@@ -6,6 +6,7 @@ from api.depends import get_session, verify_admin_token
 from api.v1.routes.base_crud import generate_crud_router
 from api.v1.schemas import GiftBase, GiftResponse, GiftUpdate, GiftUsageResponse
 from database.models import Admin, Gift, GiftUsage
+from database.access.resolution import resolve_user_optional
 
 
 router = APIRouter()
@@ -29,7 +30,10 @@ async def get_gifts_by_tg_id(
     admin: Admin = Depends(verify_admin_token),
     session: AsyncSession = Depends(get_session),
 ):
-    result = await session.execute(select(Gift).where(Gift.sender_tg_id == tg_id))
+    u = await resolve_user_optional(session, tg_id)
+    if u is None:
+        raise HTTPException(status_code=404, detail="Gifts not found")
+    result = await session.execute(select(Gift).where(Gift.sender_user_id == u.id))
     gifts = result.scalars().all()
     if not gifts:
         raise HTTPException(status_code=404, detail="Gifts not found")

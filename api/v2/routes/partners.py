@@ -1,14 +1,31 @@
 import csv
+from base64 import b64encode
 from datetime import datetime
-from io import StringIO
+from io import BytesIO, StringIO
 import re
+from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Depends, Path, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
+import qrcode
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.depends import get_session, verify_identity_admin
+from api.depends import get_request_actor, get_session, verify_identity_admin, verify_identity_token
+from api.v2.schemas.web_public import (
+    PartnerApplyRequest,
+    PartnerApplyResponse,
+    PartnerConditionsResponse,
+    PartnerQrResponse,
+    PartnerTopEntryResponse,
+    PartnerTopResponse,
+    PartnerPayoutEntryResponse,
+    PartnerPayoutHistoryResponse,
+    PartnerPayoutRequestCreate,
+    PartnerPayoutRequestResponse,
+)
+from database import identities as idb
+from utils.referral_codes import decode_partner_code, encode_partner_code
 
 try:
     from modules.partner_program.settings import PARTNER_BONUS_PERCENTAGES
@@ -42,6 +59,451 @@ def _row_dt_iso(value) -> str | None:
     if isinstance(value, datetime):
         return value.isoformat()
     return None
+
+
+def _resolve_public_base_url(request: Request) -> str:
+    origin = str(request.headers.get("origin") or "").strip()
+    if origin.startswith("http://") or origin.startswith("https://"):
+        return origin.rstrip("/")
+    referer = str(request.headers.get("referer") or request.headers.get("referrer") or "").strip()
+    if referer.startswith("http://") or referer.startswith("https://"):
+        parsed = urlsplit(referer)
+        if parsed.scheme and parsed.netloc:
+            return f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
+    forwarded_host = str(request.headers.get("x-forwarded-host") or "").strip()
+    host = forwarded_host or str(request.headers.get("host") or "").strip()
+    forwarded_proto = str(request.headers.get("x-forwarded-proto") or "").split(",", 1)[0].strip().lower()
+    scheme = forwarded_proto if forwarded_proto in {"http", "https"} else request.url.scheme
+    if host:
+        return f"{scheme}://{host}".rstrip("/")
+    return str(request.base_url).rstrip("/")
+
+
+async def _ensure_partner_code(session: AsyncSession, user_id: int, raw_code: str | None) -> str:
+    code = str(raw_code or "").strip()
+    if code and not code.isdigit() and not code.startswith("r1_"):
+        return code
+    generated = encode_partner_code(int(user_id))
+    try:
+        await session.execute(
+            text("UPDATE users SET partner_code = :code WHERE id = :id"),
+            {"code": generated, "id": int(user_id)},
+        )
+        await session.flush()
+    except Exception:
+        pass
+    return generated
+
+
+async def _resolve_partner_user(session: AsyncSession, request: Request, identity) -> tuple[int, int]:
+    actor = get_request_actor(request)
+    billing_user_id = actor.billing_user_id if actor and actor.billing_user_id is not None else None
+    if billing_user_id is None:
+        billing_user_id = await idb.ensure_billing_user_for_identity(session, identity)
+    row = (
+        await session.execute(
+            text("SELECT id, tg_id FROM users WHERE id = :user_id LIMIT 1"),
+            {"user_id": int(billing_user_id)},
+        )
+    ).first()
+    if row is None or row[1] is None:
+        raise HTTPException(status_code=400, detail="Партнерский профиль недоступен")
+    return int(row[0]), int(row[1])
+
+
+async def _resolve_referrer_by_partner_code(session: AsyncSession, partner_code: str) -> tuple[int, int] | None:
+    code = str(partner_code or "").strip()
+    if not code:
+        return None
+    by_code_row = (
+        await session.execute(
+            text(
+                """
+                SELECT id, tg_id
+                FROM users
+                WHERE lower(COALESCE(partner_code, '')) = lower(:code)
+                LIMIT 1
+                """
+            ),
+            {"code": code},
+        )
+    ).first()
+    if by_code_row is not None:
+        user_id = int(by_code_row[0])
+        tg_id = int(by_code_row[1] if by_code_row[1] is not None else by_code_row[0])
+        return user_id, tg_id
+    decoded = decode_partner_code(code)
+    if decoded is None:
+        return None
+    by_id_row = (
+        await session.execute(
+            text("SELECT id, tg_id FROM users WHERE id = :id LIMIT 1"),
+            {"id": int(decoded)},
+        )
+    ).first()
+    if by_id_row is not None:
+        user_id = int(by_id_row[0])
+        tg_id = int(by_id_row[1] if by_id_row[1] is not None else by_id_row[0])
+        return user_id, tg_id
+    by_tg_row = (
+        await session.execute(
+            text("SELECT id, tg_id FROM users WHERE tg_id = :tg_id LIMIT 1"),
+            {"tg_id": int(decoded)},
+        )
+    ).first()
+    if by_tg_row is not None:
+        user_id = int(by_tg_row[0])
+        tg_id = int(by_tg_row[1] if by_tg_row[1] is not None else by_tg_row[0])
+        return user_id, tg_id
+    return None
+
+
+@router.post("/apply", response_model=PartnerApplyResponse)
+async def partner_apply(
+    body: PartnerApplyRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    identity=Depends(verify_identity_token),
+):
+    joined_user_id, joined_tg_id = await _resolve_partner_user(session, request, identity)
+    code_value = str(body.partner_code or "").strip()
+    referrer_user_id: int | None = None
+    referrer_tg_id: int | None = None
+    if code_value:
+        resolved = await _resolve_referrer_by_partner_code(session, code_value)
+        if resolved is not None:
+            referrer_user_id, referrer_tg_id = resolved
+    if referrer_tg_id is None and body.partner_tg_id is not None:
+        referrer_tg_id = int(body.partner_tg_id)
+        referrer_user_id_row = (
+            await session.execute(
+                text("SELECT id FROM users WHERE tg_id = :tg_id LIMIT 1"),
+                {"tg_id": int(referrer_tg_id)},
+            )
+        ).first()
+        if referrer_user_id_row is not None:
+            referrer_user_id = int(referrer_user_id_row[0])
+    if referrer_tg_id is None:
+        raise HTTPException(status_code=400, detail="Партнерский код не найден")
+    if int(referrer_tg_id) == int(joined_tg_id):
+        raise HTTPException(status_code=400, detail="Нельзя применить свой партнерский код")
+    already_row = (
+        await session.execute(
+            text("SELECT partner_tg_id FROM partners WHERE joined_tg_id = :joined_tg_id LIMIT 1"),
+            {"joined_tg_id": int(joined_tg_id)},
+        )
+    ).first()
+    if already_row is not None and already_row[0] is not None:
+        raise HTTPException(status_code=409, detail="Партнер уже привязан")
+    await session.execute(
+        text(
+            """
+            INSERT INTO partners (partner_tg_id, joined_tg_id)
+            VALUES (:partner_tg_id, :joined_tg_id)
+            """
+        ),
+        {"partner_tg_id": int(referrer_tg_id), "joined_tg_id": int(joined_tg_id)},
+    )
+    await session.commit()
+    return PartnerApplyResponse(
+        ok=True,
+        message="Партнерский код применен",
+        partner_code=code_value,
+        partner_user_id=int(referrer_user_id or 0),
+        partner_tg_id=int(referrer_tg_id),
+        joined_user_id=int(joined_user_id),
+        joined_tg_id=int(joined_tg_id),
+    )
+
+
+@router.get("/qr", response_model=PartnerQrResponse)
+async def partner_qr(
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    identity=Depends(verify_identity_token),
+):
+    user_id, _ = await _resolve_partner_user(session, request, identity)
+    code_row = (
+        await session.execute(
+            text("SELECT partner_code FROM users WHERE id = :id LIMIT 1"),
+            {"id": int(user_id)},
+        )
+    ).first()
+    partner_code = await _ensure_partner_code(session, int(user_id), code_row[0] if code_row else None)
+    base_url = _resolve_public_base_url(request)
+    partner_link = f"{base_url}/partner/{partner_code}"
+    qr = qrcode.QRCode(version=1, box_size=10, border=4)
+    qr.add_data(partner_link)
+    qr.make(fit=True)
+    image = qr.make_image(fill_color="black", back_color="white")
+    png_buffer = BytesIO()
+    image.save(png_buffer, format="PNG")
+    image_data = b64encode(png_buffer.getvalue()).decode("ascii")
+    return PartnerQrResponse(
+        ok=True,
+        link=partner_link,
+        image_data_url=f"data:image/png;base64,{image_data}",
+    )
+
+
+@router.get("/top", response_model=PartnerTopResponse)
+async def partner_top(
+    request: Request,
+    limit: int = Query(5, ge=1, le=20),
+    session: AsyncSession = Depends(get_session),
+    identity=Depends(verify_identity_token),
+):
+    _, joined_tg_id = await _resolve_partner_user(session, request, identity)
+    user_referred_count_row = (
+        await session.execute(
+            text(
+                """
+                SELECT COUNT(DISTINCT joined_tg_id)
+                FROM partners
+                WHERE partner_tg_id = :partner_tg_id
+                """
+            ),
+            {"partner_tg_id": int(joined_tg_id)},
+        )
+    ).first()
+    user_referred_count = int(user_referred_count_row[0] or 0) if user_referred_count_row else 0
+    user_position: int | None = None
+    if user_referred_count > 0:
+        user_position_row = (
+            await session.execute(
+                text(
+                    """
+                    SELECT COUNT(*) + 1
+                    FROM (
+                        SELECT partner_tg_id, COUNT(DISTINCT joined_tg_id) AS referred_count
+                        FROM partners
+                        WHERE partner_tg_id IS NOT NULL
+                        GROUP BY partner_tg_id
+                    ) ranked
+                    WHERE ranked.referred_count > :referred_count
+                    """
+                ),
+                {"referred_count": int(user_referred_count)},
+            )
+        ).first()
+        user_position = int(user_position_row[0] or 1) if user_position_row else 1
+    top_rows = (
+        await session.execute(
+            text(
+                """
+                SELECT
+                    COALESCE(u.id, 0) AS partner_user_id,
+                    p.partner_tg_id AS partner_tg_id,
+                    COUNT(DISTINCT p.joined_tg_id) AS referred_count
+                FROM partners p
+                LEFT JOIN users u ON u.tg_id = p.partner_tg_id
+                WHERE p.partner_tg_id IS NOT NULL
+                GROUP BY p.partner_tg_id, u.id
+                ORDER BY referred_count DESC, p.partner_tg_id ASC
+                LIMIT :limit
+                """
+            ),
+            {"limit": int(limit)},
+        )
+    ).all()
+    top: list[PartnerTopEntryResponse] = []
+    for index, row in enumerate(top_rows, 1):
+        partner_user_id = int(row[0] or 0)
+        partner_tg_id = int(row[1] or 0)
+        referred_count = int(row[2] or 0)
+        if partner_user_id > 0:
+            display_id = encode_partner_code(partner_user_id)
+        else:
+            tg_tail = str(partner_tg_id)
+            display_id = f"p_{tg_tail[:2]}***{tg_tail[-2:]}" if tg_tail else "p_***"
+        top.append(
+            PartnerTopEntryResponse(
+                position=index,
+                partner_user_id=partner_user_id,
+                referred_count=referred_count,
+                display_id=display_id,
+            )
+        )
+    return PartnerTopResponse(
+        user_referred_count=user_referred_count,
+        user_position=user_position,
+        top=top,
+    )
+
+
+@router.get("/conditions", response_model=PartnerConditionsResponse)
+async def partner_conditions(
+    session: AsyncSession = Depends(get_session),
+    identity=Depends(verify_identity_token),
+):
+    try:
+        from modules.partner_program import settings as partner_settings
+    except Exception:
+        partner_settings = None
+    mode = str(getattr(partner_settings, "REFERRAL_REWARD_MODE", "percent_only") or "percent_only")
+    percent_levels_raw = getattr(partner_settings, "PARTNER_BONUS_PERCENTAGES", {}) or {}
+    flat_levels_raw = getattr(partner_settings, "PARTNER_FLAT_BONUSES", {}) or {}
+    min_payout = float(getattr(partner_settings, "MIN_PARTNER_PAYOUT", 0) or 0)
+    custom_amount_enabled = bool(getattr(partner_settings, "ENABLE_CUSTOM_WITHDRAW_AMOUNT", False))
+    method_map = [
+        ("ENABLE_PAYOUT_CARD", "Карта"),
+        ("ENABLE_PAYOUT_SBP", "СБП"),
+        ("ENABLE_PAYOUT_USDT", "USDT"),
+        ("ENABLE_PAYOUT_TON", "TON"),
+    ]
+    payout_methods = [
+        title for key, title in method_map if bool(getattr(partner_settings, key, False))
+    ] if partner_settings else []
+    level_lines: list[str] = []
+    all_levels = sorted({int(k) for k in [*percent_levels_raw.keys(), *flat_levels_raw.keys()] if str(k).isdigit()})
+    for level in all_levels:
+        parts: list[str] = []
+        if level in percent_levels_raw:
+            try:
+                parts.append(f"{float(percent_levels_raw[level]) * 100:.0f}%")
+            except Exception:
+                pass
+        if level in flat_levels_raw:
+            try:
+                parts.append(f"{float(flat_levels_raw[level]):.0f} RUB")
+            except Exception:
+                pass
+        if parts:
+            level_lines.append(f"{level} уровень: {' + '.join(parts)}")
+    if not level_lines:
+        level_lines = ["1 уровень: бонус определяется настройками проекта"]
+    mode_labels = {
+        "percent_only": "Процент с каждого пополнения приглашенного",
+        "flat_only": "Фиксированный бонус за первую оплату приглашенного",
+        "flat_plus_percent": "Фиксированный бонус за первую оплату и процент с пополнений",
+    }
+    rules = [
+        "Вознаграждение начисляется только после успешной оплаты приглашенного пользователя.",
+        "Самореферал и самопартнерство недоступны.",
+        f"Минимальная сумма вывода: {min_payout:.0f} RUB." if min_payout > 0 else "Вывод доступен по правилам проекта.",
+    ]
+    if payout_methods:
+        rules.append(f"Доступные способы вывода: {', '.join(payout_methods)}.")
+    examples = [
+        "Пример: приглашенный пополнил на 1000 RUB, а ставка 15% — вы получаете 150 RUB.",
+        "Пример: приглашенный сделал несколько пополнений, бонус считается по каждой успешной операции.",
+    ]
+    return PartnerConditionsResponse(
+        title="Условия партнерской программы",
+        summary="Актуальные условия и режим начислений для партнеров.",
+        bonus_mode=mode,
+        bonus_mode_label=mode_labels.get(mode, mode_labels["percent_only"]),
+        level_lines=level_lines,
+        rules=rules,
+        examples=examples,
+        min_payout_rub=min_payout,
+        payout_methods=payout_methods,
+        custom_amount_enabled=custom_amount_enabled,
+    )
+
+
+@router.get("/payouts/me", response_model=PartnerPayoutHistoryResponse)
+async def partner_payouts_me(
+    request: Request,
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    session: AsyncSession = Depends(get_session),
+    identity=Depends(verify_identity_token),
+):
+    _, tg_id = await _resolve_partner_user(session, request, identity)
+    count_sql = text("SELECT COUNT(*) FROM payout_requests WHERE tg_id = :tg_id")
+    rows_sql = text(
+        """
+        SELECT id, amount, status, created_at, method, destination
+        FROM payout_requests
+        WHERE tg_id = :tg_id
+        ORDER BY created_at DESC, id DESC
+        LIMIT :limit OFFSET :offset
+        """
+    )
+    total = int((await session.scalar(count_sql, {"tg_id": tg_id})) or 0)
+    rows = (
+        await session.execute(rows_sql, {"tg_id": tg_id, "limit": int(limit), "offset": int(offset)})
+    ).fetchall()
+    items = [
+        PartnerPayoutEntryResponse(
+            id=int(row[0]),
+            amount_rub=float(row[1] or 0.0),
+            status=str(row[2] or ""),
+            created_at=_row_dt_iso(row[3]),
+            method=row[4] or None,
+            destination=row[5] or None,
+        )
+        for row in rows
+    ]
+    return PartnerPayoutHistoryResponse(total=total, items=items)
+
+
+@router.post("/payouts/me", response_model=PartnerPayoutRequestResponse)
+async def partner_create_payout_request(
+    body: PartnerPayoutRequestCreate,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    identity=Depends(verify_identity_token),
+):
+    user_id, tg_id = await _resolve_partner_user(session, request, identity)
+    row = (
+        await session.execute(
+            text("SELECT COALESCE(partner_balance, 0), payout_method, card_number FROM users WHERE id = :id"),
+            {"id": user_id},
+        )
+    ).first()
+    balance = float(row[0] or 0.0) if row else 0.0
+    requested = float(body.amount_rub)
+    if requested <= 0:
+        raise HTTPException(status_code=400, detail="Сумма должна быть больше нуля")
+    try:
+        from modules.partner_program.settings import ENABLE_CUSTOM_WITHDRAW_AMOUNT, MIN_PARTNER_PAYOUT
+    except Exception:
+        ENABLE_CUSTOM_WITHDRAW_AMOUNT = True
+        MIN_PARTNER_PAYOUT = 0
+    min_payout = float(MIN_PARTNER_PAYOUT or 0)
+    if requested < min_payout:
+        raise HTTPException(status_code=400, detail=f"Минимальная сумма вывода — {min_payout:.0f} RUB")
+    if not bool(ENABLE_CUSTOM_WITHDRAW_AMOUNT):
+        requested = balance
+    if requested > balance:
+        raise HTTPException(status_code=400, detail="Недостаточно партнерского баланса")
+    if requested <= 0:
+        raise HTTPException(status_code=400, detail="Недостаточно средств для заявки")
+    payout_method = (row[1] if row else None) or "card"
+    destination = (row[2] if row else None) or None
+    inserted = (
+        await session.execute(
+            text(
+                """
+                INSERT INTO payout_requests (tg_id, amount, status, created_at, method, destination)
+                VALUES (:tg_id, :amount, 'pending', NOW(), :method, :destination)
+                RETURNING id
+                """
+            ),
+            {
+                "tg_id": int(tg_id),
+                "amount": float(requested),
+                "method": payout_method,
+                "destination": destination,
+            },
+        )
+    ).scalar()
+    new_balance = balance - requested
+    await session.execute(
+        text("UPDATE users SET partner_balance = :balance WHERE id = :id"),
+        {"balance": new_balance, "id": int(user_id)},
+    )
+    await session.commit()
+    return PartnerPayoutRequestResponse(
+        ok=True,
+        message="Заявка на вывод создана",
+        request_id=int(inserted) if inserted is not None else None,
+        amount_rub=float(requested),
+        status="pending",
+        balance_rub=float(new_balance),
+    )
 
 
 @router.get("/all")

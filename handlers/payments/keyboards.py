@@ -5,7 +5,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from config import RENEWAL_PRICES
 from handlers.buttons import BACK, CUSTOM_AMOUNT
-from handlers.payments.currency_rates import format_for_user
+from services.payments.currency_rates import format_for_user
 
 
 async def payment_options_for_user(

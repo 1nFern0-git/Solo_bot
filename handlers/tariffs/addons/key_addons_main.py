@@ -18,9 +18,9 @@ from handlers.buttons import (
 )
 from middlewares.session import release_session_early
 from handlers.keys.key_view import render_key_info
-from handlers.payments.currency_rates import format_for_user
+from services.payments.currency_rates import format_for_user
 from handlers.payments.fast_payment_flow import try_fast_payment_flow
-from handlers.tariffs.tariff_display import GB, get_effective_limits_for_key
+from services.tariffs.tariff_display import GB, get_effective_limits_for_key
 from handlers.texts import (
     ADDONS_APPLIED_TEXT,
     DOWNGRADE_INLINE_WARNING_TEXT,
@@ -678,7 +678,7 @@ async def handle_addons_downgrade_apply(callback: CallbackQuery, state: FSMConte
 
 @router.callback_query(F.data == "key_addons_confirm", KeyAddonConfigState.configuring)
 async def handle_addons_confirm(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
-    from handlers.keys.operations import renew_key_in_cluster
+    from services.operations import renew_key_in_cluster
 
     tg_id = callback.from_user.id
     data = await state.get_data()

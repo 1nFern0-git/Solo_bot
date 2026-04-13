@@ -6,6 +6,7 @@ from api.depends import get_session, verify_admin_token
 from api.v1.routes.base_crud import generate_crud_router
 from api.v1.schemas import ReferralResponse
 from database.models import Admin, Referral
+from database.access.resolution import resolve_user_optional
 
 
 router = generate_crud_router(
@@ -13,7 +14,9 @@ router = generate_crud_router(
     schema_response=ReferralResponse,
     schema_create=None,
     schema_update=None,
-    identifier_field="referrer_tg_id",
+    identifier_field="referrer_user_id",
+    parameter_name="referrer_tg_id",
+    telegram_path_to_user_id=True,
     enabled_methods=["get_all", "get_one", "get_all_by_field"],
 )
 
@@ -25,8 +28,15 @@ async def delete_one_referral(
     admin: Admin = Depends(verify_admin_token),
     session: AsyncSession = Depends(get_session),
 ):
+    ru_ref = await resolve_user_optional(session, referrer_tg_id)
+    rd_ref = await resolve_user_optional(session, referred_tg_id)
+    if ru_ref is None or rd_ref is None:
+        raise HTTPException(status_code=404, detail="Referral not found")
     result = await session.execute(
-        select(Referral).where(Referral.referrer_tg_id == referrer_tg_id, Referral.referred_tg_id == referred_tg_id)
+        select(Referral).where(
+            Referral.referrer_user_id == ru_ref.id,
+            Referral.referred_user_id == rd_ref.id,
+        )
     )
     obj = result.scalar_one_or_none()
     if not obj:

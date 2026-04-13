@@ -24,8 +24,11 @@ from database import (
     get_tariffs_for_cluster,
     get_trial,
 )
+from database.users import get_balance
+from handlers.payments.fast_payment_flow import try_fast_payment_flow
 from database.models import Admin
 from database.notifications import check_hot_lead_discount
+from database.access.resolution import notify_telegram_chat_id
 from database.tariffs import create_subgroup_hash, find_subgroup_by_hash, get_tariffs
 from handlers.admin.panel.keyboard import AdminPanelCallback
 from handlers.buttons import MAIN_MENU, BACK
@@ -118,13 +121,46 @@ async def handle_key_creation(
                     return
 
                 trial_tariff = trial_tariffs[0]
+                trial_price = float(trial_tariff.get("price_rub", 0) or 0)
                 base_days = trial_tariff["duration_days"]
                 extra_days_value = int(NOTIFICATIONS_CONFIG.get("EXTRA_DAYS_AFTER_EXPIRY", NOTIFY_EXTRA_DAYS))
                 extra_days = extra_days_value if trial_status == -1 else 0
                 total_days = base_days + extra_days
                 expiry_time = current_time + timedelta(days=total_days)
 
-                logger.info(f"[Trial] Доступен {total_days}-дневный триал для пользователя {tg_id}")
+                if trial_price > 0:
+                    balance = await get_balance(session, tg_id)
+                    if balance < trial_price:
+                        shortfall = int(trial_price - balance)
+                        handled = await try_fast_payment_flow(
+                            message_or_query if isinstance(message_or_query, CallbackQuery) else None,
+                            session,
+                            state,
+                            tg_id=tg_id,
+                            temp_key="waiting_for_payment",
+                            temp_payload={
+                                "payment_flow": "trial_purchase",
+                                "tariff_id": trial_tariff["id"],
+                                "selected_price_rub": int(trial_price),
+                                "selected_duration_days": total_days,
+                            },
+                            required_amount=shortfall,
+                        )
+                        if handled:
+                            return
+                        builder = InlineKeyboardBuilder()
+                        builder.row(InlineKeyboardButton(text="💳 Пополнить баланс", callback_data="pay"))
+                        builder.row(InlineKeyboardButton(text=MAIN_MENU, callback_data="profile"))
+                        await edit_or_send_message(
+                            target_message=target_message,
+                            text=f"💰 Пробная подписка стоит {int(trial_price)} ₽.\n"
+                                 f"Ваш баланс: {int(balance)} ₽.\n\n"
+                                 f"Пополните баланс для активации.",
+                            reply_markup=builder.as_markup(),
+                        )
+                        return
+
+                logger.info(f"[Trial] Доступен {total_days}-дневный триал для пользователя {tg_id} (цена: {trial_price})")
 
                 await edit_or_send_message(
                     target_message=target_message,
@@ -458,6 +494,7 @@ async def create_key(
     selected_traffic_gb: int | None = None,
     selected_price_rub: int | None = None,
     skip_balance_charge: bool | None = None,
+    is_trial: bool = False,
 ):
     from_user = message_or_query.from_user if isinstance(message_or_query, CallbackQuery | Message) else None
     if from_user:
@@ -471,16 +508,25 @@ async def create_key(
             session=session,
         )
 
-    use_country_selection = bool(MODES_CONFIG.get("COUNTRY_SELECTION_ENABLED", USE_COUNTRY_SELECTION))
+    country_cfg = bool(MODES_CONFIG.get("COUNTRY_SELECTION_ENABLED", USE_COUNTRY_SELECTION))
+    if country_cfg:
+        tg_notify = await notify_telegram_chat_id(session, tg_id)
+        can_deliver_country_ui = message_or_query is not None or tg_notify is not None
+        use_country_selection = can_deliver_country_ui
+    else:
+        use_country_selection = False
 
     if state and (
-        skip_balance_charge is not None
+        is_trial
+        or skip_balance_charge is not None
         or any(
             value is not None
             for value in (selected_duration_days, selected_device_limit, selected_traffic_gb, selected_price_rub)
         )
     ):
         state_data = await state.get_data()
+        if is_trial:
+            state_data["is_trial"] = True
         if selected_duration_days is not None:
             state_data["config_selected_duration_days"] = selected_duration_days
         if selected_device_limit is not None:
@@ -519,4 +565,5 @@ async def create_key(
             selected_traffic_gb=selected_traffic_gb,
             selected_price_rub=selected_price_rub,
             skip_balance_charge=skip_balance_charge,
+            is_trial=is_trial or None,
         )

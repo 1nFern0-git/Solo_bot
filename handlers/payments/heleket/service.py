@@ -2,9 +2,11 @@ import base64
 import hashlib
 import json
 import time
+
 from decimal import ROUND_HALF_UP, Decimal
 
 import aiohttp
+
 from aiogram import F, Router, types
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -24,20 +26,12 @@ from config import (
 from database import async_session_maker, register_pending_payment
 from database.models import User
 from handlers.buttons import BACK, HELEKET, PAY_2
-from handlers.payments.currency_rates import (
-    format_for_user,
-    get_rub_rate,
-    pick_currency,
-    to_rub,
-)
-from handlers.payments.payment_links import register_payment_creator
 from handlers.payments.keyboards import (
     build_amounts_keyboard,
     parse_amount_from_callback,
     pay_keyboard,
     payment_options_for_user,
 )
-from handlers.payments.providers import get_providers
 from handlers.texts import (
     ENTER_SUM,
     HELEKET_CRYPTO_DESCRIPTION,
@@ -45,6 +39,14 @@ from handlers.texts import (
 )
 from handlers.utils import edit_or_send_message
 from logger import logger
+from services.payments.currency_rates import (
+    format_for_user,
+    get_rub_rate,
+    pick_currency,
+    to_rub,
+)
+from services.payments.payment_links import register_payment_creator
+from services.payments.providers import get_providers
 
 
 router = Router()
@@ -326,7 +328,15 @@ async def process_amount_selection(callback_query: types.CallbackQuery, state: F
 
 
 async def generate_heleket_payment_link(
-    amount: int, tg_id: int, method: dict, session: AsyncSession | None = None
+    amount: int,
+    tg_id: int,
+    method: dict,
+    session: AsyncSession | None = None,
+    *,
+    order_id: str | None = None,
+    success_url: str | None = None,
+    failure_url: str | None = None,
+    metadata: dict | None = None,
 ) -> str:
     """
     Создание платежа в Heleket и получение ссылки на оплату.
@@ -334,8 +344,7 @@ async def generate_heleket_payment_link(
     session — сессия из хендлера; если не передана, создаётся своя (лишняя нагрузка на пул).
     """
     url = "https://api.heleket.com/v1/payment"
-    unique_order_id = f"{int(time.time())}_{tg_id}"
-    db_session = session
+    unique_order_id = order_id or f"{int(time.time())}_{tg_id}"
 
     timeout = aiohttp.ClientTimeout(total=30, connect=10)
     try:
@@ -352,8 +361,8 @@ async def generate_heleket_payment_link(
                 "amount": str(payment_amount),
                 "currency": method["currency"],
                 "order_id": unique_order_id,
-                "url_success": HELEKET_SUCCESS_URL,
-                "url_return": HELEKET_RETURN_URL,
+                "url_success": success_url or HELEKET_SUCCESS_URL,
+                "url_return": failure_url or HELEKET_RETURN_URL,
                 "url_callback": HELEKET_CALLBACK_URL,
                 "additional_data": f"tg_id:{tg_id},rub_amount:{amount}",
             }
@@ -384,6 +393,7 @@ async def generate_heleket_payment_link(
                                     amount=float(amount),
                                     payment_system="heleket",
                                     currency="RUB",
+                                    metadata=metadata,
                                 )
                                 logger.info(f"Heleket payment URL created for user {tg_id}")
                                 return payment_url
@@ -418,17 +428,28 @@ async def create_link(
     currency: str,
     success_url: str | None,
     failure_url: str | None,
+    metadata: dict | None,
 ) -> tuple[str, str | None]:
     method = HELEKET_METHODS.get("crypto")
     if not method or not method.get("enable"):
         raise ValueError("Heleket недоступен")
     amount_int = int(amount)
+    order_id = f"{int(time.time())}_{tg_id}"
     if amount_int < 10:
         raise ValueError("Минимальная сумма для Heleket — 10₽")
-    url = await generate_heleket_payment_link(amount_int, tg_id, method, session)
+    url = await generate_heleket_payment_link(
+        amount_int,
+        tg_id,
+        method,
+        session,
+        order_id=order_id,
+        success_url=success_url,
+        failure_url=failure_url,
+        metadata=metadata,
+    )
     if not url or url == "https://heleket.com/":
         raise ValueError("Не удалось создать платёж Heleket")
-    return (url, None)
+    return (url, order_id)
 
 
 register_payment_creator("HELEKET", create_link)

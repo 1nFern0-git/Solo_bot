@@ -13,6 +13,8 @@ class IdentityResponse(BaseModel):
     email: str | None
     tg_id: int | None
     is_admin: bool = False
+    email_verified: bool = False
+    password_set: bool = False
     created_at: datetime | None
     updated_at: datetime | None
 
@@ -23,11 +25,12 @@ class IdentityResponse(BaseModel):
 class RegisterByEmailRequest(BaseModel):
     email: str = Field(..., min_length=1)
     password: str = Field(..., min_length=8, description="Пароль (минимум 8 символов)")
+    referral_code: str | None = Field(None, min_length=1)
+    turnstile_token: str | None = Field(default=None, description="Cloudflare Turnstile CAPTCHA token")
 
 
 class RegisterResponse(BaseModel):
     identity_id: str
-    token: str
 
 
 class LoginRequest(BaseModel):
@@ -35,18 +38,40 @@ class LoginRequest(BaseModel):
     password: str = Field(...)
 
 
+class SetPasswordRequest(BaseModel):
+    password: str = Field(..., min_length=8, description="Новый пароль (минимум 8 символов)")
+    password_confirm: str = Field(..., min_length=8)
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(...)
+    password: str = Field(..., min_length=8, description="Новый пароль (минимум 8 символов)")
+    password_confirm: str = Field(..., min_length=8)
+
+
 class LoginResponse(BaseModel):
     identity_id: str
-    token: str
 
 
 class SendLoginCodeRequest(BaseModel):
     email: str = Field(..., min_length=1)
+    allow_register: bool = Field(
+        default=False,
+        description="Если true и email новый — создать идентичность и отправить код (гостевой вход с сайта)",
+    )
+    turnstile_token: str | None = Field(default=None, description="Cloudflare Turnstile CAPTCHA token")
 
 
 class LoginByCodeRequest(BaseModel):
     email: str = Field(..., min_length=1)
     code: str = Field(..., min_length=1)
+
+
+class ConfirmPasswordResetRequest(BaseModel):
+    email: str = Field(..., min_length=1)
+    code: str = Field(..., min_length=1)
+    password: str = Field(..., min_length=8)
+    password_confirm: str = Field(..., min_length=8)
 
 
 class LoginTelegramRequest(BaseModel):
@@ -75,6 +100,15 @@ class LinkTelegramRequest(BaseModel):
 
 class IdentityAttachEmail(BaseModel):
     email: str = Field(..., min_length=1)
+
+
+class LinkEmailSendCodeRequest(BaseModel):
+    email: str = Field(..., min_length=1)
+
+
+class LinkEmailConfirmRequest(BaseModel):
+    email: str = Field(..., min_length=1)
+    code: str = Field(..., min_length=1, max_length=16)
 
 
 class IdentityAttachTelegram(BaseModel):

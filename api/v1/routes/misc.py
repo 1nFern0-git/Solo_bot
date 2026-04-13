@@ -13,6 +13,7 @@ from api.v1.schemas import (
     TrackingSourceResponse,
 )
 from database import get_tracking_source_stats
+from database.access.resolution import resolve_user_optional
 from database.models import (
     Admin,
     BlockedUser,
@@ -47,7 +48,10 @@ async def get_payments_by_tg_id(
     admin: Admin = Depends(verify_admin_token),
     session: AsyncSession = Depends(get_session),
 ):
-    result = await session.execute(select(Payment).where(Payment.tg_id == tg_id))
+    u = await resolve_user_optional(session, tg_id)
+    if u is None:
+        raise HTTPException(status_code=404, detail="Payments not found")
+    result = await session.execute(select(Payment).where(Payment.user_id == u.id))
     payments = result.scalars().all()
     if not payments:
         raise HTTPException(status_code=404, detail="Payments not found")
@@ -60,7 +64,8 @@ router.include_router(
         schema_response=NotificationResponse,
         schema_create=None,
         schema_update=None,
-        identifier_field="tg_id",
+        identifier_field="user_id",
+        telegram_path_to_user_id=True,
         enabled_methods=["get_all", "get_one", "delete"],
     ),
     prefix="/notifications",
@@ -75,7 +80,9 @@ router.include_router(
         schema_response=ManualBanResponse,
         schema_create=None,
         schema_update=None,
-        identifier_field="tg_id",
+        identifier_field="user_id",
+        parameter_name="tg_id",
+        telegram_path_to_user_id=True,
         enabled_methods=["get_all", "get_one", "delete"],
     ),
     prefix="/manual-bans",
@@ -89,7 +96,9 @@ router.include_router(
         schema_response=BlockedUserResponse,
         schema_create=None,
         schema_update=None,
-        identifier_field="tg_id",
+        identifier_field="user_id",
+        parameter_name="tg_id",
+        telegram_path_to_user_id=True,
         enabled_methods=["get_all", "get_one", "delete"],
     ),
     prefix="/blocked-users",
@@ -103,7 +112,9 @@ router.include_router(
         schema_response=TemporaryDataResponse,
         schema_create=None,
         schema_update=None,
-        identifier_field="tg_id",
+        identifier_field="user_id",
+        parameter_name="tg_id",
+        telegram_path_to_user_id=True,
         enabled_methods=["get_all", "get_one", "delete"],
     ),
     prefix="/temporary-data",

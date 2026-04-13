@@ -22,3 +22,11 @@ class PaymentLinkCreateResponse(BaseModel):
     payment_id: str | None = None
     payment_url: str | None = None
     error: str | None = None
+
+
+class PaymentLinkStatusResponse(BaseModel):
+    success: bool
+    payment_id: str
+    status: str | None = None
+    completed: bool = False
+    paid: bool = False

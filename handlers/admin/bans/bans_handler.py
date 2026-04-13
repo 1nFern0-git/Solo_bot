@@ -13,7 +13,9 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import delete_user_data
-from database.models import BlockedUser, Key, ManualBan
+from database.models import BlockedUser, Key, ManualBan, User
+from database.access.resolution import resolve_user_optional
+from database.users import add_user
 from filters.admin import IsAdminFilter
 from logger import logger
 from middlewares.ban_checker import invalidate_ban_cache
@@ -83,8 +85,10 @@ async def handle_manual_bans_menu(callback_query: CallbackQuery):
 async def handle_bans_export(callback_query: CallbackQuery, session: AsyncSession):
     kb = build_blocked_users_kb()
     try:
-        result = await session.execute(select(BlockedUser.tg_id))
-        banned_users = result.scalars().all()
+        result = await session.execute(
+            select(User.tg_id).join(BlockedUser, BlockedUser.user_id == User.id).where(User.tg_id.isnot(None))
+        )
+        banned_users = [row[0] for row in result.all()]
 
         csv_output = io.StringIO()
         writer = csv.writer(csv_output)
@@ -111,7 +115,7 @@ async def handle_bans_export(callback_query: CallbackQuery, session: AsyncSessio
 async def handle_bans_delete_banned(callback_query: CallbackQuery, session: AsyncSession):
     kb = build_blocked_users_kb()
     try:
-        stmt = select(BlockedUser.tg_id).outerjoin(Key, BlockedUser.tg_id == Key.tg_id).where(Key.tg_id.is_(None))
+        stmt = select(BlockedUser.user_id).outerjoin(Key, BlockedUser.user_id == Key.user_id).where(Key.user_id.is_(None))
         result = await session.execute(stmt)
         blocked_ids = [row[0] for row in result.all()]
 
@@ -141,9 +145,10 @@ async def handle_shadow_bans_export(callback_query: CallbackQuery, session: Asyn
     kb = build_shadow_bans_kb()
     try:
         result = await session.execute(
-            select(ManualBan.tg_id, ManualBan.banned_at, ManualBan.banned_by, ManualBan.until).where(
-                ManualBan.reason == "shadow"
-            )
+            select(User.tg_id, ManualBan.user_id, ManualBan.banned_at, ManualBan.banned_by, ManualBan.until)
+            .select_from(ManualBan)
+            .join(User, ManualBan.user_id == User.id)
+            .where(ManualBan.reason == "shadow")
         )
         rows = result.all()
 
@@ -151,8 +156,9 @@ async def handle_shadow_bans_export(callback_query: CallbackQuery, session: Asyn
         writer = csv.writer(csv_output)
         writer.writerow(["tg_id", "banned_at", "banned_by", "until"])
 
-        for user in rows:
-            writer.writerow([user.tg_id, user.banned_at, user.banned_by, user.until])
+        for row in rows:
+            display_id = row.tg_id if row.tg_id is not None else row.user_id
+            writer.writerow([display_id, row.banned_at, row.banned_by, row.until])
 
         csv_output.seek(0)
         document = BufferedInputFile(file=csv_output.getvalue().encode("utf-8"), filename="shadow_bans.csv")
@@ -173,9 +179,17 @@ async def handle_manual_bans_export(callback_query: CallbackQuery, session: Asyn
     kb = build_manual_bans_kb()
     try:
         result = await session.execute(
-            select(ManualBan.tg_id, ManualBan.banned_at, ManualBan.reason, ManualBan.until, ManualBan.banned_by).where(
-                or_(ManualBan.reason != "shadow", ManualBan.reason.is_(None))
+            select(
+                User.tg_id,
+                ManualBan.user_id,
+                ManualBan.banned_at,
+                ManualBan.reason,
+                ManualBan.until,
+                ManualBan.banned_by,
             )
+            .select_from(ManualBan)
+            .join(User, ManualBan.user_id == User.id)
+            .where(or_(ManualBan.reason != "shadow", ManualBan.reason.is_(None)))
         )
         rows = result.all()
 
@@ -183,8 +197,9 @@ async def handle_manual_bans_export(callback_query: CallbackQuery, session: Asyn
         writer = csv.writer(csv_output)
         writer.writerow(["tg_id", "banned_at", "reason", "until", "banned_by"])
 
-        for user in rows:
-            writer.writerow([user.tg_id, user.banned_at, user.reason, user.until, user.banned_by])
+        for row in rows:
+            display_id = row.tg_id if row.tg_id is not None else row.user_id
+            writer.writerow([display_id, row.banned_at, row.reason, row.until, row.banned_by])
 
         csv_output.seek(0)
         document = BufferedInputFile(file=csv_output.getvalue().encode("utf-8"), filename="manual_bans.csv")
@@ -246,12 +261,17 @@ async def handle_clear_shadow_bans(callback_query: CallbackQuery, session: Async
             )
             return
 
-        tg_ids_result = await session.execute(select(ManualBan.tg_id).where(ManualBan.reason == "shadow"))
-        tg_ids_to_invalidate = [r[0] for r in tg_ids_result.all()]
+        tg_ids_result = await session.execute(
+            select(User.tg_id)
+            .select_from(ManualBan)
+            .join(User, ManualBan.user_id == User.id)
+            .where(ManualBan.reason == "shadow")
+        )
+        tg_to_invalidate = [r[0] for r in tg_ids_result.all() if r[0] is not None]
         await session.execute(delete(ManualBan).where(ManualBan.reason == "shadow"))
         await session.commit()
-        for uid in tg_ids_to_invalidate:
-            await invalidate_ban_cache(uid)
+        for tid in tg_to_invalidate:
+            await invalidate_ban_cache(tid)
 
         await callback_query.message.answer(
             text=f"🗑️ Очищено {total_count} записей теневых банов из базы данных.",
@@ -285,13 +305,16 @@ async def handle_clear_manual_bans(callback_query: CallbackQuery, session: Async
             return
 
         tg_ids_result = await session.execute(
-            select(ManualBan.tg_id).where(or_(ManualBan.reason != "shadow", ManualBan.reason.is_(None)))
+            select(User.tg_id)
+            .select_from(ManualBan)
+            .join(User, ManualBan.user_id == User.id)
+            .where(or_(ManualBan.reason != "shadow", ManualBan.reason.is_(None)))
         )
-        tg_ids_to_invalidate = [r[0] for r in tg_ids_result.all()]
+        tg_to_invalidate = [r[0] for r in tg_ids_result.all() if r[0] is not None]
         await session.execute(delete(ManualBan).where(or_(ManualBan.reason != "shadow", ManualBan.reason.is_(None))))
         await session.commit()
-        for uid in tg_ids_to_invalidate:
-            await invalidate_ban_cache(uid)
+        for tid in tg_to_invalidate:
+            await invalidate_ban_cache(tid)
 
         await callback_query.message.answer(
             text=f"🗑️ Очищено {total_count} записей ручных банов из базы данных.",
@@ -344,36 +367,53 @@ async def handle_preemptive_ids_input(message: Message, state: FSMContext, sessi
 
     now = datetime.now(timezone.utc)
 
-    stmt = (
-        pg_insert(ManualBan)
-        .values([
+    rows = []
+    cache_tg_ids = []
+    for raw_tg in tg_ids:
+        u = await resolve_user_optional(session, raw_tg)
+        if u is None:
+            await add_user(session, raw_tg)
+            await session.flush()
+            u = await resolve_user_optional(session, raw_tg)
+        if u is None:
+            continue
+        rows.append(
             {
-                "tg_id": tg_id,
+                "user_id": u.id,
+                "tg_id": u.tg_id,
                 "reason": "shadow",
                 "banned_by": message.from_user.id,
                 "until": None,
                 "banned_at": now,
             }
-            for tg_id in tg_ids
-        ])
-        .on_conflict_do_update(
-            index_elements=[ManualBan.tg_id],
-            set_={
-                "reason": "shadow",
-                "until": None,
-                "banned_by": message.from_user.id,
-                "banned_at": now,
-            },
         )
+        if u.tg_id is not None:
+            cache_tg_ids.append(u.tg_id)
+
+    if not rows:
+        await message.answer("❌ Не удалось сопоставить ни одного пользователя.")
+        await state.clear()
+        return
+
+    ins = pg_insert(ManualBan).values(rows)
+    stmt = ins.on_conflict_do_update(
+        index_elements=[ManualBan.user_id],
+        set_={
+            "tg_id": ins.excluded.tg_id,
+            "reason": "shadow",
+            "until": None,
+            "banned_by": message.from_user.id,
+            "banned_at": now,
+        },
     )
 
     await session.execute(stmt)
     await session.commit()
-    for uid in tg_ids:
-        await invalidate_ban_cache(uid)
+    for tid in cache_tg_ids:
+        await invalidate_ban_cache(tid)
 
     await message.answer(
-        f"✅ Успешно добавлено в теневой бан: <b>{len(tg_ids)}</b> пользователей.",
+        f"✅ Успешно добавлено в теневой бан: <b>{len(rows)}</b> пользователей.",
         reply_markup=build_shadow_bans_kb(),
     )
     await state.clear()

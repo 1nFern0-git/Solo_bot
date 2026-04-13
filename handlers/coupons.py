@@ -28,8 +28,8 @@ from database import (
 )
 from handlers.buttons import MAIN_MENU
 from middlewares.session import release_session_early
-from handlers.keys.operations import renew_key_in_cluster
-from handlers.payments.currency_rates import format_for_user
+from services.operations import renew_key_in_cluster
+from services.payments.currency_rates import format_for_user
 from handlers.profile import process_callback_view_profile
 from handlers.texts import (
     COUPONS_DAYS_MESSAGE,
@@ -132,12 +132,20 @@ async def activate_coupon(
 
     if coupon.amount > 0:
         try:
-            await update_balance(session, user_id, coupon.amount)
-            await update_coupon_usage_count(session, coupon.id)
-            await create_coupon_usage(session, coupon.id, user_id)
-            await add_payment(session, tg_id=user_id, amount=coupon.amount, payment_system="coupon")
-            amount_txt = await format_for_user(session, user_id, coupon.amount, language_code)
+            from services.coupons import apply_fixed_coupon
+            from services.errors import ServiceError
+
+            result = await apply_fixed_coupon(
+                session=session,
+                user_id=user_id,
+                tg_id=user_id,
+                code=coupon_code,
+            )
+            amount_txt = await format_for_user(session, user_id, result.amount, language_code)
             await message.answer(f"✅ Купон активирован, на баланс начислено {amount_txt}.")
+            await state.clear()
+        except ServiceError as e:
+            await message.answer(f"❌ {e.message}")
             await state.clear()
         except Exception as e:
             logger.error(f"Ошибка при активации купона на баланс: {e}")
@@ -195,6 +203,7 @@ async def handle_key_extension(
     admin: bool = False,
 ):
     from database.models import Coupon, Key, User
+    from database.access.resolution import resolve_user_optional
 
     parts = callback_query.data.split("|")
     client_id = parts[1]
@@ -222,7 +231,12 @@ async def handle_key_extension(
                 await state.clear()
                 return
 
-        result = await session.execute(select(Key).where(Key.tg_id == tg_id, Key.client_id == client_id))
+        owner = await resolve_user_optional(session, tg_id)
+        if owner is None:
+            await callback_query.message.edit_text("❌ Выбранная подписка не найдена или заморожена.")
+            await state.clear()
+            return
+        result = await session.execute(select(Key).where(Key.user_id == owner.id, Key.client_id == client_id))
         key = result.scalar_one_or_none()
         if not key or key.is_frozen:
             await callback_query.message.edit_text("❌ Выбранная подписка не найдена или заморожена.")

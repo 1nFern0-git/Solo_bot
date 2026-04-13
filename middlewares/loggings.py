@@ -62,6 +62,13 @@ class LoggingMiddleware(BaseMiddleware):
         try:
             result = await handler(event, data)
             db_user = data.get("user")
+            actor = data.get("actor")
+            if actor is not None:
+                set_telegram_actor(
+                    audit_context,
+                    identity_id=getattr(actor, "identity_id", None),
+                    tg_id=getattr(actor, "telegram_chat_id", None),
+                )
             if isinstance(db_user, dict):
                 set_telegram_actor(
                     audit_context,

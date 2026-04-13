@@ -4,11 +4,13 @@ from pydantic import BaseModel
 
 
 class GiftBase(BaseModel):
-    sender_tg_id: int
-    recipient_tg_id: int | None = None
+    sender_user_id: int
+    recipient_user_id: int | None = None
     selected_months: int | None = None
     expiry_time: datetime
     gift_link: str
+    telegram_gift_link: str | None = None
+    site_gift_link: str | None = None
     is_used: bool = False
     is_unlimited: bool | None = False
     max_usages: int | None = None
@@ -33,10 +35,12 @@ class GiftUsageResponse(BaseModel):
 
 
 class GiftUpdate(BaseModel):
-    recipient_tg_id: int | None = None
+    recipient_user_id: int | None = None
     selected_months: int | None = None
     expiry_time: datetime | None = None
     gift_link: str | None = None
+    telegram_gift_link: str | None = None
+    site_gift_link: str | None = None
     is_used: bool | None = None
     is_unlimited: bool | None = None
     max_usages: int | None = None

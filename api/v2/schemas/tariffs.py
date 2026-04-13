@@ -18,3 +18,6 @@ class TariffPublic(BaseModel):
     subgroup_title: str | None
     sort_order: int | None
     vless: bool = False
+    configurable: bool = False
+    device_options: list[int] | None = None
+    traffic_options_gb: list[int] | None = None

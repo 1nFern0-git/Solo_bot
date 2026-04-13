@@ -1,5 +1,7 @@
 from importlib import import_module
 
+version = "0.5.3"
+
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode

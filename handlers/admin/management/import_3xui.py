@@ -6,8 +6,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from filters.admin import IsAdminFilter
-from database.models import Key
-from handlers.keys.operations import update_subscription
+from database.models import Key, User
+from services.operations import update_subscription
 from logger import logger
 
 from . import router
@@ -69,7 +69,12 @@ async def handle_3xui_db_upload(message: Message, state: FSMContext, session: As
 async def handle_resync_after_import(callback: CallbackQuery, session: AsyncSession):
     await callback.answer("🔁 Начинаю перевыпуск подписок...")
 
-    result = await session.execute(select(Key.tg_id, Key.email))
+    result = await session.execute(
+        select(User.tg_id, Key.email)
+        .select_from(Key)
+        .join(User, Key.user_id == User.id)
+        .where(User.tg_id.isnot(None))
+    )
     keys = result.all()
 
     success = 0

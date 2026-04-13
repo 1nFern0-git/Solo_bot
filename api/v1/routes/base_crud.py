@@ -1,12 +1,22 @@
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 
 from api.depends import get_session, verify_admin_token
 from database.models import Admin
+from database.access.resolution import resolve_user_optional
+from handlers.texts import get_site_gift_link, get_telegram_gift_link
+
+
+def _apply_user_relationship_loader(model: type, stmt):
+    if model.__name__ in ("ManualBan", "BlockedUser", "TemporaryData"):
+        return stmt.options(selectinload(model.user))
+    return stmt
 
 
 def cast_identifier_type(field: InstrumentedAttribute, value: int | str):
@@ -19,6 +29,21 @@ def cast_identifier_type(field: InstrumentedAttribute, value: int | str):
 def normalize_outgoing_object(obj: object) -> None:
     if hasattr(obj, "vless") and getattr(obj, "vless") is None:
         setattr(obj, "vless", False)
+    cls_name = type(obj).__name__
+    if cls_name == "Gift":
+        gift_id = getattr(obj, "gift_id", None)
+        if gift_id:
+            setattr(obj, "telegram_gift_link", get_telegram_gift_link(gift_id))
+            setattr(obj, "site_gift_link", get_site_gift_link(gift_id))
+    if cls_name in ("ManualBan", "BlockedUser", "TemporaryData"):
+        insp = sa_inspect(obj)
+        stored = getattr(obj, "tg_id", None)
+        if "user" in insp.unloaded:
+            setattr(obj, "tg_id", stored)
+            return
+        rel = getattr(obj, "user", None)
+        rel_tg = getattr(rel, "tg_id", None) if rel is not None else None
+        setattr(obj, "tg_id", stored if stored is not None else rel_tg)
 
 
 def to_schema(schema_response: type, obj: object):
@@ -35,9 +60,19 @@ def generate_crud_router(
     identifier_field: str = "tg_id",
     parameter_name: str = "tg_id",
     extra_get_by_email: bool = False,
+    telegram_path_to_user_id: bool = False,
     enabled_methods: list[str] = ("get_all", "get_one", "get_by_email", "create", "update", "delete"),
 ) -> APIRouter:
     router = APIRouter()
+
+    async def _path_filter(session: AsyncSession, value: int | str):
+        if telegram_path_to_user_id:
+            u = await resolve_user_optional(session, int(value))
+            if u is None:
+                return None
+            return getattr(model, "user_id"), u.id
+        field = getattr(model, identifier_field)
+        return field, cast_identifier_type(field, value)
 
     if "get_all" in enabled_methods:
 
@@ -46,7 +81,7 @@ def generate_crud_router(
             admin: Admin = Depends(verify_admin_token),
             session: AsyncSession = Depends(get_session),
         ):
-            result = await session.execute(select(model))
+            result = await session.execute(_apply_user_relationship_loader(model, select(model)))
             items = result.scalars().all()
             for item in items:
                 normalize_outgoing_object(item)
@@ -74,9 +109,13 @@ def generate_crud_router(
             admin: Admin = Depends(verify_admin_token),
             session: AsyncSession = Depends(get_session),
         ):
-            field = getattr(model, identifier_field)
-            casted = cast_identifier_type(field, value)
-            result = await session.execute(select(model).where(field == casted))
+            resolved = await _path_filter(session, value)
+            if resolved is None:
+                raise HTTPException(status_code=404, detail=f"{model.__name__} not found")
+            field, casted = resolved
+            result = await session.execute(
+                _apply_user_relationship_loader(model, select(model).where(field == casted))
+            )
             obj = result.scalar_one_or_none()
             if not obj:
                 raise HTTPException(status_code=404, detail=f"{model.__name__} not found")
@@ -90,9 +129,13 @@ def generate_crud_router(
             admin: Admin = Depends(verify_admin_token),
             session: AsyncSession = Depends(get_session),
         ):
-            field = getattr(model, identifier_field)
-            casted = cast_identifier_type(field, value)
-            result = await session.execute(select(model).where(field == casted))
+            resolved = await _path_filter(session, value)
+            if resolved is None:
+                raise HTTPException(status_code=404, detail=f"{model.__name__} not found")
+            field, casted = resolved
+            result = await session.execute(
+                _apply_user_relationship_loader(model, select(model).where(field == casted))
+            )
             objs = result.scalars().all()
             if not objs:
                 raise HTTPException(status_code=404, detail=f"{model.__name__} not found")
@@ -127,8 +170,10 @@ def generate_crud_router(
             admin: Admin = Depends(verify_admin_token),
             session: AsyncSession = Depends(get_session),
         ):
-            field = getattr(model, identifier_field)
-            casted = cast_identifier_type(field, value)
+            resolved = await _path_filter(session, value)
+            if resolved is None:
+                raise HTTPException(status_code=404, detail=f"{model.__name__} not found")
+            field, casted = resolved
             result = await session.execute(select(model).where(field == casted))
             obj = result.scalar_one_or_none()
             if not obj:
@@ -150,8 +195,10 @@ def generate_crud_router(
             admin: Admin = Depends(verify_admin_token),
             session: AsyncSession = Depends(get_session),
         ):
-            field = getattr(model, identifier_field)
-            casted = cast_identifier_type(field, value)
+            resolved = await _path_filter(session, value)
+            if resolved is None:
+                raise HTTPException(status_code=404, detail=f"{model.__name__} not found")
+            field, casted = resolved
             result = await session.execute(select(model).where(field == casted))
             obj = result.scalar_one_or_none()
             if not obj:

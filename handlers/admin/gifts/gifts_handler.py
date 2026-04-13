@@ -17,6 +17,7 @@ from logger import logger
 from ..panel.keyboard import AdminPanelCallback
 from .keyboard import build_admin_gifts_kb, build_gifts_list_kb
 from handlers.buttons import BACK
+from handlers.texts import get_site_gift_link
 
 
 router = Router()
@@ -225,7 +226,8 @@ async def view_gift(callback: CallbackQuery, session: AsyncSession):
         f"ID: <code>{gift.gift_id}</code>\n"
         f"Срок: <b>{duration_text}</b>\n"
         f"Активаций: <b>{usage_text}</b>\n"
-        f"<b>Ссылка для активации:</b>\n<blockquote>{gift.gift_link}</blockquote>"
+        f"<b>Ссылки для активации:</b>\n"
+        f"<blockquote>🌐 {get_site_gift_link(gift.gift_id)}\n🤖 {gift.gift_link}</blockquote>"
     )
 
     builder = InlineKeyboardBuilder()

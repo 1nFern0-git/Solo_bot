@@ -6,6 +6,7 @@ from core.bootstrap import MODES_CONFIG
 from middlewares.ban_checker import BanCheckerMiddleware
 from middlewares.subscription import SubscriptionMiddleware
 
+from .actor import ActorMiddleware
 from .admin import AdminMiddleware
 from .answer import CallbackAnswerMiddleware, EarlyCallbackAnswerMiddleware
 from .concurrency import ConcurrencyLimiterMiddleware
@@ -46,6 +47,7 @@ def register_middleware(
         "logging": "LOGGING_MIDDLEWARE_ENABLED",
         "throttling": "THROTTLING_MIDDLEWARE_ENABLED",
         "user": "USER_MIDDLEWARE_ENABLED",
+        "actor": "ACTOR_MIDDLEWARE_ENABLED",
         "answer": "ANSWER_MIDDLEWARE_ENABLED",
     }
 
@@ -83,6 +85,7 @@ def register_middleware(
             "logging": LoggingMiddleware(sessionmaker) if sessionmaker else LoggingMiddleware(),
             "throttling": ThrottlingMiddleware(),
             "user": UserMiddleware(),
+            "actor": ActorMiddleware(),
             "answer": CallbackAnswerMiddleware(),
         }
         middlewares = [

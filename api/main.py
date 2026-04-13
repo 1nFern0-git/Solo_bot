@@ -14,7 +14,8 @@ from logger import logger
 if API_VERSION == 1:
     from api.v1 import router as api_router, VERSION as API_DOC_VERSION
 else:
-    from api.v2 import router as api_router, VERSION as API_DOC_VERSION
+    from api.v2 import VERSION as API_DOC_VERSION
+    from api.v2.router import router as api_router
 
 app = FastAPI(
     title=f"SoloBot API (Alpha) — API v{API_DOC_VERSION}",
@@ -25,13 +26,26 @@ app = FastAPI(
     openapi_url="/api/openapi.json",
 )
 
+_cors_origins = API_CORS_ORIGINS if API_CORS_ORIGINS != ["*"] else API_CORS_ORIGINS
+_cors_credentials = API_CORS_ORIGINS != ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=API_CORS_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=_cors_origins,
+    allow_credentials=_cors_credentials,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allow_headers=["X-Identity-Id", "X-Token", "Content-Type", "Authorization"],
 )
+
+
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("X-XSS-Protection", "1; mode=block")
+    return response
 
 
 @app.middleware("http")
@@ -84,6 +98,11 @@ async def api_access_log_middleware(request: Request, call_next):
         )
     )
     return response
+
+
+@app.get("/api/health", include_in_schema=False)
+async def health():
+    return {"status": "ok"}
 
 
 app.include_router(api_router)

@@ -1,4 +1,5 @@
 import os
+
 from typing import Any
 
 from aiogram import F, Router
@@ -9,24 +10,24 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import DONATIONS_ENABLE, TRIBUTE_LINK
-from core.bootstrap import PAYMENTS_CONFIG, BUTTONS_CONFIG
+from core.bootstrap import BUTTONS_CONFIG, PAYMENTS_CONFIG
 from core.settings.money_config import get_currency_mode
 from database import get_last_payments
 from database.models import User
 from handlers import buttons as btn
 from handlers.payments.currency_flow import build_currency_choice_kb
-from handlers.payments.currency_rates import format_for_user
-from handlers.payments.providers import get_providers_with_hooks
 from handlers.payments.stars.handlers import process_callback_pay_stars
 from handlers.payments.tribute.handlers import process_callback_pay_tribute
 from handlers.texts import (
-    FAST_PAY_CHOOSE_CURRENCY,
-    BALANCE_MANAGEMENT_TEXT,
-    PAYMENT_METHODS_MSG,
     BALANCE_HISTORY_HEADER,
+    BALANCE_MANAGEMENT_TEXT,
+    FAST_PAY_CHOOSE_CURRENCY,
+    PAYMENT_METHODS_MSG,
 )
 from hooks.hook_buttons import insert_hook_buttons
 from hooks.hooks import run_hooks
+from services.payments.currency_rates import format_for_user
+from services.payments.providers import get_providers_with_hooks
 
 from ..utils import edit_or_send_message
 

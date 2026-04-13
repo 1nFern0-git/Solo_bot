@@ -20,6 +20,12 @@ if USE_PGBOUNCER and "+asyncpg" in DATABASE_URL:
 
 _pool_recycle = 60 if USE_PGBOUNCER else 300
 
+_QUERY_TIMEOUT_SEC = 30
+
+if "+asyncpg" in _db_url:
+    _connect_args.setdefault("command_timeout", _QUERY_TIMEOUT_SEC)
+    _connect_args.setdefault("timeout", _QUERY_TIMEOUT_SEC)
+
 
 def _create_engine():
     return create_async_engine(

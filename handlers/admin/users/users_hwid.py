@@ -10,7 +10,7 @@ from panels.remnawave_runtime import (
 from filters.admin import IsAdminFilter
 
 from .keyboard import AdminUserEditorCallback, build_editor_kb, build_hwid_menu_kb
-from .utils import resolve_admin_key
+from services.users_utils import resolve_admin_key
 
 
 router = Router()

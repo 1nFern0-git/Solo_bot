@@ -5,7 +5,7 @@ from .db import Base, async_session_maker, engine, reset_async_db_engine
 from .gifts import *
 from . import identities
 from .hot_leads import *
-from .init_db import *
+from .setup.init_db import *
 from .keys import *
 from .notifications import *
 from .payments import *

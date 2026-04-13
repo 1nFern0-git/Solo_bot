@@ -20,7 +20,12 @@ router = Router()
 
 
 async def get_user_gifts(session: AsyncSession, tg_id: int) -> list:
-    stmt = select(Gift).where(Gift.sender_tg_id == tg_id).order_by(Gift.created_at.desc())
+    from database.access.resolution import resolve_user_optional
+
+    u = await resolve_user_optional(session, tg_id)
+    if u is None:
+        return []
+    stmt = select(Gift).where(Gift.sender_user_id == u.id).order_by(Gift.created_at.desc())
     result = await session.execute(stmt)
     return result.scalars().all()
 

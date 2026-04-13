@@ -9,7 +9,8 @@ from api.v2.schemas import UserBase, UserResponse, UserUpdate
 from api.v2.base_crud import generate_crud_router
 from database import async_session_maker, delete_user_data, get_servers
 from database.models import Key, User
-from handlers.keys.operations import delete_key_from_cluster
+from database.access.resolution import resolve_user_optional
+from services.operations import delete_key_from_cluster
 from logger import logger
 
 router = generate_crud_router(
@@ -30,7 +31,10 @@ async def delete_user(
 ):
     """Удаляет пользователя и его ключи на серверах."""
     try:
-        result = await session.execute(select(Key.email, Key.client_id).where(Key.tg_id == tg_id))
+        u = await resolve_user_optional(session, tg_id)
+        if u is None:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        result = await session.execute(select(Key.email, Key.client_id).where(Key.user_id == u.id))
         key_records = result.all()
 
         async with async_session_maker() as s:

@@ -14,7 +14,7 @@ from hooks.hook_buttons import insert_hook_buttons
 from hooks.hooks import run_hooks
 
 from ..panel.keyboard import build_admin_back_btn
-from .utils import build_admin_key_ref
+from services.users_utils import build_admin_key_ref
 
 
 class AdminUserEditorCallback(CallbackData, prefix="admin_users"):

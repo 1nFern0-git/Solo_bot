@@ -1,5 +1,7 @@
 from aiohttp import web
 
+from logger import logger
+
 from core.cache_config import (
     WEBHOOK_ABUSE_BLOCK_TTL_SEC,
     WEBHOOK_ABUSE_FAIL_THRESHOLD,
@@ -48,5 +50,5 @@ async def record_webhook_signature_failure(ip: str) -> None:
             block_key = cache_key("webhook_abuse_block", ip)
             await cache_set(block_key, 1, WEBHOOK_ABUSE_BLOCK_TTL_SEC)
             await cache_delete(fail_key)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("[WebhookAbuse] Ошибка записи fail-счётчика для IP={}: {}", ip, e)

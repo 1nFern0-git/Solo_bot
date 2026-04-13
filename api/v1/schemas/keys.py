@@ -2,8 +2,9 @@ from pydantic import BaseModel, Field
 
 
 class KeyBase(BaseModel):
-    tg_id: int
+    user_id: int
     client_id: str
+    tg_id: int | None = None
     email: str | None = None
     created_at: int | None = None
     expiry_time: int

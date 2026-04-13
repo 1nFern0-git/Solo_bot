@@ -22,7 +22,7 @@ from database.models import Key, User
 from database.tariffs import get_tariffs
 from handlers.buttons import CONNECT_DEVICE, MAIN_MENU, SUPPORT, TRIAL_BONUS
 from handlers.keys.utils import build_key_callback
-from handlers.keys.operations import get_user_traffic
+from services.operations import get_user_traffic
 from handlers.notifications.notify_utils import send_messages_with_limit
 from handlers.texts import (
     TRIAL_INACTIVE_BONUS_MSG,
@@ -126,6 +126,7 @@ async def notify_inactive_trial_users(
                 async with sessionmaker() as fresh_session:
                     for tg_id in sent_tg_ids:
                         await add_notification(fresh_session, tg_id, "inactive_trial")
+                    await fresh_session.commit()
             else:
                 for tg_id in sent_tg_ids:
                     await add_notification(session, tg_id, "inactive_trial")

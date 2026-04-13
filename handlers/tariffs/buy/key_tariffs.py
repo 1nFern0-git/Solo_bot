@@ -13,9 +13,9 @@ from core.settings.tariffs_config import normalize_tariff_config
 from database import get_balance, get_tariff_by_id
 from database.notifications import check_hot_lead_discount
 from handlers.buttons import BACK, CONFIG_PAY_BUTTON_TEXT, MAIN_MENU, PAYMENT
-from handlers.payments.currency_rates import format_for_user
+from services.payments.currency_rates import format_for_user
 from handlers.payments.fast_payment_flow import try_fast_payment_flow
-from handlers.tariffs.tariff_display import GB
+from services.tariffs.tariff_display import GB
 from handlers.texts import (
     CONFIG_SCREEN_TEMPLATE,
     CREATING_CONNECTION_MSG,
@@ -890,7 +890,7 @@ async def handle_user_devices_choice(callback: CallbackQuery, state: FSMContext,
 )
 async def handle_user_traffic_choice(callback: CallbackQuery, state: FSMContext, session: Any):
     """Обрабатывает выбор лимита трафика в конфигураторе."""
-    await safe_answer_callback(callback) 
+    await safe_answer_callback(callback)
     _, _tariff_id_str, traffic_str = callback.data.split("|", 2)
     traffic = int(traffic_str)
 

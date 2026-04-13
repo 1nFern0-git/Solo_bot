@@ -2,7 +2,7 @@ import os
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, InlineKeyboardButton, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, Message, WebAppInfo
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from config import (
@@ -31,7 +31,7 @@ from handlers.buttons import (
     TRIAL_SUB,
     ADMIN_BTN,
 )
-from handlers.payments.currency_rates import format_for_user
+from services.payments.currency_rates import format_for_user
 from handlers.texts import ADD_SUBSCRIPTION_HINT
 from hooks.hook_buttons import insert_hook_buttons
 from hooks.hooks import run_hooks
@@ -107,6 +107,13 @@ async def process_callback_view_profile(
         profile_message = text_hooks[0]
 
     builder = InlineKeyboardBuilder()
+
+    from core.settings.web_config import get_site_url, is_web_enabled
+    if is_web_enabled():
+        site_url = get_site_url()
+        if site_url:
+            webapp_url = f"{site_url}/dashboard"
+            builder.row(InlineKeyboardButton(text="🌐 Личный кабинет", web_app=WebAppInfo(url=webapp_url)))
 
     trial_time_disabled = bool(MODES_CONFIG.get("TRIAL_TIME_DISABLED", TRIAL_TIME_DISABLE))
 

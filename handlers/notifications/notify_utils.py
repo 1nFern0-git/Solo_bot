@@ -18,7 +18,7 @@ from aiogram.types import BufferedInputFile, InlineKeyboardMarkup
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import async_session_maker, create_blocked_user
-from handlers.tariffs.tariff_display import get_key_tariff_display
+from services.tariffs.tariff_display import get_key_tariff_display
 from handlers.utils import format_hours, format_minutes, get_russian_month
 from logger import logger
 
@@ -150,15 +150,12 @@ class FastNotificationSender:
         if not self.blocked_users:
             return
         try:
-            from sqlalchemy.dialects.postgresql import insert
-            from database.models import BlockedUser
+            from database.bans import save_blocked_user_ids
 
-            values = [{"tg_id": tg_id} for tg_id in self.blocked_users]
-            stmt = insert(BlockedUser).values(values).on_conflict_do_nothing(index_elements=[BlockedUser.tg_id])
             async with async_session_maker() as session:
-                await session.execute(stmt)
+                await save_blocked_user_ids(session, list(self.blocked_users))
                 await session.commit()
-            logger.info(f"📝 Добавлено {len(self.blocked_users)} пользователей в blocked_users")
+            logger.info(f"📝 Добавлено до {len(self.blocked_users)} пользователей в blocked_users")
         except Exception as e:
             logger.error(f"❌ Ошибка при сохранении заблокированных пользователей: {e}")
 

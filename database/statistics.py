@@ -152,15 +152,15 @@ async def sum_total_payments(session: AsyncSession) -> float:
 
 async def count_hot_leads(session: AsyncSession) -> int:
     subquery_active_keys = (
-        select(Key.tg_id).where(Key.expiry_time > int(datetime.utcnow().timestamp() * 1000)).distinct()
+        select(Key.user_id).where(Key.expiry_time > int(datetime.utcnow().timestamp() * 1000)).distinct()
     )
 
     stmt = (
-        select(Payment.tg_id)
+        select(Payment.user_id)
         .where(Payment.amount > 0)
         .where(Payment.status == "success")
         .where(Payment.payment_system.notin_(PAYMENT_SYSTEMS_EXCLUDED))
-        .where(not_(exists(subquery_active_keys.where(Key.tg_id == Payment.tg_id))))
+        .where(not_(exists(subquery_active_keys.where(Key.user_id == Payment.user_id))))
         .distinct()
     )
 

@@ -9,14 +9,14 @@ __all__ = (
 from aiogram import Router
 
 from config import PROVIDERS_ENABLED
-from handlers.payments.providers import get_providers
-
-from .payment_links import (
+from services.payments.payment_links import (
     PaymentLinkRequest,
     PaymentLinkResult,
     create_payment_link,
     register_payment_creator,
 )
+from services.payments.providers import get_providers
+
 from .cryptobot import router as cryptobot_router
 from .fast_payment_flow import router as fast_payment_flow_router
 from .freekassa.freekassa_pay import router as freekassa_router

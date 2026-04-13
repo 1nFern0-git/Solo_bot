@@ -12,6 +12,7 @@ from .settings.payments_config import PAYMENTS_CONFIG, load_payments_config, upd
 from .settings.providers_order_config import PROVIDERS_ORDER, load_providers_order, update_providers_order
 from .settings.runtime_sync import publish_runtime_snapshot
 from .settings.tariffs_config import TARIFFS_CONFIG, load_tariffs_config, update_tariffs_config
+from .settings.web_config import WEB_CONFIG, load_web_config, update_web_config
 
 
 async def bootstrap() -> None:
@@ -26,6 +27,7 @@ async def bootstrap() -> None:
         await load_money_config(session)
         await load_management_config(session)
         await load_tariffs_config(session)
+        await load_web_config(session)
         await session.commit()
         await settings_cache.load(session)
         await publish_runtime_snapshot()

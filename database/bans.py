@@ -1,27 +1,43 @@
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from database.models import BlockedUser
+from database.models import BlockedUser, User
+from database.access.resolution import resolve_user_optional
 from logger import logger
 
 
-async def create_blocked_user(session: AsyncSession, tg_id: int):
-    stmt = insert(BlockedUser).values(tg_id=tg_id).on_conflict_do_nothing(index_elements=[BlockedUser.tg_id])
+async def create_blocked_user(session: AsyncSession, legacy_user_ref: int):
+    u = await resolve_user_optional(session, legacy_user_ref)
+    if u is None:
+        return
+    stmt = (
+        insert(BlockedUser)
+        .values(user_id=u.id, tg_id=u.tg_id)
+        .on_conflict_do_nothing(index_elements=[BlockedUser.user_id])
+    )
     await session.execute(stmt)
-    await session.commit()
 
 
 async def save_blocked_user_ids(session: AsyncSession, tg_ids: list[int]) -> None:
-    """Вставка списка tg_id в таблицу BlockedUser батчами по 500. Вызывать только из основного event loop."""
+    """Вставка списка telegram id в таблицу blocked_users батчами по 500."""
     if not tg_ids:
         return
     batch_size = 500
     total = 0
     for i in range(0, len(tg_ids), batch_size):
         batch = tg_ids[i : i + batch_size]
-        values = [{"tg_id": tg_id} for tg_id in batch]
-        stmt = insert(BlockedUser).values(values).on_conflict_do_nothing(index_elements=[BlockedUser.tg_id])
+        res = await session.execute(select(User.id, User.tg_id).where(User.tg_id.in_(batch)))
+        rows = res.all()
+        uid_by_tg = {int(tgid): int(uid) for uid, tgid in rows if tgid is not None}
+        values = [
+            {"user_id": uid_by_tg[int(tg)], "tg_id": int(tg)}
+            for tg in batch
+            if int(tg) in uid_by_tg
+        ]
+        if not values:
+            continue
+        stmt = insert(BlockedUser).values(values).on_conflict_do_nothing(index_elements=[BlockedUser.user_id])
         await session.execute(stmt)
-        await session.commit()
-        total += len(batch)
-    logger.info(f"📝 Добавлено {total} пользователей в blocked_users")
+        total += len(values)
+    logger.info(f"📝 Добавлено до {total} пользователей в blocked_users")

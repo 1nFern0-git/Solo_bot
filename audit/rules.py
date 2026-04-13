@@ -256,6 +256,16 @@ _HANDLER_CONTAINS: list[tuple[str, str] | tuple[str, str, str]] = [
     ("auth/send-login", "login"),
     ("auth/login-by-code", "login"),
     ("auth/login-telegram", "login"),
+    ("auth/set-password", "login"),
+    ("auth/change-password", "login"),
+    ("auth/request-password-reset", "login"),
+    ("auth/confirm-password-reset", "login"),
+    ("auth/summary", "login"),
+    ("site-config", "api_other"),
+    ("tariffs/purchase", "pay_start"),
+    ("tariffs/config-price", "tariff_config"),
+    ("gifts/redeem", "key_create"),
+    ("referrals/apply", "referral"),
 ]
 
 
@@ -265,6 +275,16 @@ _API_CONTAINS: list[tuple[str, str]] = [
     ("auth/send-login", "login"),
     ("auth/login-by-code", "login"),
     ("auth/login-telegram", "login"),
+    ("auth/set-password", "login"),
+    ("auth/change-password", "login"),
+    ("auth/request-password-reset", "login"),
+    ("auth/confirm-password-reset", "login"),
+    ("auth/summary", "login"),
+    ("site-config", "api_other"),
+    ("tariffs/purchase", "pay_start"),
+    ("tariffs/config-price", "tariff_config"),
+    ("gifts/redeem", "key_create"),
+    ("referrals/apply", "referral"),
     ("/keys/create", "key_create"),
 ]
 

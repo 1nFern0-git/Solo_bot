@@ -18,14 +18,14 @@ from config import (
 )
 from core.bootstrap import MODES_CONFIG
 from database import get_servers
-from database.models import Key, Server, Tariff
+from database.models import Key, Server, Tariff, User
 from filters.admin import IsAdminFilter
-from handlers.keys.operations import (
+from services.operations import (
     create_client_on_server,
     create_key_on_cluster,
     delete_key_from_cluster,
 )
-from handlers.keys.operations.aggregated_links import make_aggregated_link
+from services.operations.aggregated_links import make_aggregated_link
 from handlers.utils import ALLOWED_GROUP_CODES
 from logger import logger
 from panels.remnawave import RemnawaveAPI
@@ -215,7 +215,8 @@ async def handle_sync_server(
                     Server.inbound_id,
                     Server.server_name,
                     Server.panel_type,
-                    Key.tg_id,
+                    Key.user_id,
+                    User.tg_id.label("owner_tg_id"),
                     Key.client_id,
                     Key.email,
                     Key.expiry_time,
@@ -227,6 +228,7 @@ async def handle_sync_server(
                     Key.current_traffic_limit,
                 )
                 .join(Key, Server.server_name == Key.server_id)
+                .join(User, Key.user_id == User.id)
                 .where(Server.server_name == server_name)
             )
         else:
@@ -236,7 +238,8 @@ async def handle_sync_server(
                     Server.inbound_id,
                     Server.server_name,
                     Server.panel_type,
-                    Key.tg_id,
+                    Key.user_id,
+                    User.tg_id.label("owner_tg_id"),
                     Key.client_id,
                     Key.email,
                     Key.expiry_time,
@@ -248,6 +251,7 @@ async def handle_sync_server(
                     Key.current_traffic_limit,
                 )
                 .join(Key, Server.cluster_name == Key.server_id)
+                .join(User, Key.user_id == User.id)
                 .where(Server.server_name == server_name)
             )
 
@@ -336,7 +340,7 @@ async def handle_sync_server(
                     success = await remna.update_user(
                         uuid=key["client_id"],
                         expire_at=expire_iso,
-                        telegram_id=key["tg_id"],
+                        telegram_id=int(key.get("owner_tg_id") or 0),
                         email=f"{key['email']}@fake.local",
                         active_user_inbounds=[key["inbound_id"]],
                         traffic_limit_bytes=traffic_limit_bytes,
@@ -356,14 +360,14 @@ async def handle_sync_server(
                                         cluster_id=cluster_name,
                                         email=key["email"],
                                         client_id=key["client_id"],
-                                        tg_id=key["tg_id"],
+                                        tg_id=key["user_id"],
                                         remna_link_override=None,
                                         plan=tariff,
                                     )
 
                                     await session.execute(
                                         update(Key)
-                                        .where(Key.tg_id == key["tg_id"], Key.client_id == key["client_id"])
+                                        .where(Key.user_id == key["user_id"], Key.client_id == key["client_id"])
                                         .values(remnawave_link=new_remnawave_link, key=key_value)
                                     )
                                     await session.commit()
@@ -378,7 +382,7 @@ async def handle_sync_server(
 
                         await create_key_on_cluster(
                             cluster_id=server_name,
-                            tg_id=key["tg_id"],
+                            tg_id=key["user_id"],
                             client_id=key["client_id"],
                             email=key["email"],
                             expiry_timestamp=key["expiry_time"],
@@ -400,7 +404,7 @@ async def handle_sync_server(
                             "inbound_id": key["inbound_id"],
                             "server_name": key["server_name"],
                         },
-                        key["tg_id"],
+                        int(key.get("owner_tg_id") or 0) or key["user_id"],
                         key["client_id"],
                         key["email"],
                         key["expiry_time"],
@@ -448,7 +452,8 @@ async def handle_sync_cluster(
                 return
             result = await session.execute(
                 select(
-                    Key.tg_id,
+                    Key.user_id,
+                    User.tg_id.label("owner_tg_id"),
                     Key.client_id,
                     Key.email,
                     Key.expiry_time,
@@ -459,12 +464,15 @@ async def handle_sync_cluster(
                     Key.selected_traffic_limit,
                     Key.current_device_limit,
                     Key.current_traffic_limit,
-                ).where(Key.server_id.in_(server_names), Key.is_frozen.is_(False))
+                )
+                .join(User, Key.user_id == User.id)
+                .where(Key.server_id.in_(server_names), Key.is_frozen.is_(False))
             )
         else:
             result = await session.execute(
                 select(
-                    Key.tg_id,
+                    Key.user_id,
+                    User.tg_id.label("owner_tg_id"),
                     Key.client_id,
                     Key.email,
                     Key.expiry_time,
@@ -475,7 +483,9 @@ async def handle_sync_cluster(
                     Key.selected_traffic_limit,
                     Key.current_device_limit,
                     Key.current_traffic_limit,
-                ).where(Key.server_id == cluster_name, Key.is_frozen.is_(False))
+                )
+                .join(User, Key.user_id == User.id)
+                .where(Key.server_id == cluster_name, Key.is_frozen.is_(False))
             )
 
         keys_to_sync = result.mappings().all()
@@ -590,7 +600,7 @@ async def handle_sync_cluster(
                         success = await remna.update_user(
                             uuid=key["client_id"],
                             expire_at=expire_iso,
-                            telegram_id=key["tg_id"],
+                            telegram_id=int(key.get("owner_tg_id") or 0),
                             email=f"{key['email']}@fake.local",
                             active_user_inbounds=inbound_ids,
                             traffic_limit_bytes=traffic_limit_bytes,
@@ -651,7 +661,7 @@ async def handle_sync_cluster(
                                 cluster_id=cluster_name,
                                 email=key["email"],
                                 client_id=key["client_id"],
-                                tg_id=key["tg_id"],
+                                tg_id=key["user_id"],
                                 remna_link_override=None,
                                 plan=tariff,
                             )
@@ -696,14 +706,14 @@ async def handle_sync_cluster(
                         logger.warning(f"[Sync] Пересоздание {key['email']}")
                         await delete_key_from_cluster(cluster_name, key["email"], key["client_id"], session)
                         await session.execute(
-                            delete(Key).where(Key.tg_id == key["tg_id"], Key.client_id == key["client_id"])
+                            delete(Key).where(Key.user_id == key["user_id"], Key.client_id == key["client_id"])
                         )
                         await session.commit()
 
                         cluster_id_for_recreate = key["server_id"] if use_country_selection else cluster_name
                         await create_key_on_cluster(
                             cluster_id_for_recreate,
-                            key["tg_id"],
+                            key["user_id"],
                             key["client_id"],
                             key["email"],
                             key["expiry_time"],
@@ -776,13 +786,13 @@ async def handle_sync_cluster(
                     await delete_key_from_cluster(cluster_name, key["email"], key["client_id"], session)
 
                     await session.execute(
-                        delete(Key).where(Key.tg_id == key["tg_id"], Key.client_id == key["client_id"])
+                        delete(Key).where(Key.user_id == key["user_id"], Key.client_id == key["client_id"])
                     )
 
                     cluster_id_for_recreate = key["server_id"] if use_country_selection else cluster_name
                     await create_key_on_cluster(
                         cluster_id_for_recreate,
-                        key["tg_id"],
+                        key["user_id"],
                         key["client_id"],
                         key["email"],
                         key["expiry_time"],

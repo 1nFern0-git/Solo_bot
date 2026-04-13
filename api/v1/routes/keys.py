@@ -8,7 +8,8 @@ from api.depends import get_session, verify_admin_token
 from api.v1.routes.base_crud import generate_crud_router
 from api.v1.schemas.keys import KeyBase, KeyCreateRequest, KeyResponse, KeyUpdate
 from database.models import Admin, Key, Tariff
-from handlers.keys.operations import create_key_on_cluster, delete_key_from_cluster, renew_key_in_cluster
+from database.access.resolution import resolve_user_optional
+from services.operations import create_key_on_cluster, delete_key_from_cluster, renew_key_in_cluster
 from logger import logger
 
 
@@ -63,7 +64,10 @@ async def get_router_keys_by_tg_id(
     if not tariff_ids:
         return []
 
-    keys_result = await session.execute(select(Key).where(Key.tg_id == tg_id, Key.tariff_id.in_(tariff_ids)))
+    u = await resolve_user_optional(session, tg_id)
+    if u is None:
+        return []
+    keys_result = await session.execute(select(Key).where(Key.user_id == u.id, Key.tariff_id.in_(tariff_ids)))
     keys = keys_result.scalars().all()
     return keys
 

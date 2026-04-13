@@ -26,6 +26,7 @@ async def scheduled_stats_report() -> None:
 async def sweep_stale_payments_job() -> None:
     async with async_session_maker() as session:
         await cancel_expired_pending_payments(session)
+        await session.commit()
 
 
 def scheduled_audit_drain_process_runner() -> None:
@@ -40,6 +41,33 @@ def sweep_stale_payments_process_runner() -> None:
     asyncio.run(sweep_stale_payments_job())
 
 
+async def cleanup_expired_gifts_job() -> None:
+    from datetime import datetime
+
+    from sqlalchemy import update as sa_update
+
+    from database.models import Gift
+
+    async with async_session_maker() as session:
+        try:
+            result = await session.execute(
+                sa_update(Gift)
+                .where(Gift.expiry_time < datetime.utcnow(), Gift.is_used == False)
+                .values(is_used=True)
+            )
+            count = result.rowcount
+            await session.commit()
+            if count:
+                logger.info("[GiftCleanup] Просроченных подарков помечено использованными: {}", count)
+        except Exception as error:
+            logger.error("[GiftCleanup] Ошибка очистки подарков: {}", error)
+
+
+def cleanup_expired_gifts_process_runner() -> None:
+    asyncio.run(cleanup_expired_gifts_job())
+
+
 AUDIT_DRAIN_TRIGGER = CronTrigger(hour=0, minute=0, timezone="Europe/Moscow")
 DAILY_STATS_REPORT_TRIGGER = CronTrigger(hour=0, minute=1, timezone="Europe/Moscow")
 STALE_PAYMENTS_SWEEP_TRIGGER = CronTrigger(minute=0, timezone="Europe/Moscow")
+EXPIRED_GIFTS_CLEANUP_TRIGGER = CronTrigger(hour=3, minute=0, timezone="Europe/Moscow")

@@ -208,7 +208,7 @@ async def restore_trials(
         update(User)
         .where(
             User.trial == 1,
-            ~exists(select(Key.tg_id).where(Key.tg_id == User.tg_id)),
+            ~exists(select(Key.user_id).where(Key.user_id == User.id)),
         )
         .values(trial=0)
     )

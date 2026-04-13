@@ -1,12 +1,12 @@
 from datetime import datetime, timedelta
 
 from pytz import timezone
-from sqlalchemy import and_, insert, select, update
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import and_, func, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.cache_config import PAYMENT_PENDING_CACHE_TTL_SEC
 from core.redis_cache import cache_delete, cache_get, cache_key, cache_set
+from database.access.resolution import resolve_user_optional
 from database.models import Payment
 from logger import logger
 
@@ -52,52 +52,59 @@ async def invalidate_payment_cache(payment_id: str) -> None:
 
 async def add_payment(
     session: AsyncSession,
-    tg_id: int,
-    amount: float,
-    payment_system: str,
+    legacy_user_ref: int | None = None,
+    amount: float = 0,
+    payment_system: str = "",
     *,
+    tg_id: int | None = None,
     status: str = "success",
     currency: str = "RUB",
     payment_id: str | None = None,
     metadata: dict | None = None,
     original_amount: float | None = None,
 ) -> int:
-    try:
-        now_moscow = datetime.now(MOSCOW_TZ).replace(tzinfo=None)
-        stmt = (
-            insert(Payment)
-            .values(
-                tg_id=tg_id,
-                amount=amount,
-                payment_system=payment_system,
-                status=status,
-                created_at=now_moscow,
-                currency=currency,
-                payment_id=payment_id,
-                metadata_=metadata,
-                original_amount=original_amount,
-            )
-            .returning(Payment.id)
+    if legacy_user_ref is None:
+        legacy_user_ref = tg_id
+    if legacy_user_ref is None:
+        raise ValueError("legacy_user_ref is required for payment")
+    u = await resolve_user_optional(session, legacy_user_ref)
+    if u is None:
+        raise ValueError(f"user not found for payment: {legacy_user_ref}")
+    now_moscow = datetime.now(MOSCOW_TZ).replace(tzinfo=None)
+    stmt = (
+        insert(Payment)
+        .values(
+            user_id=u.id,
+            tg_id=u.tg_id,
+            amount=amount,
+            payment_system=payment_system,
+            status=status,
+            created_at=now_moscow,
+            currency=currency,
+            payment_id=payment_id,
+            metadata_=metadata,
+            original_amount=original_amount,
         )
-        result = await session.execute(stmt)
-        internal_id = result.scalar_one()
-        logger.info(
-            f"Добавлен платёж id={internal_id}: tg_id={tg_id}, amount={amount}, system={payment_system}, status={status}"
-        )
-        return internal_id
-    except SQLAlchemyError as e:
-        await session.rollback()
-        logger.error(f"Ошибка при добавлении платежа: {e}")
-        raise
+        .returning(Payment.id)
+    )
+    result = await session.execute(stmt)
+    internal_id = result.scalar_one()
+    logger.info(
+        f"Добавлен платёж id={internal_id}: user_id={u.id}, amount={amount}, system={payment_system}, status={status}"
+    )
+    return internal_id
 
 
 async def get_last_payments(
     session: AsyncSession,
-    tg_id: int,
+    legacy_user_ref: int,
     limit: int = 3,
     statuses: list[str] | None = None,
 ):
-    query = select(Payment).where(Payment.tg_id == tg_id)
+    u = await resolve_user_optional(session, legacy_user_ref)
+    if u is None:
+        return []
+    query = select(Payment).where(Payment.user_id == u.id)
 
     if statuses:
         query = query.where(Payment.status.in_(statuses))
@@ -109,7 +116,8 @@ async def get_last_payments(
     return [
         {
             "id": p.id,
-            "tg_id": p.tg_id,
+            "tg_id": p.user_id,
+            "user_id": p.user_id,
             "amount": p.amount,
             "currency": p.currency,
             "status": p.status,
@@ -124,27 +132,23 @@ async def get_last_payments(
 
 
 async def get_payment_by_id(session: AsyncSession, internal_id: int) -> dict | None:
-    try:
-        result = await session.execute(select(Payment).where(Payment.id == internal_id).limit(1))
-        payment = result.scalar_one_or_none()
-        if not payment:
-            return None
-        return {
-            "id": payment.id,
-            "tg_id": payment.tg_id,
-            "amount": payment.amount,
-            "currency": payment.currency,
-            "status": payment.status,
-            "payment_system": payment.payment_system,
-            "payment_id": payment.payment_id,
-            "created_at": payment.created_at,
-            "metadata": payment.metadata_,
-            "original_amount": payment.original_amount,
-        }
-    except SQLAlchemyError as e:
-        logger.error(f"Ошибка при поиске платежа id={internal_id}: {e}")
-        await session.rollback()
+    result = await session.execute(select(Payment).where(Payment.id == internal_id).limit(1))
+    payment = result.scalar_one_or_none()
+    if not payment:
         return None
+    return {
+        "id": payment.id,
+        "tg_id": payment.user_id,
+        "user_id": payment.user_id,
+        "amount": payment.amount,
+        "currency": payment.currency,
+        "status": payment.status,
+        "payment_system": payment.payment_system,
+        "payment_id": payment.payment_id,
+        "created_at": payment.created_at,
+        "metadata": payment.metadata_,
+        "original_amount": payment.original_amount,
+    }
 
 
 async def update_payment_status(
@@ -155,31 +159,48 @@ async def update_payment_status(
     payment_id: str | None = None,
     metadata_patch: dict | None = None,
 ) -> bool:
-    try:
-        result = await session.execute(select(Payment).where(Payment.id == internal_id).limit(1))
-        payment = result.scalar_one_or_none()
-        if not payment:
-            logger.info(f"Не удалось сменить статус: платёж id={internal_id} не найден")
-            return False
-
-        payment.status = new_status
-        if payment_id is not None:
-            payment.payment_id = payment_id
-        base = payment.metadata_ or {}
-        if new_status == "success" and "status_changed_at" not in base:
-            base["status_changed_at"] = datetime.utcnow().replace(tzinfo=None).isoformat()
-        if metadata_patch:
-            base.update(metadata_patch)
-        if base:
-            payment.metadata_ = base
-
-        await session.commit()
-        logger.info(f"Статус платежа id={internal_id} изменён на {new_status}")
-        return True
-    except SQLAlchemyError as e:
-        await session.rollback()
-        logger.error(f"Ошибка при смене статуса платежа id={internal_id}: {e}")
+    result = await session.execute(select(Payment).where(Payment.id == internal_id).limit(1))
+    payment = result.scalar_one_or_none()
+    if not payment:
+        logger.info(f"Не удалось сменить статус: платёж id={internal_id} не найден")
         return False
+
+    payment.status = new_status
+    if payment_id is not None:
+        payment.payment_id = payment_id
+    base = payment.metadata_ or {}
+    if new_status == "success" and "status_changed_at" not in base:
+        base["status_changed_at"] = datetime.utcnow().replace(tzinfo=None).isoformat()
+    if metadata_patch:
+        base.update(metadata_patch)
+    if base:
+        payment.metadata_ = base
+
+    await session.flush()
+    logger.info(f"Статус платежа id={internal_id} изменён на {new_status}")
+    return True
+
+
+async def get_payment_from_db_by_payment_id(session: AsyncSession, pid: str) -> dict | None:
+    if not str(pid or "").strip():
+        return None
+    result = await session.execute(select(Payment).where(Payment.payment_id == pid).limit(1))
+    payment = result.scalar_one_or_none()
+    if not payment:
+        return None
+    return {
+        "id": payment.id,
+        "tg_id": payment.user_id,
+        "user_id": payment.user_id,
+        "amount": payment.amount,
+        "currency": payment.currency,
+        "status": payment.status,
+        "payment_system": payment.payment_system,
+        "payment_id": payment.payment_id,
+        "created_at": payment.created_at,
+        "metadata": payment.metadata_,
+        "original_amount": payment.original_amount,
+    }
 
 
 async def get_payment_by_payment_id(session: AsyncSession, pid: str) -> dict | None:
@@ -198,27 +219,36 @@ async def get_payment_by_payment_id(session: AsyncSession, pid: str) -> dict | N
             "metadata": cached.get("metadata"),
             "original_amount": cached.get("original_amount"),
         }
-    try:
-        result = await session.execute(select(Payment).where(Payment.payment_id == pid).limit(1))
-        payment = result.scalar_one_or_none()
-        if not payment:
-            return None
-        return {
-            "id": payment.id,
-            "tg_id": payment.tg_id,
-            "amount": payment.amount,
-            "currency": payment.currency,
-            "status": payment.status,
-            "payment_system": payment.payment_system,
-            "payment_id": payment.payment_id,
-            "created_at": payment.created_at,
-            "metadata": payment.metadata_,
-            "original_amount": payment.original_amount,
-        }
-    except SQLAlchemyError as e:
-        logger.error(f"Ошибка при поиске платежа payment_id={pid}: {e}")
-        await session.rollback()
+    result = await session.execute(select(Payment).where(Payment.payment_id == pid).limit(1))
+    payment = result.scalar_one_or_none()
+    if not payment:
         return None
+    return {
+        "id": payment.id,
+        "tg_id": payment.user_id,
+        "user_id": payment.user_id,
+        "amount": payment.amount,
+        "currency": payment.currency,
+        "status": payment.status,
+        "payment_system": payment.payment_system,
+        "payment_id": payment.payment_id,
+        "created_at": payment.created_at,
+        "metadata": payment.metadata_,
+        "original_amount": payment.original_amount,
+    }
+
+
+async def count_successful_payments(session: AsyncSession, user_id: int) -> int:
+    """Сколько успешных платежей у пользователя (по internal user id).
+
+    Используется для проверки "новый пользователь" в купонных правилах.
+    """
+    result = await session.execute(
+        select(func.count())
+        .select_from(Payment)
+        .where(Payment.user_id == int(user_id), func.lower(Payment.status) == "success")
+    )
+    return int(result.scalar() or 0)
 
 
 async def cancel_expired_pending_payments(session: AsyncSession) -> int:
@@ -234,17 +264,19 @@ async def cancel_expired_pending_payments(session: AsyncSession) -> int:
         .values(status="cancelled")
     )
     res = await session.execute(stmt)
-    await session.commit()
     affected = res.rowcount or 0
     return affected
 
 
 async def get_all_payments(
     session: AsyncSession,
-    tg_id: int,
+    legacy_user_ref: int,
     statuses: list[str] | None = None,
 ) -> list[dict]:
-    query = select(Payment).where(Payment.tg_id == tg_id)
+    u = await resolve_user_optional(session, legacy_user_ref)
+    if u is None:
+        return []
+    query = select(Payment).where(Payment.user_id == u.id)
 
     if statuses:
         query = query.where(Payment.status.in_(statuses))
@@ -256,7 +288,8 @@ async def get_all_payments(
     return [
         {
             "id": p.id,
-            "tg_id": p.tg_id,
+            "tg_id": p.user_id,
+            "user_id": p.user_id,
             "amount": p.amount,
             "currency": p.currency,
             "status": p.status,

@@ -1,13 +1,250 @@
-from fastapi import APIRouter, Depends, HTTPException, Path
-from sqlalchemy import delete, select
+from math import ceil
+
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.depends import get_session, verify_identity_admin
+from api.depends import (
+    get_request_actor,
+    get_session,
+    validate_redirect_url,
+    verify_identity_admin,
+    verify_identity_token,
+)
 from api.v2.base_crud import generate_crud_router
+from api.v2.routes.tariffs import _resolve_default_web_payment_provider, _resolve_public_base_url
 from api.v2.schemas import GiftBase, GiftResponse, GiftUpdate, GiftUsageResponse
-from database.models import Gift, GiftUsage
+from api.v2.schemas.web_public import (
+    GiftCreatePreviewResponse,
+    GiftCreateRequest,
+    GiftCreateResponse,
+    GiftRedeemRequest,
+    GiftRedeemResponse,
+    GiftUsageEntry,
+    MyGiftItem,
+    MyGiftsResponse,
+)
+from config import GIFT_BUTTON
+from core.bootstrap import BUTTONS_CONFIG
+from database import (
+    get_balance,
+    identities as idb,
+)
+from database.access.resolution import resolve_user_optional
+from database.models import Gift, GiftUsage, Tariff
+from database.tariffs import get_tariff_by_id
+from database.temporary_data import create_temporary_data
+from services.errors import NotFoundError, ValidationError
+from services.formatting import get_site_gift_link
+from services.gifts import create_gift as service_create_gift
+from services.gifts import redeem_gift as service_redeem_gift
+from services.payments.payment_links import PaymentLinkRequest, create_payment_link
+from services.tariffs import calculate_config_price
+
 
 router = APIRouter()
+
+
+def _check_gifts_enabled():
+    if not bool(BUTTONS_CONFIG.get("GIFT_BUTTON_ENABLE", GIFT_BUTTON)):
+        raise HTTPException(status_code=403, detail="Подарки отключены")
+
+
+@router.post("/create", tags=["Gifts"])
+async def create_gift_for_user(
+    body: GiftCreateRequest,
+    request: Request,
+    preview: bool = Query(False),
+    session: AsyncSession = Depends(get_session),
+    identity=Depends(verify_identity_token),
+):
+    _check_gifts_enabled()
+    actor = get_request_actor(request)
+    billing_user_id = actor.billing_user_id if actor and actor.billing_user_id is not None else None
+    if billing_user_id is None:
+        billing_user_id = await idb.ensure_billing_user_for_identity(session, identity)
+
+    tariff = await get_tariff_by_id(session, body.tariff_id)
+    if not tariff or tariff.get("group_code") != "gifts" or not tariff.get("is_active", True):
+        raise HTTPException(status_code=404, detail="Тариф не найден")
+
+    price = int(calculate_config_price(tariff, body.selected_device_limit, body.selected_traffic_gb))
+    balance = float(await get_balance(session, billing_user_id))
+
+    required_amount = int(max(0, ceil(float(price) - balance)))
+
+    if preview:
+        return GiftCreatePreviewResponse(
+            ok=True,
+            price_rub=price,
+            balance_rub=balance,
+            sufficient_funds=balance >= price,
+            tariff_name=str(tariff.get("name", "")),
+            duration_days=int(tariff.get("duration_days") or 0),
+        )
+
+    if required_amount > 0:
+        provider_id = str(body.provider_id or _resolve_default_web_payment_provider() or "").strip().upper()
+        if not provider_id:
+            raise HTTPException(status_code=503, detail="Нет доступных провайдеров оплаты")
+        base_url = _resolve_public_base_url(request)
+        success_url = validate_redirect_url(str(body.success_url or ""), f"{base_url}/payment-success")
+        failure_url = validate_redirect_url(str(body.failure_url or ""), f"{base_url}/payment-failure")
+        payment_request = PaymentLinkRequest(
+            legacy_user_ref=int(billing_user_id),
+            amount=required_amount,
+            currency="RUB",
+            provider_id=provider_id,
+            success_url=success_url,
+            failure_url=failure_url,
+            metadata={
+                "payment_flow": "gift_create",
+                "tariff_id": int(body.tariff_id),
+                "selected_device_limit": body.selected_device_limit,
+                "selected_traffic_gb": body.selected_traffic_gb,
+                "selected_price_rub": int(price),
+            },
+        )
+        payment_result = await create_payment_link(session, payment_request)
+        if not payment_result.success or not payment_result.payment_url or not payment_result.payment_id:
+            raise HTTPException(status_code=400, detail=payment_result.error or "Не удалось создать ссылку оплаты")
+        await create_temporary_data(
+            session,
+            int(billing_user_id),
+            "waiting_for_payment",
+            {
+                "payment_flow": "gift_create",
+                "tariff_id": int(body.tariff_id),
+                "required_amount": int(required_amount),
+                "selected_price_rub": int(price),
+                "selected_device_limit": body.selected_device_limit,
+                "selected_traffic_gb": body.selected_traffic_gb,
+            },
+        )
+        return GiftCreateResponse(
+            ok=True,
+            message="Требуется оплата для создания подарка",
+            payment_required=True,
+            required_amount_rub=required_amount,
+            payment_id=payment_result.payment_id,
+            payment_url=payment_result.payment_url,
+        )
+
+    from services.errors import InsufficientFundsError, NotFoundError
+
+    try:
+        result = await service_create_gift(
+            session=session,
+            sender_user_ref=billing_user_id,
+            tariff_id=body.tariff_id,
+            selected_device_limit=body.selected_device_limit,
+            selected_traffic_gb=body.selected_traffic_gb,
+            selected_price_rub=price,
+        )
+    except InsufficientFundsError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from None
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from None
+
+    new_balance = float(await get_balance(session, billing_user_id))
+    return GiftCreateResponse(
+        ok=True,
+        message=f"Подарок создан — {result.tariff_name} на {result.duration_text}",
+        gift_id=result.gift_id,
+        site_gift_link=result.site_gift_link,
+        tariff_name=result.tariff_name,
+        duration_days=result.duration_days,
+        price_charged=result.price_charged,
+        balance_rub=new_balance,
+    )
+
+
+@router.get("/my", response_model=MyGiftsResponse, tags=["Gifts"])
+async def get_my_gifts(
+    request: Request,
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    session: AsyncSession = Depends(get_session),
+    identity=Depends(verify_identity_token),
+):
+    _check_gifts_enabled()
+    actor = get_request_actor(request)
+    billing_user_id = actor.billing_user_id if actor and actor.billing_user_id is not None else None
+    if billing_user_id is None:
+        billing_user_id = await idb.ensure_billing_user_for_identity(session, identity)
+
+    base_filter = Gift.sender_user_id == billing_user_id
+    total = (await session.execute(select(func.count()).select_from(Gift).where(base_filter))).scalar_one()
+
+    result = await session.execute(
+        select(Gift).where(base_filter).order_by(Gift.created_at.desc()).limit(limit).offset(offset)
+    )
+    gifts = result.scalars().all()
+
+    tariff_ids = {g.tariff_id for g in gifts if g.tariff_id}
+    tariff_map: dict[int, str] = {}
+    duration_map: dict[int, int] = {}
+    if tariff_ids:
+        tariff_rows = await session.execute(select(Tariff).where(Tariff.id.in_(tariff_ids)))
+        for t in tariff_rows.scalars().all():
+            tariff_map[t.id] = t.name or ""
+            duration_map[t.id] = int(t.duration_days or 0)
+
+    gift_ids = [g.gift_id for g in gifts]
+    usages_map: dict[str, list[GiftUsageEntry]] = {gid: [] for gid in gift_ids}
+    if gift_ids:
+        usage_rows = await session.execute(select(GiftUsage).where(GiftUsage.gift_id.in_(gift_ids)))
+        for u in usage_rows.scalars().all():
+            usages_map.setdefault(u.gift_id, []).append(
+                GiftUsageEntry(
+                    user_id=int(u.user_id),
+                    used_at=u.used_at.isoformat() if u.used_at else None,
+                )
+            )
+
+    items = []
+    for g in gifts:
+        items.append(
+            MyGiftItem(
+                gift_id=g.gift_id,
+                tariff_name=tariff_map.get(g.tariff_id, ""),
+                duration_days=duration_map.get(g.tariff_id, 0),
+                price_rub=int(g.selected_price_rub or 0),
+                created_at=g.created_at.isoformat() if g.created_at else None,
+                expiry_time=g.expiry_time.isoformat() if g.expiry_time else None,
+                is_used=bool(g.is_used),
+                is_unlimited=bool(g.is_unlimited),
+                max_usages=g.max_usages,
+                site_gift_link=get_site_gift_link(g.gift_id),
+                usages=usages_map.get(g.gift_id, []),
+            )
+        )
+
+    return MyGiftsResponse(ok=True, gifts=items, total=total, limit=limit, offset=offset)
+
+
+@router.delete("/my/{gift_id}", response_model=dict, tags=["Gifts"])
+async def delete_my_gift(
+    request: Request,
+    gift_id: str = Path(...),
+    session: AsyncSession = Depends(get_session),
+    identity=Depends(verify_identity_token),
+):
+    """Удаляет свой подарок."""
+    actor = get_request_actor(request)
+    billing_user_id = actor.billing_user_id if actor and actor.billing_user_id is not None else None
+    if billing_user_id is None:
+        billing_user_id = await idb.ensure_billing_user_for_identity(session, identity)
+
+    result = await session.execute(select(Gift).where(Gift.gift_id == gift_id))
+    gift = result.scalar_one_or_none()
+    if not gift or gift.sender_user_id != billing_user_id:
+        raise HTTPException(status_code=404, detail="Подарок не найден")
+    await session.execute(delete(GiftUsage).where(GiftUsage.gift_id == gift_id))
+    await session.delete(gift)
+    await session.commit()
+    return {"ok": True, "message": "Подарок удалён"}
+
 
 gift_router = generate_crud_router(
     model=Gift,
@@ -21,6 +258,35 @@ gift_router = generate_crud_router(
 router.include_router(gift_router, prefix="", tags=["Gifts"])
 
 
+@router.post("/redeem", response_model=GiftRedeemResponse, tags=["Gifts"])
+async def redeem_gift(
+    body: GiftRedeemRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    identity=Depends(verify_identity_token),
+):
+    _check_gifts_enabled()
+    actor = get_request_actor(request)
+    billing_user_id = actor.billing_user_id if actor and actor.billing_user_id is not None else None
+    if billing_user_id is None:
+        billing_user_id = await idb.ensure_billing_user_for_identity(session, identity)
+    try:
+        result = await service_redeem_gift(session, body.gift_code, billing_user_id)
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from None
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from None
+    except Exception:
+        raise HTTPException(status_code=500, detail="Не удалось активировать подарок") from None
+    return GiftRedeemResponse(
+        ok=True,
+        message=result.message,
+        gift_id=result.gift_id,
+        tariff_id=result.tariff_id,
+        duration_days=result.duration_days,
+    )
+
+
 @router.get("/by_tg_id/{tg_id}", response_model=list[GiftResponse], tags=["Gifts"])
 async def get_gifts_by_tg_id(
     tg_id: int = Path(...),
@@ -28,7 +294,10 @@ async def get_gifts_by_tg_id(
     session: AsyncSession = Depends(get_session),
 ):
     """Список подарков по tg_id отправителя."""
-    result = await session.execute(select(Gift).where(Gift.sender_tg_id == tg_id))
+    u = await resolve_user_optional(session, tg_id)
+    if u is None:
+        raise HTTPException(status_code=404, detail="Gifts not found")
+    result = await session.execute(select(Gift).where(Gift.sender_user_id == u.id))
     gifts = result.scalars().all()
     if not gifts:
         raise HTTPException(status_code=404, detail="Gifts not found")

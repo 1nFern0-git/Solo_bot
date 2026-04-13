@@ -4,7 +4,6 @@ from collections import defaultdict
 from datetime import datetime
 
 from sqlalchemy import delete, func, insert, select, update
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.cache_config import TARIFF_BY_ID_CACHE_TTL_SEC, TARIFFS_FOR_CLUSTER_CACHE_TTL_SEC
@@ -31,6 +30,7 @@ async def _invalidate_tariff_cache(tariff_id: int | None = None) -> None:
     if tariff_id is not None:
         await cache_delete(cache_key("tariff", tariff_id))
     await cache_delete_pattern("tariffs_cluster:*")
+    await cache_delete_pattern("tariffs_public:*")
 
 
 def create_subgroup_hash(subgroup_title: str, group_code: str) -> str:
@@ -60,43 +60,37 @@ async def find_subgroup_by_hash(session: AsyncSession, subgroup_hash: str, group
 async def get_tariffs(
     session: AsyncSession, tariff_id: int = None, group_code: str = None, with_subgroup_weights: bool = False
 ):
-    try:
-        if tariff_id:
-            result = await session.execute(select(Tariff).where(Tariff.id == tariff_id))
-        elif group_code:
-            result = await session.execute(
-                select(Tariff).where(Tariff.group_code == group_code).order_by(Tariff.sort_order, Tariff.id)
-            )
-        else:
-            result = await session.execute(select(Tariff).order_by(Tariff.sort_order, Tariff.id))
+    if tariff_id:
+        result = await session.execute(select(Tariff).where(Tariff.id == tariff_id))
+    elif group_code:
+        result = await session.execute(
+            select(Tariff).where(Tariff.group_code == group_code).order_by(Tariff.sort_order, Tariff.id)
+        )
+    else:
+        result = await session.execute(select(Tariff).order_by(Tariff.sort_order, Tariff.id))
 
-        tariffs = [dict(r.__dict__) for r in result.scalars().all()]
+    tariffs = [dict(r.__dict__) for r in result.scalars().all()]
 
-        if with_subgroup_weights and group_code:
-            tariffs_without_order = [t for t in tariffs if t.get("sort_order") is None]
-            if tariffs_without_order:
-                for tariff in tariffs_without_order:
-                    tariff["sort_order"] = 1
-                    await session.execute(update(Tariff).where(Tariff.id == tariff["id"]).values(sort_order=1))
-                await session.commit()
+    if with_subgroup_weights and group_code:
+        tariffs_without_order = [t for t in tariffs if t.get("sort_order") is None]
+        if tariffs_without_order:
+            for tariff in tariffs_without_order:
+                tariff["sort_order"] = 1
+                await session.execute(update(Tariff).where(Tariff.id == tariff["id"]).values(sort_order=1))
 
-            grouped = defaultdict(list)
-            for t in tariffs:
-                grouped[t.get("subgroup_title")].append(t)
+        grouped = defaultdict(list)
+        for t in tariffs:
+            grouped[t.get("subgroup_title")].append(t)
 
-            subgroup_weights = {}
-            for subgroup, tariffs_list in grouped.items():
-                if subgroup:
-                    total_weight = sum(t.get("sort_order", 1) for t in tariffs_list)
-                    subgroup_weights[subgroup] = total_weight
+        subgroup_weights = {}
+        for subgroup, tariffs_list in grouped.items():
+            if subgroup:
+                total_weight = sum(t.get("sort_order", 1) for t in tariffs_list)
+                subgroup_weights[subgroup] = total_weight
 
-            return {"tariffs": tariffs, "subgroup_weights": subgroup_weights}
+        return {"tariffs": tariffs, "subgroup_weights": subgroup_weights}
 
-        return tariffs
-    except SQLAlchemyError as e:
-        logger.error(f"[TARIFF] Ошибка при получении тарифов: {e}")
-        await session.rollback()
-        return []
+    return tariffs
 
 
 async def get_tariff_names_groups_subgroups_durations(
@@ -133,23 +127,26 @@ async def get_tariff_by_id(session: AsyncSession, tariff_id: int):
     cached = await cache_get(key)
     if isinstance(cached, dict):
         return cached
-    try:
-        result = await session.execute(select(Tariff).where(Tariff.id == tariff_id))
-        tariff = result.scalar_one_or_none()
-        if not tariff:
-            return None
-        row = _row_to_cache_dict(dict(tariff.__dict__))
-        await cache_set(key, row, TARIFF_BY_ID_CACHE_TTL_SEC)
-        return row
-    except SQLAlchemyError as e:
-        logger.error(f"[TARIFF] Ошибка при получении тарифа по ID {tariff_id}: {e}")
-        await session.rollback()
+    result = await session.execute(select(Tariff).where(Tariff.id == tariff_id))
+    tariff = result.scalar_one_or_none()
+    if not tariff:
         return None
+    row = _row_to_cache_dict(dict(tariff.__dict__))
+    await cache_set(key, row, TARIFF_BY_ID_CACHE_TTL_SEC)
+    return row
 
 
 async def get_tariff_group_codes(session: AsyncSession) -> list[str]:
     result = await session.execute(select(Tariff.group_code).distinct().order_by(Tariff.group_code))
     return [row[0] for row in result.fetchall() if row[0]]
+
+
+async def get_active_tariff_by_id(session: AsyncSession, tariff_id: int) -> Tariff | None:
+    """Возвращает ORM-объект Tariff по id, если тариф активен (is_active=True)."""
+    result = await session.execute(
+        select(Tariff).where(Tariff.id == int(tariff_id), Tariff.is_active.is_(True))
+    )
+    return result.scalar_one_or_none()
 
 
 async def get_active_tariffs_by_group_code(session: AsyncSession, group_code: str) -> list[Tariff]:
@@ -164,105 +161,78 @@ async def get_tariffs_for_cluster(session: AsyncSession, cluster_name: str):
     cached = await cache_get(key)
     if isinstance(cached, list):
         return cached
-    try:
+    server_row = await session.execute(
+        select(Server.tariff_group).where(Server.cluster_name == cluster_name).limit(1)
+    )
+    row = server_row.first()
+
+    if not row:
         server_row = await session.execute(
-            select(Server.tariff_group).where(Server.cluster_name == cluster_name).limit(1)
+            select(Server.tariff_group).where(Server.server_name == cluster_name).limit(1)
         )
         row = server_row.first()
 
-        if not row:
-            server_row = await session.execute(
-                select(Server.tariff_group).where(Server.server_name == cluster_name).limit(1)
-            )
-            row = server_row.first()
-
-        if not row or not row[0]:
-            return []
-
-        group_code = row[0]
-        result = await session.execute(
-            select(Tariff)
-            .where(Tariff.group_code == group_code, Tariff.is_active.is_(True))
-            .order_by(Tariff.sort_order, Tariff.id)
-        )
-        rows = [_row_to_cache_dict(dict(r.__dict__)) for r in result.scalars().all()]
-        await cache_set(key, rows, TARIFFS_FOR_CLUSTER_CACHE_TTL_SEC)
-        return rows
-    except SQLAlchemyError as e:
-        logger.error(f"[TARIFF] Ошибка при получении тарифов для кластера {cluster_name}: {e}")
+    if not row or not row[0]:
         return []
+
+    group_code = row[0]
+    result = await session.execute(
+        select(Tariff)
+        .where(Tariff.group_code == group_code, Tariff.is_active.is_(True))
+        .order_by(Tariff.sort_order, Tariff.id)
+    )
+    rows = [_row_to_cache_dict(dict(r.__dict__)) for r in result.scalars().all()]
+    await cache_set(key, rows, TARIFFS_FOR_CLUSTER_CACHE_TTL_SEC)
+    return rows
 
 
 async def create_tariff(session: AsyncSession, data: dict):
-    try:
-        data["created_at"] = datetime.utcnow()
-        data["updated_at"] = datetime.utcnow()
+    data["created_at"] = datetime.utcnow()
+    data["updated_at"] = datetime.utcnow()
 
-        if "sort_order" not in data:
-            group_code = data.get("group_code")
-            if group_code:
-                result = await session.execute(
-                    select(func.max(Tariff.sort_order)).where(
-                        Tariff.group_code == group_code, Tariff.sort_order.isnot(None)
-                    )
+    if "sort_order" not in data:
+        group_code = data.get("group_code")
+        if group_code:
+            result = await session.execute(
+                select(func.max(Tariff.sort_order)).where(
+                    Tariff.group_code == group_code, Tariff.sort_order.isnot(None)
                 )
-                max_order = result.scalar() or 0
-            else:
-                result = await session.execute(select(func.max(Tariff.sort_order)).where(Tariff.sort_order.isnot(None)))
-                max_order = result.scalar() or 0
+            )
+            max_order = result.scalar() or 0
+        else:
+            result = await session.execute(select(func.max(Tariff.sort_order)).where(Tariff.sort_order.isnot(None)))
+            max_order = result.scalar() or 0
 
-            data["sort_order"] = max_order + 1
+        data["sort_order"] = max_order + 1
 
-        stmt = insert(Tariff).values(**data).returning(Tariff)
-        result = await session.execute(stmt)
-        await session.commit()
-        await _invalidate_tariff_cache()
-        return result.scalar_one()
-    except SQLAlchemyError as e:
-        logger.error(f"[TARIFF] Ошибка при создании тарифа: {e}")
-        await session.rollback()
-        return None
+    stmt = insert(Tariff).values(**data).returning(Tariff)
+    result = await session.execute(stmt)
+    await _invalidate_tariff_cache()
+    return result.scalar_one()
 
 
 async def update_tariff(session: AsyncSession, tariff_id: int, updates: dict):
     if not updates:
         return False
-    try:
-        updates["updated_at"] = datetime.utcnow()
-        await session.execute(update(Tariff).where(Tariff.id == tariff_id).values(**updates))
-        await session.commit()
-        await _invalidate_tariff_cache(tariff_id)
-        return True
-    except SQLAlchemyError as e:
-        logger.error(f"[TARIFF] Ошибка при обновлении тарифа ID={tariff_id}: {e}")
-        await session.rollback()
-        return False
+    updates["updated_at"] = datetime.utcnow()
+    await session.execute(update(Tariff).where(Tariff.id == tariff_id).values(**updates))
+    await _invalidate_tariff_cache(tariff_id)
+    return True
 
 
 async def delete_tariff(session: AsyncSession, tariff_id: int):
-    try:
-        await session.execute(delete(Tariff).where(Tariff.id == tariff_id))
-        await session.commit()
-        await _invalidate_tariff_cache(tariff_id)
-        return True
-    except SQLAlchemyError as e:
-        logger.error(f"[TARIFF] Ошибка при удалении тарифа ID={tariff_id}: {e}")
-        await session.rollback()
-        return False
+    await session.execute(delete(Tariff).where(Tariff.id == tariff_id))
+    await _invalidate_tariff_cache(tariff_id)
+    return True
 
 
 async def check_tariff_exists(session: AsyncSession, tariff_id: int):
-    try:
-        result = await session.execute(select(Tariff).where(Tariff.id == tariff_id, Tariff.is_active.is_(True)))
-        tariff = result.scalar_one_or_none()
-        if tariff:
-            return True
-        logger.warning(f"[TARIFF] Тариф {tariff_id} не найден в БД")
-        return False
-    except SQLAlchemyError as e:
-        logger.error(f"[TARIFF] Ошибка при проверке тарифа {tariff_id}: {e}")
-        await session.rollback()
-        return False
+    result = await session.execute(select(Tariff).where(Tariff.id == tariff_id, Tariff.is_active.is_(True)))
+    tariff = result.scalar_one_or_none()
+    if tariff:
+        return True
+    logger.warning(f"[TARIFF] Тариф {tariff_id} не найден в БД")
+    return False
 
 
 async def get_vless_enabled(session: AsyncSession, tariff_id: int | None) -> bool:
@@ -292,90 +262,59 @@ async def get_vless_enabled_batch(
 
 
 async def get_tariff_sort_order(session: AsyncSession, tariff_id: int) -> int:
-    try:
-        result = await session.execute(select(Tariff.sort_order).where(Tariff.id == tariff_id))
-        sort_order = result.scalar_one_or_none()
+    result = await session.execute(select(Tariff.sort_order).where(Tariff.id == tariff_id))
+    sort_order = result.scalar_one_or_none()
 
-        if sort_order is None:
-            await session.execute(update(Tariff).where(Tariff.id == tariff_id).values(sort_order=1))
-            await session.commit()
-            await _invalidate_tariff_cache(tariff_id)
-            return 1
+    if sort_order is None:
+        await session.execute(update(Tariff).where(Tariff.id == tariff_id).values(sort_order=1))
+        await _invalidate_tariff_cache(tariff_id)
+        return 1
 
-        return sort_order
-    except SQLAlchemyError as e:
-        logger.error(f"[TARIFF] Ошибка при получении sort_order для тарифа {tariff_id}: {e}")
-        await session.rollback()
-        return None
+    return sort_order
 
 
 async def move_tariff_up(session: AsyncSession, tariff_id: int) -> bool:
-    try:
-        current_order = await get_tariff_sort_order(session, tariff_id)
-        new_order = max(1, current_order - 1)
+    current_order = await get_tariff_sort_order(session, tariff_id)
+    new_order = max(1, current_order - 1)
 
-        await session.execute(update(Tariff).where(Tariff.id == tariff_id).values(sort_order=new_order))
-        await session.commit()
-        await _invalidate_tariff_cache(tariff_id)
-        return True
-    except SQLAlchemyError as e:
-        logger.error(f"[TARIFF] Ошибка при перемещении тарифа {tariff_id} вверх: {e}")
-        await session.rollback()
-        return False
+    await session.execute(update(Tariff).where(Tariff.id == tariff_id).values(sort_order=new_order))
+    await _invalidate_tariff_cache(tariff_id)
+    return True
 
 
 async def move_tariff_down(session: AsyncSession, tariff_id: int) -> bool:
-    try:
-        current_order = await get_tariff_sort_order(session, tariff_id)
-        new_order = current_order + 1
+    current_order = await get_tariff_sort_order(session, tariff_id)
+    new_order = current_order + 1
 
-        await session.execute(update(Tariff).where(Tariff.id == tariff_id).values(sort_order=new_order))
-        await session.commit()
-        await _invalidate_tariff_cache(tariff_id)
-        return True
-    except SQLAlchemyError as e:
-        logger.error(f"[TARIFF] Ошибка при перемещении тарифа {tariff_id} вниз: {e}")
-        await session.rollback()
-        return False
+    await session.execute(update(Tariff).where(Tariff.id == tariff_id).values(sort_order=new_order))
+    await _invalidate_tariff_cache(tariff_id)
+    return True
 
 
 async def initialize_tariff_sort_orders(session: AsyncSession, group_code: str) -> bool:
-    try:
-        result = await session.execute(select(Tariff).where(Tariff.group_code == group_code).order_by(Tariff.id))
-        tariffs = result.scalars().all()
+    result = await session.execute(select(Tariff).where(Tariff.group_code == group_code).order_by(Tariff.id))
+    tariffs = result.scalars().all()
 
-        if not tariffs:
-            return True
-
-        for i, tariff in enumerate(tariffs):
-            new_sort_order = 1 + i
-            await session.execute(update(Tariff).where(Tariff.id == tariff.id).values(sort_order=new_sort_order))
-
-        await session.commit()
-        await _invalidate_tariff_cache()
+    if not tariffs:
         return True
-    except SQLAlchemyError as e:
-        logger.error(f"[TARIFF] Ошибка при инициализации sort_order для группы {group_code}: {e}")
-        await session.rollback()
-        return False
+
+    for i, tariff in enumerate(tariffs):
+        new_sort_order = 1 + i
+        await session.execute(update(Tariff).where(Tariff.id == tariff.id).values(sort_order=new_sort_order))
+
+    await _invalidate_tariff_cache()
+    return True
 
 
 async def initialize_all_tariff_weights(session: AsyncSession) -> bool:
-    try:
-        result = await session.execute(select(Tariff).where(Tariff.sort_order.is_(None)))
-        tariffs_without_weight = result.scalars().all()
+    result = await session.execute(select(Tariff).where(Tariff.sort_order.is_(None)))
+    tariffs_without_weight = result.scalars().all()
 
-        if not tariffs_without_weight:
-            return True
-
-        for tariff in tariffs_without_weight:
-            await session.execute(update(Tariff).where(Tariff.id == tariff.id).values(sort_order=1))
-
-        await session.commit()
-        await _invalidate_tariff_cache()
+    if not tariffs_without_weight:
         return True
 
-    except SQLAlchemyError as e:
-        logger.error(f"[TARIFF] Ошибка при инициализации весов тарифов: {e}")
-        await session.rollback()
-        return False
+    for tariff in tariffs_without_weight:
+        await session.execute(update(Tariff).where(Tariff.id == tariff.id).values(sort_order=1))
+
+    await _invalidate_tariff_cache()
+    return True

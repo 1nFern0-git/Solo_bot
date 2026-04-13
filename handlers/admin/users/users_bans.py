@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from handlers.buttons import BACK
 
 from database.models import ManualBan
+from database.access.resolution import resolve_user_optional
 from filters.admin import IsAdminFilter
 from middlewares.ban_checker import invalidate_ban_cache
 
@@ -60,18 +61,26 @@ async def handle_ban_forever_reason_input(message: Message, state: FSMContext, s
     user_data = await state.get_data()
     tg_id = user_data.get("tg_id")
 
+    u = await resolve_user_optional(session, tg_id)
+    if u is None:
+        await message.answer("❌ Пользователь не найден.")
+        await state.clear()
+        return
+
     stmt = (
         pg_insert(ManualBan)
         .values(
-            tg_id=tg_id,
+            user_id=u.id,
+            tg_id=u.tg_id,
             reason=reason,
             banned_by=message.from_user.id,
             until=None,
             banned_at=datetime.now(timezone.utc),
         )
         .on_conflict_do_update(
-            index_elements=[ManualBan.tg_id],
+            index_elements=[ManualBan.user_id],
             set_={
+                "tg_id": u.tg_id,
                 "reason": reason,
                 "until": None,
                 "banned_by": message.from_user.id,
@@ -82,7 +91,8 @@ async def handle_ban_forever_reason_input(message: Message, state: FSMContext, s
 
     await session.execute(stmt)
     await session.commit()
-    await invalidate_ban_cache(tg_id)
+    if u.tg_id is not None:
+        await invalidate_ban_cache(u.tg_id)
     await state.clear()
 
     await message.answer(
@@ -141,18 +151,25 @@ async def handle_ban_duration_input(message: Message, state: FSMContext, session
 
         until = datetime.now(timezone.utc) + timedelta(days=days)
 
+        u = await resolve_user_optional(session, tg_id)
+        if u is None:
+            await message.answer("❌ Пользователь не найден.")
+            return
+
         stmt = (
             pg_insert(ManualBan)
             .values(
-                tg_id=tg_id,
+                user_id=u.id,
+                tg_id=u.tg_id,
                 reason=reason,
                 banned_by=message.from_user.id,
                 until=until,
                 banned_at=datetime.now(timezone.utc),
             )
             .on_conflict_do_update(
-                index_elements=[ManualBan.tg_id],
+                index_elements=[ManualBan.user_id],
                 set_={
+                    "tg_id": u.tg_id,
                     "reason": reason,
                     "until": until,
                     "banned_at": datetime.now(timezone.utc),
@@ -163,7 +180,8 @@ async def handle_ban_duration_input(message: Message, state: FSMContext, session
 
         await session.execute(stmt)
         await session.commit()
-        await invalidate_ban_cache(tg_id)
+        if u.tg_id is not None:
+            await invalidate_ban_cache(u.tg_id)
 
         text = (
             f"✅ Пользователь <code>{tg_id}</code> временно забанен до <b>{until:%Y-%m-%d %H:%M}</b> по UTC."
@@ -182,18 +200,25 @@ async def handle_ban_duration_input(message: Message, state: FSMContext, session
     IsAdminFilter(),
 )
 async def handle_ban_shadow(callback: CallbackQuery, callback_data: AdminUserEditorCallback, session: AsyncSession):
+    u = await resolve_user_optional(session, callback_data.tg_id)
+    if u is None:
+        await callback.answer("Пользователь не найден", show_alert=True)
+        return
+
     stmt = (
         pg_insert(ManualBan)
         .values(
-            tg_id=callback_data.tg_id,
+            user_id=u.id,
+            tg_id=u.tg_id,
             reason="shadow",
             banned_by=callback.from_user.id,
             until=None,
             banned_at=datetime.now(timezone.utc),
         )
         .on_conflict_do_update(
-            index_elements=[ManualBan.tg_id],
+            index_elements=[ManualBan.user_id],
             set_={
+                "tg_id": u.tg_id,
                 "reason": "shadow",
                 "until": None,
                 "banned_by": callback.from_user.id,
@@ -203,7 +228,8 @@ async def handle_ban_shadow(callback: CallbackQuery, callback_data: AdminUserEdi
     )
     await session.execute(stmt)
     await session.commit()
-    await invalidate_ban_cache(callback_data.tg_id)
+    if u.tg_id is not None:
+        await invalidate_ban_cache(u.tg_id)
 
     await callback.message.edit_text(
         text=f"👻 Пользователь <code>{callback_data.tg_id}</code> получил теневой бан.",
@@ -220,9 +246,15 @@ async def handle_user_unban(
     callback_data: AdminUserEditorCallback,
     session: AsyncSession,
 ):
-    await session.execute(delete(ManualBan).where(ManualBan.tg_id == callback_data.tg_id))
+    u = await resolve_user_optional(session, callback_data.tg_id)
+    if u is None:
+        await callback.answer("Пользователь не найден", show_alert=True)
+        return
+
+    await session.execute(delete(ManualBan).where(ManualBan.user_id == u.id))
     await session.commit()
-    await invalidate_ban_cache(callback_data.tg_id)
+    if u.tg_id is not None:
+        await invalidate_ban_cache(u.tg_id)
 
     text = (
         f"✅ Пользователь <code>{callback_data.tg_id}</code> разблокирован. Нажмите кнопку ниже для возврата в профиль."

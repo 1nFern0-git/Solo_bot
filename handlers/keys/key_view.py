@@ -33,6 +33,7 @@ from panels.remnawave_runtime import (
 )
 from database import get_key_details, get_keys
 from database.models import Key
+from database.access.resolution import resolve_user_optional
 from handlers.buttons import (
     ADDONS_BUTTON_DEVICES,
     ADDONS_BUTTON_DEVICES_TRAFFIC,
@@ -50,7 +51,7 @@ from handlers.buttons import (
     TV_BUTTON,
 )
 from database import get_vless_enabled_batch
-from handlers.tariffs.tariff_display import GB, get_key_tariff_addons_state
+from services.tariffs.tariff_display import GB, get_key_tariff_addons_state
 from handlers.texts import (
     DAYS_LEFT_MESSAGE,
     FROZEN_SUBSCRIPTION_MSG,
@@ -274,8 +275,13 @@ async def handle_new_alias_input(message: Message, state: FSMContext, session: A
     client_id = data.get("client_id")
 
     try:
+        u = await resolve_user_optional(session, message.chat.id)
+        if u is None:
+            await message.answer("❌ Не удалось переименовать подписку.")
+            await state.clear()
+            return
         await session.execute(
-            update(Key).where(Key.tg_id == message.chat.id, Key.client_id == client_id).values(alias=alias)
+            update(Key).where(Key.user_id == u.id, Key.client_id == client_id).values(alias=alias)
         )
         await session.commit()
     except Exception as error:

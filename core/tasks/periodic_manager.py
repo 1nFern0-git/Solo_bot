@@ -3,6 +3,7 @@ import fcntl
 import inspect
 import multiprocessing
 import os
+import tempfile
 import threading
 
 from collections.abc import Awaitable, Callable
@@ -109,6 +110,19 @@ class PeriodicTaskManager:
         self._process_lock_file = None
         self._process_lock_path = "/tmp/solo_bot_periodic_manager.lock"
 
+    def _process_lock_candidates(self) -> list[str]:
+        candidates = [self._process_lock_path]
+        uid_suffix = f"solo_bot_periodic_manager_{os.getuid()}.lock"
+        runtime_dir = os.environ.get("XDG_RUNTIME_DIR", "").strip()
+        if runtime_dir:
+            candidates.append(os.path.join(runtime_dir, uid_suffix))
+        candidates.append(os.path.join(tempfile.gettempdir(), uid_suffix))
+        unique_candidates: list[str] = []
+        for candidate in candidates:
+            if candidate not in unique_candidates:
+                unique_candidates.append(candidate)
+        return unique_candidates
+
     def register_loop_task(self, task_id: str, runner: LoopRunner) -> None:
         self._loop_tasks[task_id] = ManagedLoopTask(task_id=task_id, runner=runner)
 
@@ -144,18 +158,26 @@ class PeriodicTaskManager:
     def _acquire_process_lock(self) -> bool:
         if self._process_lock_file is not None:
             return True
-        lock_file = open(self._process_lock_path, "a+", encoding="utf-8")
-        try:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            lock_file.seek(0)
-            lock_file.truncate()
-            lock_file.write(str(os.getpid()))
-            lock_file.flush()
-            self._process_lock_file = lock_file
-            return True
-        except OSError:
-            lock_file.close()
-            return False
+        for candidate_path in self._process_lock_candidates():
+            try:
+                lock_file = open(candidate_path, "a+", encoding="utf-8")
+            except OSError as error:
+                logger.warning("[PeriodicManager] Не удалось открыть lock-файл {}: {}", candidate_path, error)
+                continue
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                lock_file.seek(0)
+                lock_file.truncate()
+                lock_file.write(str(os.getpid()))
+                lock_file.flush()
+                self._process_lock_file = lock_file
+                self._process_lock_path = candidate_path
+                return True
+            except OSError:
+                lock_file.close()
+                return False
+        logger.warning("[PeriodicManager] Не удалось создать lock-файл, запуск менеджера пропущен")
+        return False
 
     def _release_process_lock(self) -> None:
         if self._process_lock_file is None:
