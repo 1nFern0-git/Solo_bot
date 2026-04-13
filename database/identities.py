@@ -93,7 +93,7 @@ async def issue_token_for_identity(session: AsyncSession, identity: Identity) ->
     token = generate_token()
     identity.api_token_hash = await run_io(hash_token, token)
     identity.token_issued_at = datetime.utcnow()
-    await session.refresh(identity)
+    await session.flush()
     return token
 
 
@@ -210,59 +210,31 @@ async def ensure_billing_user_for_identity(session: AsyncSession, identity: Iden
     return int(new_u.id)
 
 
-async def merge_billing_user_into_telegram(session: AsyncSession, identity_id: str, telegram_tg_id: int) -> None:
+async def _transfer_user_data(
+    session: AsyncSession,
+    src_uid: int,
+    dst_uid: int,
+    dst_tg: int | None,
+    dst_identity_id: str,
+) -> None:
+    """Переносит все данные с src User на dst User. Dedup там, где есть уникальные ключи."""
     from database.models import (
+        AuditEvent,
+        BlockedUser,
         CouponUsage,
         Gift,
         GiftUsage,
         Key,
+        ManualBan,
         Notification,
         Payment,
         Referral,
         ScheduledBroadcast,
         TemporaryData,
+        WebNotification,
+        WebPushSubscription,
     )
-    from database.access.resolution import resolve_user_optional
-    from database.users import invalidate_balance_cache, invalidate_profile_cache, update_balance
-
-    res = await session.execute(select(User).where(User.identity_id == identity_id))
-    rows = res.scalars().all()
-    if not rows:
-        return
-    billing = rows[0]
-    src_uid = int(billing.id)
-    dst_tg = int(telegram_tg_id)
-    if billing.tg_id is not None and int(billing.tg_id) > 0:
-        return
-
-    dst_u = await resolve_user_optional(session, dst_tg)
-    if dst_u is None:
-        new_u = User(
-            tg_id=dst_tg,
-            identity_id=identity_id,
-            username=billing.username,
-            first_name=billing.first_name,
-            last_name=billing.last_name,
-            language_code=billing.language_code,
-            is_bot=billing.is_bot or False,
-            balance=float(billing.balance or 0.0),
-            trial=int(billing.trial or 0),
-            preferred_currency=billing.preferred_currency or "RUB",
-            source_code=billing.source_code,
-        )
-        session.add(new_u)
-        await session.flush()
-        dst_uid = int(new_u.id)
-    else:
-        dst_uid = int(dst_u.id)
-        bal = float(billing.balance or 0.0)
-        if bal:
-            await update_balance(session, dst_uid, bal)
-        st = int(billing.trial or 0)
-        dt_r = await session.execute(select(User.trial).where(User.id == dst_uid))
-        dt_val = dt_r.scalar_one_or_none()
-        if dt_val is not None and st > int(dt_val or 0):
-            await session.execute(update(User).where(User.id == dst_uid).values(trial=st))
+    from database.users import invalidate_balance_cache, invalidate_profile_cache
 
     await session.execute(update(Key).where(Key.user_id == src_uid).values(user_id=dst_uid))
     await session.execute(update(Payment).where(Payment.user_id == src_uid).values(user_id=dst_uid))
@@ -330,15 +302,93 @@ async def merge_billing_user_into_telegram(session: AsyncSession, identity_id: s
         update(Referral).where(Referral.referrer_user_id == src_uid).values(referrer_user_id=dst_uid)
     )
 
+    await session.execute(
+        update(WebPushSubscription).where(WebPushSubscription.user_id == src_uid).values(user_id=dst_uid)
+    )
+    await session.execute(
+        update(WebNotification).where(WebNotification.user_id == src_uid).values(user_id=dst_uid)
+    )
+
+    dst_ban = (await session.execute(select(ManualBan).where(ManualBan.user_id == dst_uid))).scalar_one_or_none()
+    src_ban = (await session.execute(select(ManualBan).where(ManualBan.user_id == src_uid))).scalar_one_or_none()
+    if src_ban is not None and dst_ban is None:
+        session.add(ManualBan(
+            user_id=dst_uid,
+            tg_id=dst_tg,
+            banned_at=src_ban.banned_at,
+            reason=src_ban.reason,
+            banned_by=src_ban.banned_by,
+            until=src_ban.until,
+        ))
+
+    dst_block = (await session.execute(select(BlockedUser).where(BlockedUser.user_id == dst_uid))).scalar_one_or_none()
+    src_block = (await session.execute(select(BlockedUser).where(BlockedUser.user_id == src_uid))).scalar_one_or_none()
+    if src_block is not None and dst_block is None:
+        session.add(BlockedUser(user_id=dst_uid, tg_id=dst_tg))
+
+    if dst_tg is not None:
+        await session.execute(
+            update(AuditEvent)
+            .where(AuditEvent.actor_identity_id == dst_identity_id, AuditEvent.actor_tg_id.is_(None))
+            .values(actor_tg_id=dst_tg)
+        )
+
     await refresh_tg_mirrors_for_user(session, dst_uid)
 
     await session.execute(delete(User).where(User.id == src_uid))
-    await session.execute(update(User).where(User.id == dst_uid).values(identity_id=identity_id))
+    await session.execute(update(User).where(User.id == dst_uid).values(identity_id=dst_identity_id))
 
     await invalidate_balance_cache(src_uid)
     await invalidate_profile_cache(src_uid)
     await invalidate_balance_cache(dst_uid)
     await invalidate_profile_cache(dst_uid)
+
+
+async def merge_billing_user_into_telegram(session: AsyncSession, identity_id: str, telegram_tg_id: int) -> None:
+    from database.models import User as _User  # noqa: F401
+    from database.access.resolution import resolve_user_optional
+    from database.users import update_balance
+
+    res = await session.execute(select(User).where(User.identity_id == identity_id))
+    rows = res.scalars().all()
+    if not rows:
+        return
+    billing = rows[0]
+    src_uid = int(billing.id)
+    dst_tg = int(telegram_tg_id)
+    if billing.tg_id is not None and int(billing.tg_id) > 0:
+        return
+
+    dst_u = await resolve_user_optional(session, dst_tg)
+    if dst_u is None:
+        new_u = User(
+            tg_id=dst_tg,
+            identity_id=identity_id,
+            username=billing.username,
+            first_name=billing.first_name,
+            last_name=billing.last_name,
+            language_code=billing.language_code,
+            is_bot=billing.is_bot or False,
+            balance=float(billing.balance or 0.0),
+            trial=int(billing.trial or 0),
+            preferred_currency=billing.preferred_currency or "RUB",
+            source_code=billing.source_code,
+        )
+        session.add(new_u)
+        await session.flush()
+        dst_uid = int(new_u.id)
+    else:
+        dst_uid = int(dst_u.id)
+        bal = float(billing.balance or 0.0)
+        if bal:
+            await update_balance(session, dst_uid, bal)
+        st = int(billing.trial or 0)
+        dt_r = await session.execute(select(User.trial).where(User.id == dst_uid))
+        dt_val = dt_r.scalar_one_or_none()
+        if dt_val is not None and st > int(dt_val or 0):
+            await session.execute(update(User).where(User.id == dst_uid).values(trial=st))
+
+    await _transfer_user_data(session, src_uid, dst_uid, dst_tg, identity_id)
 
 
 async def resolve_tg_id(session: AsyncSession, identity_id: str) -> int | None:
@@ -350,7 +400,12 @@ async def resolve_tg_id(session: AsyncSession, identity_id: str) -> int | None:
 
 
 async def attach_email(session: AsyncSession, identity_id: str, email: str) -> Identity | None:
-    """Привязывает email к идентичности."""
+    """Привязывает email к идентичности.
+
+    Если email уже занят другой identity — пытаемся смёржить.
+    Условия мёрджа: у занимающей identity нет tg_id ИЛИ tg_id совпадает с нашим.
+    Иначе — возврат None (email принадлежит другому человеку, не отдаём).
+    """
     identity = await get_identity_by_id(session, identity_id)
     if not identity:
         return None
@@ -359,20 +414,62 @@ async def attach_email(session: AsyncSession, identity_id: str, email: str) -> I
         return identity
     existing = await get_identity_by_email(session, email_clean)
     if existing and existing.id != identity_id:
-        return None
+        our_tg = identity.tg_id
+        their_tg = existing.tg_id
+        can_merge = their_tg is None or (our_tg is not None and int(their_tg) == int(our_tg))
+        if not can_merge:
+            return None
+
+        src_user = (
+            await session.execute(select(User).where(User.identity_id == existing.id))
+        ).scalars().first()
+        dst_uid = await ensure_billing_user_for_identity(session, identity)
+        dst_tg = int(identity.tg_id) if identity.tg_id is not None else None
+
+        if src_user is not None and int(src_user.id) != int(dst_uid):
+            from database.users import update_balance
+
+            src_uid = int(src_user.id)
+            bal = float(src_user.balance or 0.0)
+            if bal:
+                await update_balance(session, dst_uid, bal)
+            src_trial = int(src_user.trial or 0)
+            dst_trial_val = await session.scalar(select(User.trial).where(User.id == dst_uid))
+            if dst_trial_val is not None and src_trial > int(dst_trial_val or 0):
+                await session.execute(update(User).where(User.id == dst_uid).values(trial=src_trial))
+            await _transfer_user_data(session, src_uid, dst_uid, dst_tg, identity_id)
+
+        existing.email = None
+        await session.flush()
+        await session.execute(delete(Identity).where(Identity.id == existing.id))
+
     identity.email = email_clean
     await session.refresh(identity)
     return identity
 
 
 async def attach_telegram(session: AsyncSession, identity_id: str, tg_id: int) -> Identity | None:
-    """Привязывает Telegram (tg_id) к идентичности и связывает User с identity. Если tg_id в admins — выставляет is_admin."""
+    """Привязывает Telegram (tg_id) к идентичности и связывает User с identity.
+
+    Если tg_id уже висит на другой identity — пытаемся смёржить.
+    Условия мёрджа: у занимающей identity нет email ИЛИ email совпадает с нашим.
+    Иначе — возврат None (TG принадлежит другому человеку).
+    """
     identity = await get_identity_by_id(session, identity_id)
     if not identity:
         return None
     existing = await get_identity_by_tg_id(session, tg_id)
     if existing and existing.id != identity_id:
-        return None
+        our_email = (str(identity.email).strip().lower() if identity.email else None)
+        their_email = (str(existing.email).strip().lower() if existing.email else None)
+        can_merge = their_email is None or (our_email is not None and their_email == our_email)
+        if not can_merge:
+            return None
+        existing.email = None
+        existing.tg_id = None
+        await session.flush()
+        await session.execute(delete(Identity).where(Identity.id == existing.id))
+        await session.flush()
     await merge_billing_user_into_telegram(session, identity_id, tg_id)
     identity = await get_identity_by_id(session, identity_id)
     if not identity:
@@ -382,6 +479,44 @@ async def attach_telegram(session: AsyncSession, identity_id: str, tg_id: int) -
     if admin_row.scalar_one_or_none():
         identity.is_admin = True
     await session.execute(User.__table__.update().where(User.tg_id == tg_id).values(identity_id=identity_id))
+    await session.refresh(identity)
+    return identity
+
+
+async def detach_email(session: AsyncSession, identity_id: str) -> Identity | None:
+    """Отвязывает email от identity. Возвращает None если у identity не осталось
+    ни одного канала (email + tg_id оба пустые) — в этом случае отвязка запрещена,
+    иначе identity станет orphan.
+    """
+    identity = await get_identity_by_id(session, identity_id)
+    if not identity:
+        return None
+    if identity.email is None:
+        return identity
+    if identity.tg_id is None:
+        return None
+    identity.email = None
+    identity.email_verified = False
+    identity.password_hash = None
+    await session.refresh(identity)
+    return identity
+
+
+async def detach_telegram(session: AsyncSession, identity_id: str) -> Identity | None:
+    """Отвязывает Telegram от identity. Запрещено если это единственный канал."""
+    identity = await get_identity_by_id(session, identity_id)
+    if not identity:
+        return None
+    if identity.tg_id is None:
+        return identity
+    if identity.email is None:
+        return None
+    old_tg = int(identity.tg_id)
+    identity.tg_id = None
+    identity.is_admin = False
+    await session.execute(
+        update(User).where(User.identity_id == identity_id, User.tg_id == old_tg).values(tg_id=None)
+    )
     await session.refresh(identity)
     return identity
 

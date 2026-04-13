@@ -14,6 +14,7 @@ from .users import BlockedUser, ManualBan, TemporaryData, TrackingSource, User
 from .web import (
     WebBlock,
     WebCustomElementBuild,
+    WebErrorReport,
     WebFlow,
     WebFlowEvent,
     WebNotification,

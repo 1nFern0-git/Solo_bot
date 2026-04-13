@@ -2,7 +2,8 @@ import asyncio
 import os
 from time import perf_counter
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
+from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.middleware.cors import CORSMiddleware
 from starlette.staticfiles import StaticFiles
 
@@ -103,6 +104,42 @@ async def api_access_log_middleware(request: Request, call_next):
 @app.get("/api/health", include_in_schema=False)
 async def health():
     return {"status": "ok"}
+
+
+from api.depends import get_session as _get_session, verify_identity_admin as _verify_admin
+
+
+@app.get("/api/health/detailed", include_in_schema=False)
+async def health_detailed(
+    session: AsyncSession = Depends(_get_session),
+    _identity=Depends(_verify_admin),
+):
+    import time
+    from sqlalchemy import text
+    from core.redis_cache import _get_redis
+
+    checks: dict[str, object] = {"status": "ok", "timestamp": int(time.time())}
+
+    try:
+        await session.execute(text("SELECT 1"))
+        checks["db"] = {"ok": True}
+    except Exception as e:
+        checks["db"] = {"ok": False, "error": str(e)[:200]}
+        checks["status"] = "degraded"
+
+    try:
+        client = await _get_redis()
+        if client is not None:
+            await client.ping()
+            checks["redis"] = {"ok": True}
+        else:
+            checks["redis"] = {"ok": False, "error": "unavailable"}
+            checks["status"] = "degraded"
+    except Exception as e:
+        checks["redis"] = {"ok": False, "error": str(e)[:200]}
+        checks["status"] = "degraded"
+
+    return checks
 
 
 app.include_router(api_router)

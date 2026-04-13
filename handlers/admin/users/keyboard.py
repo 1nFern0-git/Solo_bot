@@ -37,6 +37,8 @@ async def build_user_edit_kb(
     key_records: list,
     is_banned: bool = False,
     admin_role: str | None = None,
+    has_email: bool = False,
+    has_tg: bool = False,
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     current_time = datetime.now(tz=timezone.utc)
@@ -95,6 +97,23 @@ async def build_user_edit_kb(
             callback_data=AdminUserEditorCallback(action="users_trial_restore", tg_id=tg_id).pack(),
         )
     )
+
+    unlink_buttons = []
+    if has_email and has_tg:
+        unlink_buttons.append(
+            InlineKeyboardButton(
+                text="📧 Отвязать email",
+                callback_data=AdminUserEditorCallback(action="users_unlink_email", tg_id=tg_id).pack(),
+            )
+        )
+        unlink_buttons.append(
+            InlineKeyboardButton(
+                text="✈️ Отвязать TG",
+                callback_data=AdminUserEditorCallback(action="users_unlink_tg", tg_id=tg_id).pack(),
+            )
+        )
+    if unlink_buttons:
+        builder.row(*unlink_buttons)
 
     builder.row(
         InlineKeyboardButton(

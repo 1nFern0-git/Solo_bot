@@ -56,8 +56,8 @@ class LoginResponse(BaseModel):
 class SendLoginCodeRequest(BaseModel):
     email: str = Field(..., min_length=1)
     allow_register: bool = Field(
-        default=False,
-        description="Если true и email новый — создать идентичность и отправить код (гостевой вход с сайта)",
+        default=True,
+        description="Если true и email новый — создать идентичность и отправить код (passwordless flow)",
     )
     turnstile_token: str | None = Field(default=None, description="Cloudflare Turnstile CAPTCHA token")
 

@@ -19,7 +19,7 @@ from database import (
     get_key_details,
     update_trial,
 )
-from database.models import Admin, Key, ManualBan, Payment, Referral, User
+from database.models import Admin, Identity, Key, ManualBan, Payment, Referral, User
 from database.access.resolution import resolve_user_optional
 from filters.admin import IsAdminFilter
 from handlers.utils import sanitize_key_name
@@ -50,9 +50,10 @@ router = Router()
 async def handle_search_user(callback_query: CallbackQuery, state: FSMContext):
     text = (
         "<b>🔍 Поиск пользователя</b>"
-        "\n\n📌 Введите ID, Username или перешлите сообщение пользователя."
+        "\n\n📌 Введите ID, Username, Email или перешлите сообщение пользователя."
         "\n\n🆔 ID - числовой айди"
         "\n📝 Username - юзернейм пользователя"
+        "\n📧 Email - почта веб-кабинета"
         "\n\n<i>✉️ Для поиска, вы можете просто переслать сообщение от пользователя.</i>"
     )
 
@@ -106,10 +107,38 @@ async def handle_user_data_input(message: Message, state: FSMContext, session: A
         await message.answer(text="🚫 Пожалуйста, отправьте текстовое сообщение.", reply_markup=kb)
         return
 
-    if message.text.isdigit():
-        tg_id = int(message.text)
+    raw = message.text.strip()
+
+    if raw.isdigit():
+        tg_id = int(raw)
+    elif "@" in raw and "." in raw.split("@", 1)[-1]:
+        email = raw.lower()
+        ident = (await session.execute(
+            select(Identity).where(func.lower(Identity.email) == email).limit(1)
+        )).scalar_one_or_none()
+
+        if ident is None:
+            await message.answer(
+                text="🚫 Пользователь с указанным Email не найден!",
+                reply_markup=kb,
+            )
+            return
+
+        if ident.tg_id is not None:
+            tg_id = ident.tg_id
+        else:
+            user_id = (await session.execute(
+                select(User.id).where(User.identity_id == ident.id).limit(1)
+            )).scalar_one_or_none()
+            if user_id is None:
+                await message.answer(
+                    text=f"🚫 Веб-аккаунт <code>{ident.email}</code> не имеет биллинг-профиля.",
+                    reply_markup=kb,
+                )
+                return
+            tg_id = user_id
     else:
-        username = message.text.strip().lstrip("@").replace("https://t.me/", "")
+        username = raw.lstrip("@").replace("https://t.me/", "")
 
         stmt = (
             select(User.tg_id)
@@ -364,6 +393,12 @@ async def process_user_search(
         )
         return
     uid = u.id
+    real_tg_id = u.tg_id
+    identity_email = None
+    if u.identity_id:
+        identity_email = await session.scalar(
+            select(Identity.email).where(Identity.id == u.identity_id)
+        )
 
     stmt_user = select(User.username, User.balance, User.created_at, User.updated_at, User.trial).where(User.id == uid)
     result_user = await session.execute(stmt_user)
@@ -440,7 +475,8 @@ async def process_user_search(
                 ban_reason = ban_record.reason
 
     body = Text(
-        f"🆔 ID: {tg_id}\n",
+        f"🆔 TG ID: {real_tg_id if real_tg_id is not None else '—'}\n",
+        f"📧 Email: {identity_email if identity_email else '—'}\n",
         f"📄 Логин: @{username}\n" if username else "📄 Логин: —\n",
         f"📅 Дата регистрации: {created_at_str}\n",
         f"🏃 Дата активности: {updated_at_str}\n",
@@ -467,7 +503,16 @@ async def process_user_search(
     if effective_actor_tg_id is not None:
         admin_role = await session.scalar(select(Admin.role).where(Admin.tg_id == effective_actor_tg_id))
 
-    kb = await build_user_edit_kb(tg_id, key_records, is_banned=is_banned, admin_role=admin_role)
+    has_email = identity_email is not None and str(identity_email).strip() != ""
+    has_tg = real_tg_id is not None
+    kb = await build_user_edit_kb(
+        tg_id,
+        key_records,
+        is_banned=is_banned,
+        admin_role=admin_role,
+        has_email=has_email,
+        has_tg=has_tg,
+    )
 
     if edit:
         try:
@@ -494,5 +539,86 @@ async def handle_users_editor(
         session=session,
         tg_id=callback_data.tg_id,
         edit=callback_data.edit,
+        actor_tg_id=callback.from_user.id,
+    )
+
+
+async def _resolve_identity_for_user(session: AsyncSession, legacy_ref: int) -> Identity | None:
+    u = await resolve_user_optional(session, legacy_ref)
+    if u is None or not u.identity_id:
+        return None
+    return await session.scalar(select(Identity).where(Identity.id == u.identity_id))
+
+
+@router.callback_query(
+    AdminUserEditorCallback.filter(F.action == "users_unlink_email"),
+    IsAdminFilter(),
+)
+async def handle_unlink_email(
+    callback: CallbackQuery,
+    callback_data: AdminUserEditorCallback,
+    session: AsyncSession,
+    state: FSMContext,
+):
+    from database.identities import detach_email
+
+    identity = await _resolve_identity_for_user(session, callback_data.tg_id)
+    if identity is None:
+        await callback.answer("Нет привязанной identity", show_alert=True)
+        return
+    if identity.email is None:
+        await callback.answer("Email уже не привязан", show_alert=True)
+        return
+    if identity.tg_id is None:
+        await callback.answer("Нельзя отвязать email — это единственный способ входа", show_alert=True)
+        return
+    result = await detach_email(session, identity.id)
+    if result is None:
+        await callback.answer("Не удалось отвязать email", show_alert=True)
+        return
+    await callback.answer("Email отвязан", show_alert=False)
+    await process_user_search(
+        callback.message,
+        state=state,
+        session=session,
+        tg_id=callback_data.tg_id,
+        edit=True,
+        actor_tg_id=callback.from_user.id,
+    )
+
+
+@router.callback_query(
+    AdminUserEditorCallback.filter(F.action == "users_unlink_tg"),
+    IsAdminFilter(),
+)
+async def handle_unlink_tg(
+    callback: CallbackQuery,
+    callback_data: AdminUserEditorCallback,
+    session: AsyncSession,
+    state: FSMContext,
+):
+    from database.identities import detach_telegram
+
+    identity = await _resolve_identity_for_user(session, callback_data.tg_id)
+    if identity is None:
+        await callback.answer("Нет привязанной identity", show_alert=True)
+        return
+    if identity.tg_id is None:
+        await callback.answer("Telegram уже не привязан", show_alert=True)
+        return
+    if identity.email is None:
+        await callback.answer("Нельзя отвязать TG — нет email для входа", show_alert=True)
+        return
+    result = await detach_telegram(session, identity.id)
+    if result is None:
+        await callback.answer("Не удалось отвязать Telegram", show_alert=True)
+        return
+    await callback.answer("Telegram отвязан", show_alert=False)
+    await process_user_search(
+        callback.message,
+        state=state,
+        session=session,
+        tg_id=callback_data.tg_id,
+        edit=True,
         actor_tg_id=callback.from_user.id,
     )

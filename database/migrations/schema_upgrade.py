@@ -1060,6 +1060,39 @@ async def _migration_v15_recover_orphan_users(conn: AsyncConnection) -> None:
             )
 
 
+async def _migration_v18_web_error_reports(conn: AsyncConnection) -> None:
+    logger.info("[schema_upgrade] v18: таблица web_error_reports")
+    await _exec_ignore(
+        conn,
+        """
+        CREATE TABLE IF NOT EXISTS web_error_reports (
+            id VARCHAR(36) PRIMARY KEY,
+            signature VARCHAR(128) NOT NULL UNIQUE,
+            error_name VARCHAR(255) NOT NULL DEFAULT '',
+            error_message TEXT NOT NULL DEFAULT '',
+            stack TEXT,
+            url TEXT,
+            user_agent TEXT,
+            tag VARCHAR(64),
+            last_identity_id VARCHAR(36),
+            last_context JSONB,
+            count INTEGER NOT NULL DEFAULT 1,
+            resolved BOOLEAN NOT NULL DEFAULT FALSE,
+            first_seen_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            last_seen_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
+    )
+    await _exec_ignore(
+        conn,
+        "CREATE INDEX IF NOT EXISTS ix_web_error_reports_signature ON web_error_reports (signature)",
+    )
+    await _exec_ignore(
+        conn,
+        "CREATE INDEX IF NOT EXISTS ix_web_error_reports_resolved_last ON web_error_reports (resolved, last_seen_at)",
+    )
+
+
 async def _migration_v16b_web_flow_events(conn: AsyncConnection) -> None:
     logger.info("[schema_upgrade] v17: таблица web_flow_events")
 
@@ -1132,6 +1165,42 @@ async def _migration_v16_custom_element_builds(conn: AsyncConnection) -> None:
     )
 
 
+async def _migration_v19_keys_tg_id_nullable(conn: AsyncConnection) -> None:
+    """Снимает NOT NULL с keys.tg_id и переносит PK на (user_id, client_id).
+
+    Старый PK (tg_id, client_id) не позволяет создавать подписки для web-only
+    пользователей, у которых tg_id=NULL. user_id у ключа есть всегда (FK на
+    users.id), поэтому делаем его новым компонентом PK.
+    """
+    logger.info("[schema_upgrade] v19: keys.tg_id nullable, PK на (user_id, client_id)")
+
+    if not await _table_exists(conn, "keys"):
+        return
+
+    if not await _column_exists(conn, "keys", "user_id"):
+        logger.warning("[schema_upgrade] v19: keys.user_id не найден, пропуск")
+        return
+
+    await _exec_ignore(
+        conn,
+        """
+        UPDATE keys k SET user_id = u.id
+        FROM users u
+        WHERE k.user_id IS NULL AND k.tg_id IS NOT NULL AND u.tg_id = k.tg_id
+        """,
+    )
+
+    if await _column_has_nulls(conn, "keys", "user_id"):
+        logger.warning("[schema_upgrade] v19: в keys остались строки с user_id=NULL, пропуск смены PK")
+        return
+
+    await _drop_pk(conn, "keys")
+    await _exec_ignore(conn, 'ALTER TABLE "keys" ALTER COLUMN "user_id" SET NOT NULL')
+    await _exec_ignore(conn, 'ALTER TABLE "keys" ALTER COLUMN "tg_id" DROP NOT NULL')
+    await _exec_ignore(conn, 'ALTER TABLE "keys" ADD PRIMARY KEY (user_id, client_id)')
+    await _exec_ignore(conn, 'CREATE INDEX IF NOT EXISTS ix_keys_tg_id ON "keys" (tg_id)')
+
+
 _MIGRATIONS = [
     (1, "Добавление users.id", _migration_v1_add_users_id),
     (2, "Добавление user_id колонок", _migration_v2_add_user_id_columns),
@@ -1150,6 +1219,8 @@ _MIGRATIONS = [
     (15, "Восстановление orphan tg_ids в users", _migration_v15_recover_orphan_users),
     (16, "Таблица custom element builds", _migration_v16_custom_element_builds),
     (17, "Таблица flow analytics events", _migration_v16b_web_flow_events),
+    (18, "Таблица web_error_reports", _migration_v18_web_error_reports),
+    (19, "keys.tg_id nullable, PK на (user_id, client_id)", _migration_v19_keys_tg_id_nullable),
 ]
 
 

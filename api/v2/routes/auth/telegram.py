@@ -84,6 +84,7 @@ async def login_telegram_webapp(
 async def link_telegram(
     body: LinkTelegramRequest,
     request: Request,
+    response: Response,
     session: AsyncSession = Depends(get_session),
     identity=Depends(verify_identity_token),
 ):
@@ -98,4 +99,5 @@ async def link_telegram(
             detail="Этот Telegram уже привязан к другой идентичности",
         )
     await bind_identity_actor(request, session, result)
+    set_is_admin_cookie(response, result, request)
     return IdentityResponse.model_validate(result)

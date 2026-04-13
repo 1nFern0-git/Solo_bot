@@ -16,12 +16,16 @@ from database.models import (
     CouponUsage,
     Gift,
     GiftUsage,
+    Identity,
     Key,
     Notification,
     Payment,
     Referral,
+    ScheduledBroadcast,
     TemporaryData,
     User,
+    WebNotification,
+    WebPushSubscription,
 )
 from logger import logger
 
@@ -315,10 +319,13 @@ async def delete_user_data(session: AsyncSession, legacy_user_ref: int):
         return
     uid = u.id
 
+    identity_id = u.identity_id
+
     await session.execute(delete(Notification).where(Notification.user_id == uid))
     await session.execute(
         delete(GiftUsage).where(GiftUsage.gift_id.in_(select(Gift.gift_id).where(Gift.sender_user_id == uid)))
     )
+    await session.execute(delete(GiftUsage).where(GiftUsage.user_id == uid))
     await session.execute(delete(Gift).where(Gift.sender_user_id == uid))
     await session.execute(update(Gift).where(Gift.recipient_user_id == uid).values(recipient_user_id=None))
     await session.execute(delete(Payment).where(Payment.user_id == uid))
@@ -343,7 +350,24 @@ async def delete_user_data(session: AsyncSession, legacy_user_ref: int):
             )
         )
     )
+
+    await session.execute(delete(WebPushSubscription).where(WebPushSubscription.user_id == uid))
+    await session.execute(delete(WebNotification).where(WebNotification.user_id == uid))
+    await session.execute(
+        update(ScheduledBroadcast)
+        .where(ScheduledBroadcast.created_by_user_id == uid)
+        .values(created_by_user_id=None)
+    )
+
     await session.execute(delete(User).where(User.id == uid))
+
+    if identity_id:
+        still_linked = await session.scalar(
+            select(func.count()).select_from(User).where(User.identity_id == identity_id)
+        )
+        if not still_linked:
+            await session.execute(delete(Identity).where(Identity.id == identity_id))
+
     logger.info(f"[DB] Данные пользователя id={uid} полностью удалены")
 
 

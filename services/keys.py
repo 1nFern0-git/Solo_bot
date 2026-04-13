@@ -452,7 +452,12 @@ async def create_vpn_key_headless(
             await update_trial(session, tg_id, 1)
 
     if price_to_charge and not skip_balance_charge:
+        logger.info(f"[Key Creation] Списание с баланса user={tg_id}: -{price_to_charge} ₽")
         await update_balance(session, tg_id, -int(price_to_charge))
+    elif skip_balance_charge:
+        logger.info(f"[Key Creation] Пропуск списания (skip_balance_charge) user={tg_id}")
+    else:
+        logger.info(f"[Key Creation] Списание не требуется (price=0) user={tg_id}")
 
     return CreatedVpnKey(
         client_id=client_id,

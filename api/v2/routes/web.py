@@ -1,3 +1,4 @@
+import hashlib
 import re
 import uuid
 
@@ -22,6 +23,7 @@ from api.v2.schemas.web import (
 from database.models import (
     WebBlock,
     WebCustomElementBuild,
+    WebErrorReport,
     WebFlow,
     WebFlowEvent,
     WebPage,
@@ -712,3 +714,159 @@ async def get_flow_funnel(
         ) if prev_entered > 0 else 0
 
     return {"flowId": flow_id, "days": days, "funnel": funnel}
+
+
+# ── Error aggregation (in-house Sentry) ──
+
+
+def _error_signature(name: str, message: str, stack: str | None, url: str | None) -> str:
+    """Группировочная подпись: name + первая stack-frame + pathname."""
+    first_frame = ""
+    if stack:
+        for line in stack.split("\n"):
+            s = line.strip()
+            if s.startswith("at ") or "webpack-internal" in s or ".tsx:" in s or ".ts:" in s or ".js:" in s:
+                first_frame = s[:200]
+                break
+    pathname = ""
+    if url:
+        try:
+            from urllib.parse import urlparse
+            pathname = urlparse(url).path[:100]
+        except Exception:
+            pass
+    key = f"{name}|{first_frame}|{pathname}|{message[:120]}"
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:32]
+
+
+class ErrorReportIngest(BaseModel):
+    name: str = ""
+    message: str
+    stack: str | None = None
+    url: str | None = None
+    userAgent: str | None = None
+    identityId: str | None = None
+    tag: str | None = None
+    context: dict | None = None
+
+
+@router.post("/error-reports")
+async def ingest_error_report(
+    body: ErrorReportIngest,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+):
+    try:
+        from core.redis_cache import cache_incr_checked
+        from api.v2.routes.auth._fallback_limiter import check_and_increment
+        ip = (request.client.host if request.client else "") or "unknown"
+        count, redis_ok = await cache_incr_checked(f"error_report_rate:{ip}", 60)
+        if not redis_ok:
+            count = check_and_increment(f"error_report_rate:{ip}", 30, 60)
+        if count > 30:
+            raise HTTPException(status_code=429, detail="Too many error reports")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+
+    signature = _error_signature(body.name, body.message, body.stack, body.url)
+
+    existing = (
+        await session.execute(
+            select(WebErrorReport).where(WebErrorReport.signature == signature)
+        )
+    ).scalar_one_or_none()
+
+    if existing:
+        existing.count += 1
+        existing.last_seen_at = datetime.now(timezone.utc)
+        existing.resolved = False
+        if body.context:
+            existing.last_context = body.context
+        if body.identityId:
+            existing.last_identity_id = body.identityId
+        return {"ok": True, "id": existing.id, "count": existing.count, "deduplicated": True}
+
+    report = WebErrorReport(
+        id=str(uuid.uuid4()),
+        signature=signature,
+        error_name=body.name[:255] if body.name else "",
+        error_message=body.message[:4000] if body.message else "",
+        stack=body.stack[:16000] if body.stack else None,
+        url=body.url[:500] if body.url else None,
+        user_agent=body.userAgent[:500] if body.userAgent else None,
+        tag=body.tag[:64] if body.tag else None,
+        last_identity_id=body.identityId[:36] if body.identityId else None,
+        last_context=body.context,
+        count=1,
+        resolved=False,
+    )
+    session.add(report)
+    return {"ok": True, "id": report.id, "count": 1, "deduplicated": False}
+
+
+@router.get("/error-reports")
+async def list_error_reports(
+    session: AsyncSession = Depends(get_session),
+    _identity=Depends(verify_identity_admin),
+    resolved: bool | None = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+):
+    q = select(WebErrorReport).order_by(WebErrorReport.last_seen_at.desc())
+    if resolved is not None:
+        q = q.where(WebErrorReport.resolved == resolved)
+    q = q.offset(offset).limit(limit)
+    rows = (await session.execute(q)).scalars().all()
+    return [
+        {
+            "id": r.id,
+            "signature": r.signature,
+            "errorName": r.error_name,
+            "errorMessage": r.error_message,
+            "stack": r.stack,
+            "url": r.url,
+            "userAgent": r.user_agent,
+            "tag": r.tag,
+            "lastIdentityId": r.last_identity_id,
+            "lastContext": r.last_context,
+            "count": r.count,
+            "resolved": r.resolved,
+            "firstSeenAt": r.first_seen_at.isoformat() if r.first_seen_at else None,
+            "lastSeenAt": r.last_seen_at.isoformat() if r.last_seen_at else None,
+        }
+        for r in rows
+    ]
+
+
+class ErrorReportPatch(BaseModel):
+    resolved: bool | None = None
+
+
+@router.patch("/error-reports/{report_id}")
+async def update_error_report(
+    report_id: str,
+    body: ErrorReportPatch,
+    session: AsyncSession = Depends(get_session),
+    _identity=Depends(verify_identity_admin),
+):
+    report = await session.get(WebErrorReport, report_id)
+    if not report:
+        raise HTTPException(404, "Not found")
+    if body.resolved is not None:
+        report.resolved = body.resolved
+    return {"ok": True, "resolved": report.resolved}
+
+
+@router.delete("/error-reports/{report_id}")
+async def delete_error_report(
+    report_id: str,
+    session: AsyncSession = Depends(get_session),
+    _identity=Depends(verify_identity_admin),
+):
+    report = await session.get(WebErrorReport, report_id)
+    if not report:
+        raise HTTPException(404, "Not found")
+    await session.delete(report)
+    return {"ok": True}

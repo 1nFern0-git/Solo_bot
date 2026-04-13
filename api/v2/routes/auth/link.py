@@ -1,11 +1,12 @@
 import secrets
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.depends import (
     bind_identity_actor,
     get_session,
+    set_is_admin_cookie,
     verify_identity_token,
 )
 from api.v2.routes.auth._common import _client_ip
@@ -46,7 +47,16 @@ async def link_email_send_code(
         )
     existing = await idb.get_identity_by_email(session, email_norm)
     if existing and existing.id != identity.id:
-        raise HTTPException(status_code=400, detail="Не удалось привязать email")
+        our_tg = identity.tg_id
+        their_tg = existing.tg_id
+        can_merge = their_tg is None or (
+            our_tg is not None and int(their_tg) == int(our_tg)
+        )
+        if not can_merge:
+            raise HTTPException(
+                status_code=409,
+                detail="Этот email уже привязан к другому аккаунту",
+            )
     ip = _client_ip(request)
     if not await email_link_code.try_consume_ip_budget(ip):
         raise HTTPException(
@@ -86,6 +96,7 @@ async def link_email_send_code(
 async def link_email_confirm(
     body: LinkEmailConfirmRequest,
     request: Request,
+    response: Response,
     session: AsyncSession = Depends(get_session),
     identity=Depends(verify_identity_token),
 ):
@@ -111,4 +122,5 @@ async def link_email_confirm(
             detail="Этот email уже привязан к другой идентичности",
         )
     await bind_identity_actor(request, session, result)
+    set_is_admin_cookie(response, result, request)
     return IdentityResponse.model_validate(result)

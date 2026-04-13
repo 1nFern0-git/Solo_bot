@@ -104,6 +104,29 @@ class WebNotification(DictLikeMixin, Base):
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
 
+class WebErrorReport(DictLikeMixin, Base):
+    __tablename__ = "web_error_reports"
+    __table_args__ = (
+        Index("ix_web_error_reports_signature", "signature"),
+        Index("ix_web_error_reports_resolved_last", "resolved", "last_seen_at"),
+    )
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    signature = Column(String(128), nullable=False, unique=True)
+    error_name = Column(String(255), nullable=False, default="")
+    error_message = Column(Text, nullable=False, default="")
+    stack = Column(Text, nullable=True)
+    url = Column(Text, nullable=True)
+    user_agent = Column(Text, nullable=True)
+    tag = Column(String(64), nullable=True)
+    last_identity_id = Column(String(36), nullable=True)
+    last_context = Column(JSONB, nullable=True)
+    count = Column(Integer, nullable=False, default=1)
+    resolved = Column(Boolean, nullable=False, default=False)
+    first_seen_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    last_seen_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+
+
 class WebFlowEvent(DictLikeMixin, Base):
     __tablename__ = "web_flow_events"
     __table_args__ = (
