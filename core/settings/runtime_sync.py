@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+
 from typing import Any
 
 from core.cache_config import (
@@ -9,6 +10,7 @@ from core.cache_config import (
     RUNTIME_CONFIG_SYNC_TTL_SEC,
 )
 from core.redis_cache import cache_get, cache_key, cache_set
+
 
 _RUNTIME_CONFIGS_KEY = cache_key("runtime_configs")
 _REGISTRY: dict[str, dict[str, Any]] = {}

@@ -17,49 +17,51 @@ async def upsert_push_subscription(
     keys_json: dict,
 ) -> WebPushSubscription:
     """Upsert push subscription by endpoint (unique)."""
-    stmt = pg_insert(WebPushSubscription).values(
-        user_id=user_id,
-        identity_id=identity_id,
-        endpoint=endpoint,
-        keys_json=keys_json,
-        created_at=datetime.now(UTC),
-    ).on_conflict_do_update(
-        index_elements=["endpoint"],
-        set_={
-            "user_id": user_id,
-            "identity_id": identity_id,
-            "keys_json": keys_json,
-            "created_at": datetime.now(UTC),
-        },
-    ).returning(WebPushSubscription)
+    stmt = (
+        pg_insert(WebPushSubscription)
+        .values(
+            user_id=user_id,
+            identity_id=identity_id,
+            endpoint=endpoint,
+            keys_json=keys_json,
+            created_at=datetime.now(UTC),
+        )
+        .on_conflict_do_update(
+            index_elements=["endpoint"],
+            set_={
+                "user_id": user_id,
+                "identity_id": identity_id,
+                "keys_json": keys_json,
+                "created_at": datetime.now(UTC),
+            },
+        )
+        .returning(WebPushSubscription)
+    )
     result = await session.execute(stmt)
     return result.scalar_one()
 
 
 async def get_push_subscriptions_by_user(
-    session: AsyncSession, user_id: int,
+    session: AsyncSession,
+    user_id: int,
 ) -> list[WebPushSubscription]:
-    result = await session.execute(
-        select(WebPushSubscription).where(WebPushSubscription.user_id == user_id)
-    )
+    result = await session.execute(select(WebPushSubscription).where(WebPushSubscription.user_id == user_id))
     return list(result.scalars().all())
 
 
 async def get_push_subscriptions_by_identity(
-    session: AsyncSession, identity_id: str,
+    session: AsyncSession,
+    identity_id: str,
 ) -> list[WebPushSubscription]:
-    result = await session.execute(
-        select(WebPushSubscription).where(WebPushSubscription.identity_id == identity_id)
-    )
+    result = await session.execute(select(WebPushSubscription).where(WebPushSubscription.identity_id == identity_id))
     return list(result.scalars().all())
 
 
 async def delete_push_subscription_by_endpoint(
-    session: AsyncSession, endpoint: str,
+    session: AsyncSession,
+    endpoint: str,
 ) -> None:
-    await session.execute(
-        delete(WebPushSubscription).where(WebPushSubscription.endpoint == endpoint)
-    )
+    await session.execute(delete(WebPushSubscription).where(WebPushSubscription.endpoint == endpoint))
 
 
 async def get_notifications_for_identity(
@@ -79,7 +81,8 @@ async def get_notifications_for_identity(
 
 
 async def count_unread_for_identity(
-    session: AsyncSession, identity_id: str,
+    session: AsyncSession,
+    identity_id: str,
 ) -> int:
     result = await session.execute(
         select(func.count())
@@ -93,7 +96,8 @@ async def count_unread_for_identity(
 
 
 async def mark_all_read_for_identity(
-    session: AsyncSession, identity_id: str,
+    session: AsyncSession,
+    identity_id: str,
 ) -> int:
     result = await session.execute(
         update(WebNotification)
@@ -107,12 +111,11 @@ async def mark_all_read_for_identity(
 
 
 async def resolve_identity_id_by_tg_id(
-    session: AsyncSession, tg_id: int,
+    session: AsyncSession,
+    tg_id: int,
 ) -> str | None:
     """Resolve identity_id from user's tg_id."""
-    result = await session.execute(
-        select(User.identity_id).where(User.tg_id == tg_id)
-    )
+    result = await session.execute(select(User.identity_id).where(User.tg_id == tg_id))
     return result.scalar_one_or_none()
 
 
@@ -153,6 +156,7 @@ def _render_template(template: str, **kwargs: object) -> str:
 def _get_web_config_str(key: str, default: str) -> str:
     try:
         from core.settings.web_config import WEB_CONFIG
+
         val = WEB_CONFIG.get(key)
         return str(val).strip() if val else default
     except Exception:
@@ -209,16 +213,13 @@ async def notify_web(
             data=data,
         )
 
-
         try:
             from services.web_push import push_enabled, send_push_to_many
+
             if push_enabled():
                 subs = await get_push_subscriptions_by_identity(session, identity_id)
                 if subs:
-                    sub_infos = [
-                        {"endpoint": s.endpoint, "keys": s.keys_json}
-                        for s in subs
-                    ]
+                    sub_infos = [{"endpoint": s.endpoint, "keys": s.keys_json} for s in subs]
                     sent = await send_push_to_many(
                         sub_infos,
                         title=resolved_title,

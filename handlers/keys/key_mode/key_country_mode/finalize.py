@@ -1,5 +1,6 @@
 from ._common import *  # noqa: F401,F403
 
+
 async def finalize_key_creation(
     tg_id: int,
     expiry_time: datetime,
@@ -92,9 +93,9 @@ async def finalize_key_creation(
     )
 
     if selected_traffic_gb is not None:
-        traffic_limit_gb = int(selected_traffic_gb)
+        int(selected_traffic_gb)
     else:
-        traffic_limit_gb = int(traffic_limit_bytes / GB) if traffic_limit_bytes else 0
+        int(traffic_limit_bytes / GB) if traffic_limit_bytes else 0
 
     if price_to_charge is None and tariff and not old_key_name:
         price_to_charge = tariff.get("price_rub")
@@ -317,7 +318,11 @@ async def finalize_key_creation(
 
     if panel_type == "remnawave" or is_full_remnawave:
         if is_vless:
-            builder.row(InlineKeyboardButton(text=ROUTER_BUTTON, callback_data=build_key_callback("connect_router", client_id, key_name)))
+            builder.row(
+                InlineKeyboardButton(
+                    text=ROUTER_BUTTON, callback_data=build_key_callback("connect_router", client_id, key_name)
+                )
+            )
         else:
             if use_webapp and webapp_url:
                 if open_in_browser:
@@ -325,7 +330,11 @@ async def finalize_key_creation(
                 else:
                     builder.row(InlineKeyboardButton(text=CONNECT_DEVICE, web_app=WebAppInfo(url=webapp_url)))
                 if tv_button_enabled:
-                    builder.row(InlineKeyboardButton(text=TV_BUTTON, callback_data=build_key_callback("connect_tv", client_id, key_name)))
+                    builder.row(
+                        InlineKeyboardButton(
+                            text=TV_BUTTON, callback_data=build_key_callback("connect_tv", client_id, key_name)
+                        )
+                    )
             else:
                 builder.row(
                     InlineKeyboardButton(
@@ -386,6 +395,7 @@ async def finalize_key_creation(
 async def check_server_availability(server_info: dict, session: AsyncSession) -> bool:
     """Делегирует в services.clusters.check_server_availability()."""
     from services.clusters import check_server_availability as _svc_check
+
     result = await _svc_check(server_info, session)
     return result.available
 

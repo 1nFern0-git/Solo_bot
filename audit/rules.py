@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 
 def _get_bot_webhook_path() -> str:
@@ -203,7 +203,7 @@ _IGNORED_CALLBACK_PREFIX: tuple[str, ...] = (
     "gifts_page|",
 )
 
-_IGNORED_CALLBACK_EXACT_RULES: dict[str, str] = {key: "ignore" for key in _IGNORED_CALLBACK_EXACT}
+_IGNORED_CALLBACK_EXACT_RULES: dict[str, str] = dict.fromkeys(_IGNORED_CALLBACK_EXACT, "ignore")
 _IGNORED_CALLBACK_PREFIX_RULES: tuple[tuple[str, str], ...] = tuple(
     (prefix, "ignore") for prefix in _IGNORED_CALLBACK_PREFIX
 )
@@ -323,11 +323,14 @@ def _is_ignored_analytics_event(path: str) -> bool:
     if not p.startswith("callback:"):
         return False
     callback_data = p.split(":", 1)[-1]
-    return _match_step_rules(
-        callback_data,
-        exact=_IGNORED_CALLBACK_EXACT_RULES,
-        prefixes=_IGNORED_CALLBACK_PREFIX_RULES,
-    ) is not None
+    return (
+        _match_step_rules(
+            callback_data,
+            exact=_IGNORED_CALLBACK_EXACT_RULES,
+            prefixes=_IGNORED_CALLBACK_PREFIX_RULES,
+        )
+        is not None
+    )
 
 
 def _message_command_step(path: str) -> str | None:
@@ -442,6 +445,6 @@ def _normalize_path_to_steps(path: str) -> list[str]:
         return message_steps
     if p.startswith("message:"):
         return ["other"]
-    if p.startswith("post ") or p.startswith("get "):
+    if p.startswith(("post ", "get ")):
         return [_api_step(p)]
     return [_handler_step(p) or "other"]

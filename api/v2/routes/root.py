@@ -4,6 +4,7 @@ import re
 import time
 
 import aiohttp
+
 from fastapi import APIRouter
 
 from config import (
@@ -21,17 +22,18 @@ from config import (
     REFERRAL_QR,
     REMNAWAVE_WEBAPP,
     REMNAWAVE_WEBAPP_OPEN_IN_BROWSER,
-    TOP_REFERRAL_BUTTON,
-    TRIAL_TIME_DISABLE,
-    USE_COUNTRY_SELECTION,
-    USERNAME_BOT,
     TELEGRAM_WEBAPP_DIRECT_LINK,
     TELEGRAM_WEBAPP_SHORT_NAME,
+    TOP_REFERRAL_BUTTON,
+    TRIAL_TIME_DISABLE,
+    USERNAME_BOT,
+    USE_COUNTRY_SELECTION,
 )
 from core.bootstrap import BUTTONS_CONFIG, MODES_CONFIG, MONEY_CONFIG, PAYMENTS_CONFIG
-from core.settings.web_config import WEB_CONFIG
 from core.settings.money_config import get_currency_mode
+from core.settings.web_config import WEB_CONFIG
 from services.payments.providers import PROVIDERS_BASE, TELEGRAM_ONLY_PROVIDER_IDS, WEB_LINK_PROVIDER_IDS
+
 
 router = APIRouter(tags=["Root"])
 
@@ -113,9 +115,7 @@ async def site_config():
             "email_code_login_enabled": bool(MODES_CONFIG.get("WEB_EMAIL_CODE_LOGIN_ENABLED", True)),
         },
         "mobile": {
-            "prefer_mini_app_on_telegram_mobile": bool(
-                MODES_CONFIG.get("PREFER_MINI_APP_ON_TELEGRAM_MOBILE", False)
-            ),
+            "prefer_mini_app_on_telegram_mobile": bool(MODES_CONFIG.get("PREFER_MINI_APP_ON_TELEGRAM_MOBILE", False)),
         },
         "features": {
             "channel_enabled": bool(BUTTONS_CONFIG.get("CHANNEL_BUTTON_ENABLE", CHANNEL_EXISTS)),
@@ -129,9 +129,7 @@ async def site_config():
             "coupon_enabled": bool(BUTTONS_CONFIG.get("COUPON_BUTTON_ENABLE", True)),
             "qr_subscription_enabled": bool(MODES_CONFIG.get("HAPP_CRYPTOLINK_ENABLED", HAPP_CRYPTOLINK)),
             "hwid_reset_enabled": bool(BUTTONS_CONFIG.get("HWID_RESET_BUTTON_ENABLE", HWID_RESET_BUTTON)),
-            "country_selection_enabled": bool(
-                MODES_CONFIG.get("COUNTRY_SELECTION_ENABLED", USE_COUNTRY_SELECTION)
-            ),
+            "country_selection_enabled": bool(MODES_CONFIG.get("COUNTRY_SELECTION_ENABLED", USE_COUNTRY_SELECTION)),
             "captcha_enabled": bool(MODES_CONFIG.get("CAPTCHA_ENABLED", CAPTCHA_ENABLE)),
             "channel_check_enabled": bool(MODES_CONFIG.get("CHANNEL_CHECK_ENABLED", CHANNEL_REQUIRED)),
             "trial_enabled": not bool(MODES_CONFIG.get("TRIAL_TIME_DISABLED", TRIAL_TIME_DISABLE)),
@@ -201,7 +199,7 @@ def _parse_semver(tag: str) -> tuple[int, int, int, int, tuple[tuple[int, int | 
 
 
 async def _fetch_ghcr_latest_tag(image: str) -> str | None:
-    """Анонимно тянем список тегов публичного GHCR-пакета и возвращаем максимальный семвер."""
+    """Возвращает максимальный semver-тег образа в GHCR."""
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
         token_url = f"https://ghcr.io/token?scope=repository:{image}:pull"
         async with session.get(token_url) as token_resp:
@@ -231,7 +229,7 @@ async def _fetch_ghcr_latest_tag(image: str) -> str | None:
 
 @router.get("/api/meta/update-check", include_in_schema=True)
 async def update_check():
-    """Сравнивает текущую версию Solo-brick с последним тегом публичного GHCR-образа."""
+    """Сравнивает текущую версию Solo-brick с последним доступным релизом."""
     current = (os.environ.get("APP_VERSION") or "").strip()
     image = (os.environ.get("GHCR_IMAGE") or "").strip()
     now = time.time()

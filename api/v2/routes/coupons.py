@@ -1,14 +1,15 @@
 from fastapi import Depends, HTTPException, Request
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.depends import get_request_actor, get_session, verify_identity_token
 from api.v2.base_crud import generate_crud_router
 from api.v2.schemas import CouponBase, CouponResponse, CouponUpdate
 from api.v2.schemas.web_public import CouponApplyRequest, CouponApplyResponse
-from api.depends import get_request_actor, get_session, verify_identity_token
 from database import identities as idb
 from database.models import Coupon
 from services.coupons import apply_fixed_coupon
 from services.errors import LimitExceededError, NotFoundError, ServiceError, ValidationError
-from sqlalchemy.ext.asyncio import AsyncSession
+
 
 router = generate_crud_router(
     model=Coupon,

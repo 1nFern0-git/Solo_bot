@@ -1,6 +1,7 @@
 from ._common import *  # noqa: F401,F403
 from ._common import router, user_router  # noqa: F401
 
+
 @router.delete("/by_email/{email}", response_model=dict)
 async def delete_key_by_email(
     email: str = Path(..., description="Email клиента"),
@@ -114,4 +115,3 @@ async def create_key_api(
     except Exception as e:
         logger.error(f"[API] Ошибка при создании ключа: {e}")
         raise HTTPException(status_code=500, detail="Ошибка при создании ключа")
-

@@ -6,7 +6,7 @@ from datetime import datetime
 from sqlalchemy import delete, func, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.cache_config import TARIFF_BY_ID_CACHE_TTL_SEC, TARIFFS_FOR_CLUSTER_CACHE_TTL_SEC
+from core.cache_config import TARIFFS_FOR_CLUSTER_CACHE_TTL_SEC, TARIFF_BY_ID_CACHE_TTL_SEC
 from core.redis_cache import cache_delete, cache_delete_pattern, cache_get, cache_key, cache_set
 from database.models import Server, Tariff
 from logger import logger
@@ -143,9 +143,7 @@ async def get_tariff_group_codes(session: AsyncSession) -> list[str]:
 
 async def get_active_tariff_by_id(session: AsyncSession, tariff_id: int) -> Tariff | None:
     """Возвращает ORM-объект Tariff по id, если тариф активен (is_active=True)."""
-    result = await session.execute(
-        select(Tariff).where(Tariff.id == int(tariff_id), Tariff.is_active.is_(True))
-    )
+    result = await session.execute(select(Tariff).where(Tariff.id == int(tariff_id), Tariff.is_active.is_(True)))
     return result.scalar_one_or_none()
 
 
@@ -161,9 +159,7 @@ async def get_tariffs_for_cluster(session: AsyncSession, cluster_name: str):
     cached = await cache_get(key)
     if isinstance(cached, list):
         return cached
-    server_row = await session.execute(
-        select(Server.tariff_group).where(Server.cluster_name == cluster_name).limit(1)
-    )
+    server_row = await session.execute(select(Server.tariff_group).where(Server.cluster_name == cluster_name).limit(1))
     row = server_row.first()
 
     if not row:
@@ -245,9 +241,7 @@ async def get_vless_enabled(session: AsyncSession, tariff_id: int | None) -> boo
     return bool(tariff.get("vless"))
 
 
-async def get_vless_enabled_batch(
-    session: AsyncSession, tariff_ids: list[int]
-) -> dict[int, bool]:
+async def get_vless_enabled_batch(session: AsyncSession, tariff_ids: list[int]) -> dict[int, bool]:
     """
     Один запрос: для списка tariff_id возвращает dict[tariff_id -> vless].
     Использовать в списках ключей вместо N вызовов get_vless_enabled.
@@ -255,9 +249,7 @@ async def get_vless_enabled_batch(
     if not tariff_ids:
         return {}
     unique_ids = list(dict.fromkeys(tariff_ids))
-    result = await session.execute(
-        select(Tariff.id, Tariff.vless).where(Tariff.id.in_(unique_ids))
-    )
+    result = await session.execute(select(Tariff.id, Tariff.vless).where(Tariff.id.in_(unique_ids)))
     return {row[0]: bool(row[1]) for row in result.all()}
 
 

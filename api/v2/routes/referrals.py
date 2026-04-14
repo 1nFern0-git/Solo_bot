@@ -3,6 +3,7 @@ from io import BytesIO
 from urllib.parse import urlsplit
 
 import qrcode
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,13 +16,24 @@ from api.v2.schemas.web_public import (
     ReferralTopEntryResponse,
     ReferralTopResponse,
 )
-from config import CHECK_REFERRAL_REWARD_ISSUED, REFERRAL_BONUS_PERCENTAGES, REFERRAL_BUTTON, REFERRAL_QR, TOP_REFERRAL_BUTTON
+from config import (
+    CHECK_REFERRAL_REWARD_ISSUED,
+    REFERRAL_BONUS_PERCENTAGES,
+    REFERRAL_BUTTON,
+    REFERRAL_QR,
+    TOP_REFERRAL_BUTTON,
+)
 from core.bootstrap import BUTTONS_CONFIG
-from database import add_referral, get_referral_by_referred_id, get_user_referral_count
-from database.referrals import get_referral_position, get_top_referrals
-from database import identities as idb
+from database import (
+    add_referral,
+    get_referral_by_referred_id,
+    get_user_referral_count,
+    identities as idb,
+)
 from database.access.resolution import resolve_user_optional
+from database.referrals import get_referral_position, get_top_referrals
 from utils.referral_codes import decode_referral_code, encode_referral_code
+
 
 router = APIRouter()
 
@@ -44,10 +56,10 @@ def _normalize_referrer_code(value: str | None, fallback_tg_id: int | None) -> i
 
 def _resolve_public_base_url(request: Request) -> str:
     origin = str(request.headers.get("origin") or "").strip()
-    if origin.startswith("http://") or origin.startswith("https://"):
+    if origin.startswith(("http://", "https://")):
         return origin.rstrip("/")
     referer = str(request.headers.get("referer") or request.headers.get("referrer") or "").strip()
-    if referer.startswith("http://") or referer.startswith("https://"):
+    if referer.startswith(("http://", "https://")):
         parsed = urlsplit(referer)
         if parsed.scheme and parsed.netloc:
             return f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
@@ -170,7 +182,9 @@ async def referral_conditions(
         level_lines.append(f"{level} уровень: {label}")
     one_time_mode = bool(CHECK_REFERRAL_REWARD_ISSUED)
     bonus_mode = "one_time" if one_time_mode else "each_payment"
-    bonus_mode_label = "Бонус за первую успешную оплату реферала" if one_time_mode else "Бонус за каждую успешную оплату реферала"
+    bonus_mode_label = (
+        "Бонус за первую успешную оплату реферала" if one_time_mode else "Бонус за каждую успешную оплату реферала"
+    )
     rules = [
         "Бонус начисляется только за реальных приглашённых пользователей.",
         "Нельзя использовать собственную реферальную ссылку.",

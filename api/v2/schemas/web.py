@@ -1,7 +1,9 @@
 import json
+
 from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
+
 
 _MAX_BLOCK_DATA_SIZE = 256 * 1024
 

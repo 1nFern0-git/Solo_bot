@@ -33,6 +33,7 @@ def backup_thread_loop(stop_event, _bot, _sessionmaker) -> None:
     from aiogram import Bot
     from aiogram.client.default import DefaultBotProperties
     from aiogram.enums import ParseMode
+
     from config import API_TOKEN, BACKUP_TIME
     from utils.backup import backup_database
 

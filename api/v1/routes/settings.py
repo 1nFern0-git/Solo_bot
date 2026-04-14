@@ -7,7 +7,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.depends import get_session, verify_admin_token
 from api.v1.schemas.settings import SettingResponse, SettingUpsert
-from database.settings_cache import settings_cache
 from core.settings.buttons_config import BUTTONS_CONFIG, update_buttons_config
 from core.settings.modes_config import MODES_CONFIG, update_modes_config
 from core.settings.money_config import MONEY_CONFIG, update_money_config
@@ -17,6 +16,7 @@ from core.settings.providers_order_config import PROVIDERS_ORDER, update_provide
 from core.settings.tariffs_config import TARIFFS_CONFIG, update_tariffs_config
 from database.models import Setting
 from database.settings import set_setting
+from database.settings_cache import settings_cache
 
 
 router = APIRouter()

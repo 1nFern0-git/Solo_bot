@@ -1,7 +1,8 @@
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from ..panel.keyboard import AdminPanelCallback
 from handlers.buttons import BACK
+
+from ..panel.keyboard import AdminPanelCallback
 
 
 def build_bans_kb():

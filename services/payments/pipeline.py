@@ -17,6 +17,7 @@ from database.models import Payment
 from handlers.payments.utils import send_payment_success_notification
 from logger import logger
 
+
 if TYPE_CHECKING:
     pass
 
@@ -75,9 +76,7 @@ async def process_success_payment(
             payment = await get_payment_by_payment_id(session, parsed.payment_id)
 
             if payment and payment.get("status") == "success":
-                logger.info(
-                    f"[{provider}] Повторный webhook, платёж уже обработан: payment_id={parsed.payment_id}"
-                )
+                logger.info(f"[{provider}] Повторный webhook, платёж уже обработан: payment_id={parsed.payment_id}")
                 return PipelineResult(ok=True, already_processed=True)
 
             if payment and payment.get("id") is not None:
@@ -88,18 +87,13 @@ async def process_success_payment(
                     metadata_patch=metadata_patch,
                 )
                 if not updated:
-                    logger.error(
-                        f"[{provider}] Не удалось перевести платёж id={payment['id']} в success"
-                    )
+                    logger.error(f"[{provider}] Не удалось перевести платёж id={payment['id']} в success")
                     return PipelineResult(ok=False, error="update_payment_status failed")
                 tg_id = parsed.tg_id if parsed.tg_id is not None else int(payment["tg_id"])
 
-
                 if update_currency is not None or update_original_amount is not None:
                     row = (
-                        await session.execute(
-                            select(Payment).where(Payment.id == int(payment["id"])).limit(1)
-                        )
+                        await session.execute(select(Payment).where(Payment.id == int(payment["id"])).limit(1))
                     ).scalar_one_or_none()
                     if row is not None:
                         if update_currency is not None:
@@ -119,9 +113,7 @@ async def process_success_payment(
                 )
                 tg_id = parsed.tg_id
 
-            credit_amount = (
-                float(credit_amount_override) if credit_amount_override is not None else parsed.amount
-            )
+            credit_amount = float(credit_amount_override) if credit_amount_override is not None else parsed.amount
             if tg_id is not None and credit_amount > 0:
                 await update_balance(session, tg_id, credit_amount)
                 await send_payment_success_notification(tg_id, credit_amount, session)
@@ -180,9 +172,7 @@ async def process_cancelled_payment(
             await session.commit()
             await invalidate_payment_cache(parsed.payment_id)
 
-        logger.info(
-            f"[{provider}] Платёж {parsed.payment_id} помечен как {new_status}"
-        )
+        logger.info(f"[{provider}] Платёж {parsed.payment_id} помечен как {new_status}")
         return PipelineResult(ok=True)
     except Exception as e:
         logger.error(f"[{provider}] Ошибка при обработке отмены платежа: {e}")

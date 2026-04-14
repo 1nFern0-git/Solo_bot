@@ -1,11 +1,13 @@
+import sys
 import unittest
+
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
-import sys
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from database.access.resolution import notify_telegram_chat_id
+
 
 _ACTOR_SPEC = spec_from_file_location(
     "actor_module_for_tests",

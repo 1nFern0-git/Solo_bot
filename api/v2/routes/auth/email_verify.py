@@ -73,7 +73,6 @@ async def verify_email(
     from sqlalchemy import update
 
     from database.models import Identity as IdentityModel
-    await session.execute(
-        update(IdentityModel).where(IdentityModel.id == identity.id).values(email_verified=True)
-    )
+
+    await session.execute(update(IdentityModel).where(IdentityModel.id == identity.id).values(email_verified=True))
     return {"ok": True}

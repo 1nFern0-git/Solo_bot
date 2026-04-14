@@ -74,9 +74,7 @@ class WebPageVariantBlock(DictLikeMixin, Base):
 
 class WebPushSubscription(DictLikeMixin, Base):
     __tablename__ = "web_push_subscriptions"
-    __table_args__ = (
-        Index("ix_web_push_subscriptions_user_id", "user_id"),
-    )
+    __table_args__ = (Index("ix_web_push_subscriptions_user_id", "user_id"),)
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(BigInteger, nullable=False)
@@ -124,7 +122,9 @@ class WebErrorReport(DictLikeMixin, Base):
     count = Column(Integer, nullable=False, default=1)
     resolved = Column(Boolean, nullable=False, default=False)
     first_seen_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
-    last_seen_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+    last_seen_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
+    )
 
 
 class WebFlowEvent(DictLikeMixin, Base):

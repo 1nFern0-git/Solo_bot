@@ -7,11 +7,11 @@
 from .._common import *  # noqa: F401,F403 — подтягиваем все имена для endpoints
 from .._common import (
     _key_actions_config,
+    _normalize_expiry_ms,
     _resolve_available_location_servers,
     _resolve_billing_user_id,
     _resolve_default_web_payment_provider,
     _resolve_public_base_url,
-    _normalize_expiry_ms,
     router,
     user_router,
 )
@@ -39,9 +39,7 @@ async def user_key_renew(
         raise HTTPException(status_code=403, detail="Продление подписки отключено в настройках")
     billing_user_id = await _resolve_billing_user_id(request, identity, session)
     db_key = (
-        await session.execute(
-            select(Key).where(Key.user_id == billing_user_id, Key.client_id == client_id).limit(1)
-        )
+        await session.execute(select(Key).where(Key.user_id == billing_user_id, Key.client_id == client_id).limit(1))
     ).scalar_one_or_none()
     if db_key is None:
         raise HTTPException(status_code=404, detail="Подписка не найдена")

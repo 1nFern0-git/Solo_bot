@@ -162,8 +162,8 @@ async def process_get_cryptolink_after_renewal(
     try:
         from config import REMNAWAVE_LOGIN, REMNAWAVE_PASSWORD
         from database import get_tariff_by_id
-        from services.operations.utils import is_plan_vless
         from panels.remnawave import RemnawaveAPI
+        from services.operations.utils import is_plan_vless
 
         remna = RemnawaveAPI(remnawave_nodes[0]["api_url"])
         if not await remna.login(REMNAWAVE_LOGIN, REMNAWAVE_PASSWORD):

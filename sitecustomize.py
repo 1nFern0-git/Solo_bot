@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import warnings
 
+
 warnings.filterwarnings(
     "ignore",
     message=r'.*Field "model_custom_emoji_id" in UniqueGiftColors has conflict with protected namespace',
@@ -10,6 +11,7 @@ warnings.filterwarnings(
 
 try:
     import aiogram.types
+
     from pydantic import ConfigDict
 
     unique_gift_colors = getattr(aiogram.types, "UniqueGiftColors", None)
@@ -21,8 +23,9 @@ except Exception:
     pass
 
 try:
-    from alembic.ddl.postgresql import PostgresqlImpl
     from sqlalchemy import text
+
+    from alembic.ddl.postgresql import PostgresqlImpl
 
     _LEGACY_TABLES = {"blocked_users", "manual_bans", "temporary_data"}
     _IGNORED_USERS_INDEXES = {"ix_users_id", "uq_users_tg_id"}
@@ -115,6 +118,7 @@ try:
         return getattr(table, "name", None)
 
     if not getattr(PostgresqlImpl.alter_column, "_solo_guarded", False):
+
         def _guarded_alter_column(self, table_name, column_name, *args, **kwargs):
             nullable = kwargs.get("nullable")
             if nullable is True and column_name in _pk_columns(self.connection, table_name):
@@ -129,6 +133,7 @@ try:
         PostgresqlImpl.alter_column = _guarded_alter_column
 
     if not getattr(PostgresqlImpl.drop_table, "_solo_guarded", False):
+
         def _guarded_drop_table(self, table, **kwargs):
             if getattr(table, "name", None) == "schema_migrations":
                 return
@@ -138,6 +143,7 @@ try:
         PostgresqlImpl.drop_table = _guarded_drop_table
 
     if not getattr(PostgresqlImpl.drop_index, "_solo_guarded", False):
+
         def _guarded_drop_index(self, index, **kwargs):
             table_name = _index_table_name(index)
             index_name = getattr(index, "name", None)
@@ -151,6 +157,7 @@ try:
         PostgresqlImpl.drop_index = _guarded_drop_index
 
     if not getattr(PostgresqlImpl.create_index, "_solo_guarded", False):
+
         def _guarded_create_index(self, index, **kwargs):
             table_name = _index_table_name(index)
             index_name = getattr(index, "name", None)

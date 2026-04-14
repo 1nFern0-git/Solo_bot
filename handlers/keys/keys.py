@@ -6,12 +6,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import delete_key, get_key_details
 from handlers.buttons import APPLY, BACK, CANCEL
 from handlers.keys.key_view import process_callback_view_key
-from services.operations import delete_key_from_cluster, update_subscription
 from handlers.keys.utils import build_key_callback, key_owned_by_user, resolve_key
 from handlers.texts import DELETE_KEY_CONFIRM_MSG, KEY_DELETED_MSG_SIMPLE
 from handlers.utils import edit_or_send_message, handle_error
-from middlewares.session import release_session_early
 from logger import logger
+from middlewares.session import release_session_early
+from services.operations import delete_key_from_cluster, update_subscription
 
 
 router = Router()
@@ -54,7 +54,12 @@ async def process_callback_delete_key(callback_query: CallbackQuery, session: As
             return
         confirmation_keyboard = types.InlineKeyboardMarkup(
             inline_keyboard=[
-                [types.InlineKeyboardButton(text=APPLY, callback_data=build_key_callback("confirm_delete", record.get("client_id"), key_identifier))],
+                [
+                    types.InlineKeyboardButton(
+                        text=APPLY,
+                        callback_data=build_key_callback("confirm_delete", record.get("client_id"), key_identifier),
+                    )
+                ],
                 [types.InlineKeyboardButton(text=CANCEL, callback_data="view_keys")],
             ]
         )

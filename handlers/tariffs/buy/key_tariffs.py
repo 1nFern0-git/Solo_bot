@@ -13,9 +13,7 @@ from core.settings.tariffs_config import normalize_tariff_config
 from database import get_balance, get_tariff_by_id
 from database.notifications import check_hot_lead_discount
 from handlers.buttons import BACK, CONFIG_PAY_BUTTON_TEXT, MAIN_MENU, PAYMENT
-from services.payments.currency_rates import format_for_user
 from handlers.payments.fast_payment_flow import try_fast_payment_flow
-from services.tariffs.tariff_display import GB
 from handlers.texts import (
     CONFIG_SCREEN_TEMPLATE,
     CREATING_CONNECTION_MSG,
@@ -27,6 +25,8 @@ from handlers.texts import (
 from handlers.utils import edit_or_send_message, safe_answer_callback
 from hooks.processors import process_check_discount_validity
 from logger import logger
+from services.payments.currency_rates import format_for_user
+from services.tariffs.tariff_display import GB
 
 
 router = Router()
@@ -293,7 +293,9 @@ async def render_user_config_screen(
 
     if tariff_id is None and callback_query.data:
         parts = callback_query.data.split("|")
-        if len(parts) >= 2 and (callback_query.data.startswith("cfg_user_devices|") or callback_query.data.startswith("cfg_user_traffic|")):
+        if len(parts) >= 2 and (
+            callback_query.data.startswith("cfg_user_devices|") or callback_query.data.startswith("cfg_user_traffic|")
+        ):
             try:
                 tariff_id = int(parts[1])
                 await state.update_data(config_tariff_id=tariff_id)

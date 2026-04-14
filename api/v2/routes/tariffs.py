@@ -27,8 +27,8 @@ from database.coupons import mark_coupon_used
 from database.models import Tariff
 from database.tariffs import get_tariff_by_id
 from database.temporary_data import create_temporary_data
-from services.keys import create_vpn_key_headless
 from logger import logger
+from services.keys import create_vpn_key_headless
 from services.payments.payment_links import PaymentLinkRequest, create_payment_link
 from services.payments.providers import WEB_LINK_PROVIDER_IDS
 from services.tariffs import calculate_config_price
@@ -143,7 +143,11 @@ async def get_tariffs_public(
     if isinstance(cached, list):
         return cached
 
-    q = select(Tariff).where(Tariff.is_active.is_(True)).order_by(Tariff.sort_order.asc().nulls_last(), Tariff.price_rub.asc())
+    q = (
+        select(Tariff)
+        .where(Tariff.is_active.is_(True))
+        .order_by(Tariff.sort_order.asc().nulls_last(), Tariff.price_rub.asc())
+    )
     if tariff_ids:
         try:
             ids = [int(x.strip()) for x in tariff_ids.split(",") if x.strip()]

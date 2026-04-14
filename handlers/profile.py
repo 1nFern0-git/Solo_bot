@@ -21,6 +21,7 @@ from database import get_balance_trial_key_count
 from handlers.buttons import (
     ABOUT_VPN,
     ADD_SUB,
+    ADMIN_BTN,
     BACK,
     BALANCE,
     GIFTS,
@@ -29,13 +30,12 @@ from handlers.buttons import (
     MY_SUB,
     MY_SUBS,
     TRIAL_SUB,
-    ADMIN_BTN,
 )
-from services.payments.currency_rates import format_for_user
 from handlers.texts import ADD_SUBSCRIPTION_HINT
 from hooks.hook_buttons import insert_hook_buttons
 from hooks.hooks import run_hooks
 from middlewares.session import release_session_early
+from services.payments.currency_rates import format_for_user
 
 from .admin.panel.keyboard import AdminPanelCallback
 from .texts import profile_message_send
@@ -109,6 +109,7 @@ async def process_callback_view_profile(
     builder = InlineKeyboardBuilder()
 
     from core.settings.web_config import get_site_url, is_web_enabled
+
     if is_web_enabled():
         site_url = get_site_url()
         if site_url:

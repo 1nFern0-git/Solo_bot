@@ -156,9 +156,7 @@ async def set_user_balance(
 
 async def get_user_preferred_currency(session: AsyncSession, tg_id: int) -> str | None:
     """Предпочитаемая валюта пользователя по ``tg_id``, если установлена."""
-    result = await session.execute(
-        select(User.preferred_currency).where(User.tg_id == int(tg_id))
-    )
+    result = await session.execute(select(User.preferred_currency).where(User.tg_id == int(tg_id)))
     return result.scalar()
 
 
@@ -169,9 +167,7 @@ async def mark_trial_started_if_eligible(session: AsyncSession, tg_id: int) -> N
     Используется в `services.operations.creation.create_key_on_cluster` после
     успешного создания ключа.
     """
-    await session.execute(
-        update(User).where(User.tg_id == tg_id, User.trial.in_([0, -1])).values(trial=1)
-    )
+    await session.execute(update(User).where(User.tg_id == tg_id, User.trial.in_([0, -1])).values(trial=1))
 
 
 async def update_trial(session: AsyncSession, legacy_user_ref: int, status: int):
@@ -354,9 +350,7 @@ async def delete_user_data(session: AsyncSession, legacy_user_ref: int):
     await session.execute(delete(WebPushSubscription).where(WebPushSubscription.user_id == uid))
     await session.execute(delete(WebNotification).where(WebNotification.user_id == uid))
     await session.execute(
-        update(ScheduledBroadcast)
-        .where(ScheduledBroadcast.created_by_user_id == uid)
-        .values(created_by_user_id=None)
+        update(ScheduledBroadcast).where(ScheduledBroadcast.created_by_user_id == uid).values(created_by_user_id=None)
     )
 
     await session.execute(delete(User).where(User.id == uid))

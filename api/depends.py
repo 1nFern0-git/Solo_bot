@@ -1,14 +1,17 @@
 import hashlib
-from urllib.parse import urlparse
 
 from collections.abc import AsyncGenerator
+from urllib.parse import urlparse
 
 from fastapi import Depends, HTTPException, Header, Query, Request, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from audit import set_api_actor
-from database import async_session_maker, identities as idb
+from database import (
+    async_session_maker,
+    identities as idb,
+)
 from database.access.resolution import ResolvedActor, resolve_actor_from_identity
 from database.models import Admin, Identity
 

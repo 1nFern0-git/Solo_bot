@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import aiogram.types
+
 from pydantic import ConfigDict
+
 
 _UniqueGiftColors = getattr(aiogram.types, "UniqueGiftColors", None)
 if _UniqueGiftColors is not None:
@@ -24,7 +26,7 @@ def apply_button_icons_patch(config: dict[str, dict[str, str]] | None = None) ->
         _button_icon_config.update(config)
 
     class _PatchedInlineKeyboardButton(_OriginalInlineKeyboardButton):
-        def __init__(self, **kwargs: object):
+        def __init__(self, **kwargs: object) -> None:
             key = kwargs.get("callback_data") or kwargs.get("url")
             if key is not None and isinstance(key, str):
                 config = _button_icon_config.get(key)

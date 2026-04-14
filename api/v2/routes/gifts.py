@@ -36,8 +36,10 @@ from database.tariffs import get_tariff_by_id
 from database.temporary_data import create_temporary_data
 from services.errors import NotFoundError, ValidationError
 from services.formatting import get_site_gift_link
-from services.gifts import create_gift as service_create_gift
-from services.gifts import redeem_gift as service_redeem_gift
+from services.gifts import (
+    create_gift as service_create_gift,
+    redeem_gift as service_redeem_gift,
+)
 from services.payments.payment_links import PaymentLinkRequest, create_payment_link
 from services.tariffs import calculate_config_price
 

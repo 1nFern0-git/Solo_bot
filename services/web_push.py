@@ -2,14 +2,16 @@ import json
 
 from logger import logger
 
+
 try:
-    from pywebpush import webpush, WebPushException
+    from pywebpush import WebPushException, webpush
+
     _WEBPUSH_AVAILABLE = True
 except ImportError:
     _WEBPUSH_AVAILABLE = False
 
 try:
-    from config import VAPID_PRIVATE_KEY, VAPID_PUBLIC_KEY, VAPID_CLAIMS_EMAIL
+    from config import VAPID_CLAIMS_EMAIL, VAPID_PRIVATE_KEY, VAPID_PUBLIC_KEY
 except ImportError:
     VAPID_PRIVATE_KEY = ""
     VAPID_PUBLIC_KEY = ""

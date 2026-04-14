@@ -33,7 +33,7 @@ class DirectStartBlockerMiddleware(BaseMiddleware):
         if not user and getattr(event, "callback_query", None):
             user = getattr(event.callback_query, "from_user", None)
         if user:
-            admin_ids = set(ADMIN_ID) if isinstance(ADMIN_ID, (list, tuple)) else {ADMIN_ID}
+            admin_ids = set(ADMIN_ID) if isinstance(ADMIN_ID, list | tuple) else {ADMIN_ID}
             if user.id in admin_ids:
                 return await handler(event, data)
 

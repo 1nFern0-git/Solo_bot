@@ -10,8 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import DISCOUNT_ACTIVE_HOURS
 from core.bootstrap import NOTIFICATIONS_CONFIG
 from database import get_keys, get_tariffs, get_tariffs_for_cluster
-from database.models import Notification
 from database.access.resolution import resolve_user_optional
+from database.models import Notification
 from handlers.buttons import MAIN_MENU, RENEW_KEY_NOTIFICATION
 from handlers.keys.utils import build_key_callback
 from handlers.notifications.notify_kb import build_tariffs_keyboard

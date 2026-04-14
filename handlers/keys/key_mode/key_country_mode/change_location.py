@@ -1,6 +1,7 @@
 from ._common import *  # noqa: F401,F403
 from ._common import router  # noqa: F401
 
+
 @router.callback_query(F.data.startswith("change_location|"))
 async def change_location_callback(callback_query: CallbackQuery, session: Any):
     try:

@@ -1,13 +1,15 @@
 import csv
+import re
+
 from base64 import b64encode
 from datetime import datetime
 from io import BytesIO, StringIO
-import re
 from urllib.parse import urlsplit
+
+import qrcode
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
-import qrcode
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,16 +18,17 @@ from api.v2.schemas.web_public import (
     PartnerApplyRequest,
     PartnerApplyResponse,
     PartnerConditionsResponse,
-    PartnerQrResponse,
-    PartnerTopEntryResponse,
-    PartnerTopResponse,
     PartnerPayoutEntryResponse,
     PartnerPayoutHistoryResponse,
     PartnerPayoutRequestCreate,
     PartnerPayoutRequestResponse,
+    PartnerQrResponse,
+    PartnerTopEntryResponse,
+    PartnerTopResponse,
 )
 from database import identities as idb
 from utils.referral_codes import decode_partner_code, encode_partner_code
+
 
 try:
     from modules.partner_program.settings import PARTNER_BONUS_PERCENTAGES
@@ -63,10 +66,10 @@ def _row_dt_iso(value) -> str | None:
 
 def _resolve_public_base_url(request: Request) -> str:
     origin = str(request.headers.get("origin") or "").strip()
-    if origin.startswith("http://") or origin.startswith("https://"):
+    if origin.startswith(("http://", "https://")):
         return origin.rstrip("/")
     referer = str(request.headers.get("referer") or request.headers.get("referrer") or "").strip()
-    if referer.startswith("http://") or referer.startswith("https://"):
+    if referer.startswith(("http://", "https://")):
         parsed = urlsplit(referer)
         if parsed.scheme and parsed.netloc:
             return f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
@@ -351,9 +354,9 @@ async def partner_conditions(
         ("ENABLE_PAYOUT_USDT", "USDT"),
         ("ENABLE_PAYOUT_TON", "TON"),
     ]
-    payout_methods = [
-        title for key, title in method_map if bool(getattr(partner_settings, key, False))
-    ] if partner_settings else []
+    payout_methods = (
+        [title for key, title in method_map if bool(getattr(partner_settings, key, False))] if partner_settings else []
+    )
     level_lines: list[str] = []
     all_levels = sorted({int(k) for k in [*percent_levels_raw.keys(), *flat_levels_raw.keys()] if str(k).isdigit()})
     for level in all_levels:
@@ -422,9 +425,7 @@ async def partner_payouts_me(
         """
     )
     total = int((await session.scalar(count_sql, {"tg_id": tg_id})) or 0)
-    rows = (
-        await session.execute(rows_sql, {"tg_id": tg_id, "limit": int(limit), "offset": int(offset)})
-    ).fetchall()
+    rows = (await session.execute(rows_sql, {"tg_id": tg_id, "limit": int(limit), "offset": int(offset)})).fetchall()
     items = [
         PartnerPayoutEntryResponse(
             id=int(row[0]),
@@ -1094,13 +1095,13 @@ async def reset_disabled_payout_methods(
 ):
     """Сбрасывает реквизиты для отключённых способов вывода."""
     try:
+        from modules.partner_program import buttons as B
         from modules.partner_program.settings import (
             ENABLE_PAYOUT_CARD,
             ENABLE_PAYOUT_SBP,
             ENABLE_PAYOUT_TON,
             ENABLE_PAYOUT_USDT,
         )
-        from modules.partner_program import buttons as B
     except Exception:
         ENABLE_PAYOUT_CARD = True
         ENABLE_PAYOUT_USDT = True

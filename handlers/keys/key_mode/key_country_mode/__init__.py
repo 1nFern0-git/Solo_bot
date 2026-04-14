@@ -1,3 +1,4 @@
+from . import change_location  # noqa: F401 — trigger endpoint registration
 from ._common import router
 from .entry import handle_country_selection, key_country_mode
 from .finalize import (
@@ -5,7 +6,7 @@ from .finalize import (
     check_server_availability,
     finalize_key_creation,
 )
-from . import change_location  # noqa: F401 — trigger endpoint registration
+
 
 __all__ = [
     "router",

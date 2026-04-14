@@ -13,12 +13,9 @@ from logger import logger
 
 
 def _not_banned(user_id_col):
-    return (
-        ~exists().where(BlockedUser.user_id == user_id_col)
-        & ~exists().where(
-            ManualBan.user_id == user_id_col,
-            (ManualBan.until.is_(None)) | (ManualBan.until > datetime.utcnow()),
-        )
+    return ~exists().where(BlockedUser.user_id == user_id_col) & ~exists().where(
+        ManualBan.user_id == user_id_col,
+        (ManualBan.until.is_(None)) | (ManualBan.until > datetime.utcnow()),
     )
 
 
@@ -89,13 +86,7 @@ async def get_recipients(session: AsyncSession, send_to: str, cluster_name: str 
             .where(Payment.amount > 0)
             .where(Payment.payment_system.notin_(PAYMENT_SYSTEMS_EXCLUDED))
             .where(
-                not_(
-                    exists(
-                        select(1).select_from(Key).where(
-                            and_(Key.user_id == User.id, Key.expiry_time > now_ms)
-                        )
-                    )
-                )
+                not_(exists(select(1).select_from(Key).where(and_(Key.user_id == User.id, Key.expiry_time > now_ms))))
             )
             .where(User.tg_id.isnot(None))
             .where(_not_banned(User.id))

@@ -34,7 +34,7 @@ def generate_crud_router(
             u = await resolve_user_optional(session, int(value))
             if u is None:
                 return None
-            return getattr(model, "user_id"), u.id
+            return model.user_id, u.id
         field = getattr(model, identifier_field)
         return field, cast_identifier_type(field, value)
 
@@ -77,9 +77,7 @@ def generate_crud_router(
             if resolved is None:
                 raise HTTPException(status_code=404, detail=f"{model.__name__} not found")
             field, casted = resolved
-            result = await session.execute(
-                _apply_user_relationship_loader(model, select(model).where(field == casted))
-            )
+            result = await session.execute(_apply_user_relationship_loader(model, select(model).where(field == casted)))
             obj = result.scalar_one_or_none()
             if not obj:
                 raise HTTPException(status_code=404, detail=f"{model.__name__} not found")
@@ -97,9 +95,7 @@ def generate_crud_router(
             if resolved is None:
                 raise HTTPException(status_code=404, detail=f"{model.__name__} not found")
             field, casted = resolved
-            result = await session.execute(
-                _apply_user_relationship_loader(model, select(model).where(field == casted))
-            )
+            result = await session.execute(_apply_user_relationship_loader(model, select(model).where(field == casted)))
             objs = result.scalars().all()
             if not objs:
                 raise HTTPException(status_code=404, detail=f"{model.__name__} not found")

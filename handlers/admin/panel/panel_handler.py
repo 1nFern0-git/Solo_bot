@@ -6,10 +6,10 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.executor import run_io
 from database.models import Admin
 from filters.admin import IsAdminFilter
 from logger import logger
-from core.executor import run_io
 from utils.versioning import get_version
 
 from .keyboard import AdminPanelCallback, build_panel_kb

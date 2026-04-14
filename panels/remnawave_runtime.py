@@ -1,4 +1,5 @@
 import asyncio
+
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -6,8 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import REMNAWAVE_LOGIN, REMNAWAVE_PASSWORD, REMNAWAVE_TOKEN_LOGIN_ENABLED
 from core.cache_config import (
-    REMNAWAVE_MAX_CONCURRENCY,
     REMNAWAVE_ACTION_TIMEOUT_SEC,
+    REMNAWAVE_MAX_CONCURRENCY,
     REMNAWAVE_PROFILE_CACHE_TTL_SEC,
     REMNAWAVE_PROFILE_ERROR_CACHE_TTL_SEC,
     REMNAWAVE_PROFILE_TIMEOUT_SEC,
@@ -18,6 +19,7 @@ from core.redis_cache import cache_delete_pattern, cache_get, cache_key, cache_s
 from database import get_servers
 from logger import logger
 from panels.remnawave import RemnawaveAPI
+
 
 _remnawave_semaphore = asyncio.Semaphore(REMNAWAVE_MAX_CONCURRENCY)
 
@@ -59,7 +61,7 @@ async def _fetch_profile_http_only(api_url: str, client_id: str) -> dict[str, An
             "traffic_limit_bytes": traffic_limit_bytes,
             "hwid_device_limit": hwid_device_limit,
         }
-    except (asyncio.TimeoutError, Exception):
+    except (TimeoutError, Exception):
         return None
     finally:
         if hasattr(api, "aclose"):
@@ -98,7 +100,7 @@ def _run_with_api_in_thread(
             return None
         coro = operation(api)
         return loop.run_until_complete(asyncio.wait_for(coro, timeout=timeout_sec))
-    except (asyncio.TimeoutError, Exception):
+    except (TimeoutError, Exception):
         return None
     finally:
         if hasattr(api, "aclose"):
@@ -109,9 +111,7 @@ def _run_with_api_in_thread(
         loop.close()
 
 
-async def invalidate_remnawave_profile_cache(
-    *, api_url: str | None = None, client_id: str | None = None
-) -> None:
+async def invalidate_remnawave_profile_cache(*, api_url: str | None = None, client_id: str | None = None) -> None:
     """Invalidate cached Remnawave profiles by api_url/client_id (or both). Await to avoid pending task on shutdown."""
     if api_url is None and client_id is None:
         await cache_delete_pattern("remna_profile:*")
@@ -154,7 +154,9 @@ async def resolve_remnawave_api_url(
                 break
 
     if remna_server is None and fallback_any:
-        remna_server = next((srv for cluster in servers.values() for srv in cluster if srv.get("panel_type") == "remnawave"), None)
+        remna_server = next(
+            (srv for cluster in servers.values() for srv in cluster if srv.get("panel_type") == "remnawave"), None
+        )
 
     api_url = remna_server.get("api_url") if remna_server else None
     await cache_set(ckey, api_url, REMNAWAVE_SERVER_CACHE_TTL_SEC)

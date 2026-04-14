@@ -8,10 +8,10 @@ from api.depends import get_session, verify_admin_token
 from api.v1.routes.base_crud import generate_crud_router
 from api.v1.schemas.users import UserBase, UserResponse, UserUpdate
 from database import async_session_maker, delete_user_data, get_servers
-from database.models import Key, User
 from database.access.resolution import resolve_user_optional
-from services.operations import delete_key_from_cluster
+from database.models import Key, User
 from logger import logger
+from services.operations import delete_key_from_cluster
 
 
 router = generate_crud_router(

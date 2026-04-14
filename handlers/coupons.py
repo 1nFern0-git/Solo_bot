@@ -27,9 +27,6 @@ from database import (
     update_key_expiry,
 )
 from handlers.buttons import MAIN_MENU
-from middlewares.session import release_session_early
-from services.operations import renew_key_in_cluster
-from services.payments.currency_rates import format_for_user
 from handlers.profile import process_callback_view_profile
 from handlers.texts import (
     COUPONS_DAYS_MESSAGE,
@@ -40,6 +37,9 @@ from handlers.texts import (
 )
 from handlers.utils import edit_or_send_message, format_days
 from logger import logger
+from middlewares.session import release_session_early
+from services.operations import renew_key_in_cluster
+from services.payments.currency_rates import format_for_user
 
 
 class CouponActivationState(StatesGroup):
@@ -202,8 +202,8 @@ async def handle_key_extension(
     session: AsyncSession,
     admin: bool = False,
 ):
-    from database.models import Coupon, Key, User
     from database.access.resolution import resolve_user_optional
+    from database.models import Coupon, Key, User
 
     parts = callback_query.data.split("|")
     client_id = parts[1]

@@ -1,4 +1,5 @@
 import unittest
+
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -212,12 +213,8 @@ class KeysRepoTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(compiled.params["selected_price_rub"], 500)
 
     async def test_get_user_keys_with_servers_returns_tuples(self):
-        srv = SimpleNamespace(
-            server_name="s1", cluster_name="c1", api_url="http://x", panel_type="3x-ui"
-        )
-        session = _make_session(
-            execute_return=_result_with(all_rows=[("cid1", "s1", srv)])
-        )
+        srv = SimpleNamespace(server_name="s1", cluster_name="c1", api_url="http://x", panel_type="3x-ui")
+        session = _make_session(execute_return=_result_with(all_rows=[("cid1", "s1", srv)]))
         result = await get_user_keys_with_servers_by_email(session, 42, "u@test")
         self.assertEqual(len(result), 1)
         client_id, server_id, server_info = result[0]

@@ -18,6 +18,7 @@ async def toggle_client_on_cluster(
     session: AsyncSession = None,
 ) -> dict[str, Any]:
     from panels.remnawave import RemnawaveAPI
+
     try:
         if session is None:
             raise ValueError("[Cluster Toggle] Не передан объект сессии для toggle_client_on_cluster")

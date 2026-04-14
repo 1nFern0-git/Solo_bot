@@ -44,7 +44,7 @@ class IsAdminFilter(BaseFilter):
                 _set_cached_admin(user_id, is_admin, is_super)
                 await session.commit()
                 return is_admin
-        except (Exception,):
+        except Exception:
             return False
 
 
@@ -69,5 +69,5 @@ class IsSuperAdminFilter(BaseFilter):
                 _set_cached_admin(user_id, True, is_super)
                 await session.commit()
                 return is_super
-        except (Exception,):
+        except Exception:
             return False

@@ -2,12 +2,12 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from panels.remnawave_runtime import get_remnawave_profile
 from core.settings.tariffs_config import TARIFFS_CONFIG, normalize_tariff_config
 from database import get_tariff_by_id
 from database.models import Key
 from handlers.texts import key_message_success
 from logger import logger
+from panels.remnawave_runtime import get_remnawave_profile
 
 
 GB = 1024 * 1024 * 1024

@@ -14,8 +14,10 @@ from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from apscheduler.executors.asyncio import AsyncIOExecutor
-from apscheduler.executors.pool import ProcessPoolExecutor as APSchedulerProcessPoolExecutor
-from apscheduler.executors.pool import ThreadPoolExecutor as APSchedulerThreadPoolExecutor
+from apscheduler.executors.pool import (
+    ProcessPoolExecutor as APSchedulerProcessPoolExecutor,
+    ThreadPoolExecutor as APSchedulerThreadPoolExecutor,
+)
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.base import BaseTrigger
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -71,10 +73,10 @@ def _run_process_loop_task(task_id: str, runner: LoopRunner) -> None:
 
 
 async def _run_process_loop_task_async(task_id: str, runner: LoopRunner) -> None:
-    from database.db import reset_async_db_engine
-    from core.bootstrap import bootstrap
     from config import API_TOKEN
+    from core.bootstrap import bootstrap
     from database import async_session_maker, init_db
+    from database.db import reset_async_db_engine
 
     bot = Bot(token=API_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     logger.info("[PeriodicManager] Process-loop задача {} запущена, PID={}", task_id, os.getpid())
@@ -145,9 +147,7 @@ class PeriodicTaskManager:
         if execution_mode not in {"async", "thread", "process"}:
             raise ValueError(f"Unsupported execution_mode: {execution_mode}")
         if execution_mode != "async" and inspect.iscoroutinefunction(runner):
-            raise ValueError(
-                f"Cron task {task_id} with execution_mode={execution_mode} must be a sync function"
-            )
+            raise ValueError(f"Cron task {task_id} with execution_mode={execution_mode} must be a sync function")
         self._cron_tasks[task_id] = ManagedCronTask(
             task_id=task_id,
             runner=runner,

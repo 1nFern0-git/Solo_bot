@@ -1,5 +1,4 @@
-BUTTON_ICON_CONFIG: dict[str, dict[str, str]] = {
-}
+BUTTON_ICON_CONFIG: dict[str, dict[str, str]] = {}
 
 BACK = "⬅️ Назад"
 APPLY = "✅ Подтвердить"

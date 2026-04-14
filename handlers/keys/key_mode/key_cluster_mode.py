@@ -20,11 +20,12 @@ from core.bootstrap import BUTTONS_CONFIG, MODES_CONFIG
 from database import (
     get_key_details,
     get_trial,
+    get_vless_enabled,
     update_balance,
     update_trial,
 )
-from database.models import Key
 from database.access.resolution import notify_telegram_chat_id, resolve_user_optional
+from database.models import Key
 from handlers.buttons import (
     CONNECT_DEVICE,
     MAIN_MENU,
@@ -33,14 +34,7 @@ from handlers.buttons import (
     SUPPORT,
     TV_BUTTON,
 )
-from services.operations import create_key_on_cluster
 from handlers.keys.utils import build_key_callback
-from database import get_vless_enabled
-from services.tariffs.tariff_display import (
-    build_key_created_message,
-    get_effective_limits_for_key,
-    resolve_price_to_charge,
-)
 from handlers.utils import (
     edit_or_send_message,
     generate_random_email,
@@ -55,6 +49,12 @@ from hooks.processors import (
     process_remnawave_webapp_override,
 )
 from logger import logger
+from services.operations import create_key_on_cluster
+from services.tariffs.tariff_display import (
+    build_key_created_message,
+    get_effective_limits_for_key,
+    resolve_price_to_charge,
+)
 
 
 router = Router()
@@ -230,7 +230,11 @@ async def key_cluster_mode(
 
     builder = InlineKeyboardBuilder()
     if vless_enabled:
-        builder.row(InlineKeyboardButton(text=ROUTER_BUTTON, callback_data=build_key_callback("connect_router", client_id, key_name)))
+        builder.row(
+            InlineKeyboardButton(
+                text=ROUTER_BUTTON, callback_data=build_key_callback("connect_router", client_id, key_name)
+            )
+        )
     else:
         if await is_full_remnawave_cluster(least_loaded_cluster, session):
             use_webapp = bool(MODES_CONFIG.get("REMNAWAVE_WEBAPP_ENABLED", REMNAWAVE_WEBAPP))
@@ -255,11 +259,23 @@ async def key_cluster_mode(
                 else:
                     builder.row(InlineKeyboardButton(text=CONNECT_DEVICE, web_app=WebAppInfo(url=final_link)))
                 if tv_button_enabled:
-                    builder.row(InlineKeyboardButton(text=TV_BUTTON, callback_data=build_key_callback("connect_tv", client_id, email)))
+                    builder.row(
+                        InlineKeyboardButton(
+                            text=TV_BUTTON, callback_data=build_key_callback("connect_tv", client_id, email)
+                        )
+                    )
             else:
-                builder.row(InlineKeyboardButton(text=CONNECT_DEVICE, callback_data=build_key_callback("connect_device", client_id, key_name)))
+                builder.row(
+                    InlineKeyboardButton(
+                        text=CONNECT_DEVICE, callback_data=build_key_callback("connect_device", client_id, key_name)
+                    )
+                )
         else:
-            builder.row(InlineKeyboardButton(text=CONNECT_DEVICE, callback_data=build_key_callback("connect_device", client_id, key_name)))
+            builder.row(
+                InlineKeyboardButton(
+                    text=CONNECT_DEVICE, callback_data=build_key_callback("connect_device", client_id, key_name)
+                )
+            )
 
     builder.row(InlineKeyboardButton(text=MY_SUB, callback_data=build_key_callback("view_key", client_id, key_name)))
     builder.row(InlineKeyboardButton(text=SUPPORT, url=SUPPORT_CHAT_URL))

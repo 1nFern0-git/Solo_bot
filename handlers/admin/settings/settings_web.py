@@ -4,8 +4,8 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from database import async_session_maker
 from core.settings.web_config import WEB_CONFIG, update_web_config
+from database import async_session_maker
 from handlers.buttons import BACK
 
 from ..panel.keyboard import AdminPanelCallback, build_admin_back_btn

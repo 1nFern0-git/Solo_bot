@@ -1,6 +1,6 @@
 from database import async_session_maker
-from database.settings_cache import settings_cache
 from database.db import warm_pool
+from database.settings_cache import settings_cache
 from database.tariffs import initialize_all_tariff_weights
 
 from .settings.buttons_config import BUTTONS_CONFIG, load_buttons_config, update_buttons_config

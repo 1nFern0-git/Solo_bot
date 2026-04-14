@@ -1,5 +1,6 @@
 import html
 import re
+
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -61,20 +62,22 @@ def _deserialize_audit_events(cached: list[dict]) -> list:
                 created = datetime.fromisoformat(created.replace("Z", "+00:00"))
             except Exception:
                 created = None
-        out.append(SimpleNamespace(
-            event_type=d.get("event_type", ""),
-            channel=d.get("channel", "telegram"),
-            path_or_handler=d.get("path_or_handler") or "",
-            actor_identity_id=d.get("actor_identity_id"),
-            actor_tg_id=d.get("actor_tg_id"),
-            entity_type=d.get("entity_type"),
-            entity_id=d.get("entity_id"),
-            result=d.get("result", "success"),
-            reason=d.get("reason"),
-            metadata_=d.get("metadata_"),
-            request_id=d.get("request_id"),
-            created_at=created,
-        ))
+        out.append(
+            SimpleNamespace(
+                event_type=d.get("event_type", ""),
+                channel=d.get("channel", "telegram"),
+                path_or_handler=d.get("path_or_handler") or "",
+                actor_identity_id=d.get("actor_identity_id"),
+                actor_tg_id=d.get("actor_tg_id"),
+                entity_type=d.get("entity_type"),
+                entity_id=d.get("entity_id"),
+                result=d.get("result", "success"),
+                reason=d.get("reason"),
+                metadata_=d.get("metadata_"),
+                request_id=d.get("request_id"),
+                created_at=created,
+            )
+        )
     return out
 
 
@@ -131,24 +134,26 @@ def _load_balance_log_events(tg_id: int, limit: int) -> list:
             except ValueError:
                 continue
 
-            events.append(SimpleNamespace(
-                event_type="balance_changed",
-                channel="system",
-                path_or_handler="logger:balance",
-                actor_identity_id=None,
-                actor_tg_id=tg_id,
-                entity_type="telegram_user",
-                entity_id=tg_id,
-                result="success",
-                reason=None,
-                metadata_={
-                    "amount": amount,
-                    "balance_before": old_balance,
-                    "balance_after": new_balance,
-                },
-                request_id=None,
-                created_at=created_at,
-            ))
+            events.append(
+                SimpleNamespace(
+                    event_type="balance_changed",
+                    channel="system",
+                    path_or_handler="logger:balance",
+                    actor_identity_id=None,
+                    actor_tg_id=tg_id,
+                    entity_type="telegram_user",
+                    entity_id=tg_id,
+                    result="success",
+                    reason=None,
+                    metadata_={
+                        "amount": amount,
+                        "balance_before": old_balance,
+                        "balance_after": new_balance,
+                    },
+                    request_id=None,
+                    created_at=created_at,
+                )
+            )
             if len(events) >= limit:
                 break
         if len(events) >= limit:
@@ -156,6 +161,7 @@ def _load_balance_log_events(tg_id: int, limit: int) -> list:
 
     events.sort(key=_event_created_at, reverse=True)
     return events[:limit]
+
 
 EVENT_CATEGORY_MAP = {
     "balance": {
@@ -318,9 +324,24 @@ def _event_category(event) -> str:
             if etype in event_types:
                 return cat
         return "other"
-    if "handlers.keys" in path or "key_view" in path or "key_create" in path or "key_renew" in path or "tariffs" in path or "key_tariffs" in path or "addon" in path or "key_addons" in path:
+    if (
+        "handlers.keys" in path
+        or "key_view" in path
+        or "key_create" in path
+        or "key_renew" in path
+        or "tariffs" in path
+        or "key_tariffs" in path
+        or "addon" in path
+        or "key_addons" in path
+    ):
         return "subscriptions"
-    if "handlers.payments" in path or "pay" in path or "balance" in path or "handlers.coupons" in path or "payment" in path:
+    if (
+        "handlers.payments" in path
+        or "pay" in path
+        or "balance" in path
+        or "handlers.coupons" in path
+        or "payment" in path
+    ):
         return "payments"
     if "handlers.refferal" in path or "referral" in path or "gift" in path or "utm" in path:
         return "marketing"
@@ -369,7 +390,7 @@ def _format_balance_event(event) -> str:
     amount = metadata.get("amount", 0)
     before = metadata.get("balance_before")
     after = metadata.get("balance_after")
-    amount_value = float(amount) if isinstance(amount, (int, float)) else 0.0
+    amount_value = float(amount) if isinstance(amount, int | float) else 0.0
     title = "Пополнение" if amount_value > 0 else "Списание" if amount_value < 0 else "Изменение баланса"
     direction = "+" if amount_value > 0 else ""
 
@@ -462,6 +483,7 @@ def _format_event_status(event) -> str:
 
 
 _FLOW_SEP = "—"
+
 
 def _render_events_as_flow(events: list) -> list[str]:
     """Флоу: успешные действия (ок) тянутся через ⤷; если не ок — отдельный блок с │. Между блоками — разделитель."""
@@ -558,9 +580,7 @@ async def _render_user_audit(
     lines = [f"🕘 <b>История действий клиента</b> <code>{tg_id}</code>"]
     if full_flow:
         lines.append("📋 <i>Вся хронология. Цифра — номер действия, черта — граница между действиями.</i>")
-    lines.append(
-        f"📎 Канал: <b>{html.escape(channel_filter)}</b> | Категория: <b>{html.escape(category_filter)}</b>"
-    )
+    lines.append(f"📎 Канал: <b>{html.escape(channel_filter)}</b> | Категория: <b>{html.escape(category_filter)}</b>")
     if user_identity_id:
         lines.append(f"🆔 Identity: <code>{html.escape(user_identity_id)}</code>")
 

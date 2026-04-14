@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from enum import Enum
+from enum import Enum, StrEnum
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database.models import Identity, User
 
 
-class ActorSurface(str, Enum):
+class ActorSurface(StrEnum):
     TELEGRAM = "telegram"
     WEB = "web"
     UNKNOWN = "unknown"

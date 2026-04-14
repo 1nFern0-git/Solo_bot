@@ -28,6 +28,7 @@ from .keyboard import (
     format_coupons_list,
 )
 
+
 router = Router()
 
 

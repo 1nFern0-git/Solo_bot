@@ -5,13 +5,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.depends import get_session, verify_identity_admin
-from api.v2.schemas import UserBase, UserResponse, UserUpdate
 from api.v2.base_crud import generate_crud_router
+from api.v2.schemas import UserBase, UserResponse, UserUpdate
 from database import async_session_maker, delete_user_data, get_servers
-from database.models import Key, User
 from database.access.resolution import resolve_user_optional
-from services.operations import delete_key_from_cluster
+from database.models import Key, User
 from logger import logger
+from services.operations import delete_key_from_cluster
+
 
 router = generate_crud_router(
     model=User,

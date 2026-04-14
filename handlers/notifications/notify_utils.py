@@ -18,9 +18,9 @@ from aiogram.types import BufferedInputFile, InlineKeyboardMarkup
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import async_session_maker, create_blocked_user
-from services.tariffs.tariff_display import get_key_tariff_display
 from handlers.utils import format_hours, format_minutes, get_russian_month
 from logger import logger
+from services.tariffs.tariff_display import get_key_tariff_display
 
 
 moscow_tz = pytz.timezone("Europe/Moscow")

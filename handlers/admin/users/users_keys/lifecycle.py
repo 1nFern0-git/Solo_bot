@@ -1,6 +1,7 @@
 from ._common import *  # noqa: F401,F403
 from .edit import handle_key_edit
 
+
 @router.callback_query(
     AdminUserEditorCallback.filter(F.action == "users_reissue_menu"),
     IsAdminFilter(),
@@ -238,8 +239,6 @@ async def handle_recreate_key_start(
             reply_markup=build_editor_kb(tg_id),
         )
         return
-
-    email = key_obj.email
 
     tariff_name = "—"
     if key_obj.tariff_id:

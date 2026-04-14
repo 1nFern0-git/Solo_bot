@@ -1,12 +1,22 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import datetime, timedelta, timezone
-from typing import Iterable
 
-from sqlalchemy import DateTime as SQLADateTime, and_, cast, delete, desc, func, or_, select
+from sqlalchemy import (
+    DateTime as SQLADateTime,
+    and_,
+    cast,
+    delete,
+    desc,
+    func,
+    or_,
+    select,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.models import AuditEvent, Payment
+
 
 try:
     from core.constants import PAYMENT_SYSTEMS_EXCLUDED

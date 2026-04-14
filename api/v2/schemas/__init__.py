@@ -1,4 +1,5 @@
 from api.v1.schemas import (
+    BlockedUserResponse,
     CouponBase,
     CouponResponse,
     CouponUpdate,
@@ -9,6 +10,9 @@ from api.v1.schemas import (
     GiftUsageResponse,
     KeyDetailsResponse,
     KeyResponse,
+    ManualBanResponse,
+    NotificationResponse,
+    PaymentResponse,
     ReferralResponse,
     ServerBase,
     ServerResponse,
@@ -16,25 +20,21 @@ from api.v1.schemas import (
     TariffBase,
     TariffResponse,
     TariffUpdate,
+    TemporaryDataResponse,
+    TrackingSourceResponse,
     UserBase,
     UserResponse,
     UserUpdate,
-    BlockedUserResponse,
-    ManualBanResponse,
-    NotificationResponse,
-    PaymentResponse,
-    TemporaryDataResponse,
-    TrackingSourceResponse,
 )
 from api.v1.schemas.keys import KeyBase, KeyCreateRequest, KeyUpdate
 from api.v1.schemas.settings import SettingResponse, SettingUpsert
 from api.v2.schemas.web import (
     WebBlockResponse,
-    WebTheme,
     WebPageResponse,
     WebPageUpdate,
     WebPageVariantCreate,
     WebPageVariantSummary,
     WebPageVariantUpdate,
     WebPageVariantsResponse,
+    WebTheme,
 )

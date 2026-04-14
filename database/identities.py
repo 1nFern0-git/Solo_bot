@@ -1,8 +1,10 @@
 import hashlib
 import secrets
+
 from datetime import datetime, timedelta
 
 import bcrypt
+
 from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -422,9 +424,7 @@ async def _transfer_user_data(
     await session.execute(update(Notification).where(Notification.user_id == src_uid).values(user_id=dst_uid))
 
     await session.execute(update(Gift).where(Gift.sender_user_id == src_uid).values(sender_user_id=dst_uid))
-    await session.execute(
-        update(Gift).where(Gift.recipient_user_id == src_uid).values(recipient_user_id=dst_uid)
-    )
+    await session.execute(update(Gift).where(Gift.recipient_user_id == src_uid).values(recipient_user_id=dst_uid))
 
     await session.execute(
         text(
@@ -468,31 +468,27 @@ async def _transfer_user_data(
         ),
         {"src": src_uid, "dst": dst_uid},
     )
-    await session.execute(
-        update(Referral).where(Referral.referred_user_id == src_uid).values(referred_user_id=dst_uid)
-    )
-    await session.execute(
-        update(Referral).where(Referral.referrer_user_id == src_uid).values(referrer_user_id=dst_uid)
-    )
+    await session.execute(update(Referral).where(Referral.referred_user_id == src_uid).values(referred_user_id=dst_uid))
+    await session.execute(update(Referral).where(Referral.referrer_user_id == src_uid).values(referrer_user_id=dst_uid))
 
     await session.execute(
         update(WebPushSubscription).where(WebPushSubscription.user_id == src_uid).values(user_id=dst_uid)
     )
-    await session.execute(
-        update(WebNotification).where(WebNotification.user_id == src_uid).values(user_id=dst_uid)
-    )
+    await session.execute(update(WebNotification).where(WebNotification.user_id == src_uid).values(user_id=dst_uid))
 
     dst_ban = (await session.execute(select(ManualBan).where(ManualBan.user_id == dst_uid))).scalar_one_or_none()
     src_ban = (await session.execute(select(ManualBan).where(ManualBan.user_id == src_uid))).scalar_one_or_none()
     if src_ban is not None and dst_ban is None:
-        session.add(ManualBan(
-            user_id=dst_uid,
-            tg_id=dst_tg,
-            banned_at=src_ban.banned_at,
-            reason=src_ban.reason,
-            banned_by=src_ban.banned_by,
-            until=src_ban.until,
-        ))
+        session.add(
+            ManualBan(
+                user_id=dst_uid,
+                tg_id=dst_tg,
+                banned_at=src_ban.banned_at,
+                reason=src_ban.reason,
+                banned_by=src_ban.banned_by,
+                until=src_ban.until,
+            )
+        )
 
     dst_block = (await session.execute(select(BlockedUser).where(BlockedUser.user_id == dst_uid))).scalar_one_or_none()
     src_block = (await session.execute(select(BlockedUser).where(BlockedUser.user_id == src_uid))).scalar_one_or_none()
@@ -518,8 +514,8 @@ async def _transfer_user_data(
 
 
 async def merge_billing_user_into_telegram(session: AsyncSession, identity_id: str, telegram_tg_id: int) -> None:
-    from database.models import User as _User  # noqa: F401
     from database.access.resolution import resolve_user_optional
+    from database.models import User as _User  # noqa: F401
     from database.users import update_balance
 
     res = await session.execute(select(User).where(User.identity_id == identity_id))
@@ -593,9 +589,7 @@ async def attach_email(session: AsyncSession, identity_id: str, email: str) -> I
         if not can_merge:
             return None
 
-        src_user = (
-            await session.execute(select(User).where(User.identity_id == existing.id))
-        ).scalars().first()
+        src_user = (await session.execute(select(User).where(User.identity_id == existing.id))).scalars().first()
         dst_uid = await ensure_billing_user_for_identity(session, identity)
         dst_tg = int(identity.tg_id) if identity.tg_id is not None else None
 
@@ -633,8 +627,8 @@ async def attach_telegram(session: AsyncSession, identity_id: str, tg_id: int) -
         return None
     existing = await get_identity_by_tg_id(session, tg_id)
     if existing and existing.id != identity_id:
-        our_email = (str(identity.email).strip().lower() if identity.email else None)
-        their_email = (str(existing.email).strip().lower() if existing.email else None)
+        our_email = str(identity.email).strip().lower() if identity.email else None
+        their_email = str(existing.email).strip().lower() if existing.email else None
         can_merge = their_email is None or (our_email is not None and their_email == our_email)
         if not can_merge:
             return None
@@ -687,9 +681,7 @@ async def detach_telegram(session: AsyncSession, identity_id: str) -> Identity |
     old_tg = int(identity.tg_id)
     identity.tg_id = None
     identity.is_admin = False
-    await session.execute(
-        update(User).where(User.identity_id == identity_id, User.tg_id == old_tg).values(tg_id=None)
-    )
+    await session.execute(update(User).where(User.identity_id == identity_id, User.tg_id == old_tg).values(tg_id=None))
     await session.refresh(identity)
     return identity
 

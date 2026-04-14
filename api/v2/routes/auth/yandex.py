@@ -3,9 +3,11 @@ import hashlib
 import hmac
 import secrets
 import time
+
 from urllib.parse import urlencode
 
 import httpx
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -189,7 +191,9 @@ async def yandex_callback(
     token = await idb.issue_token_for_identity(session, identity)
     logger.info(
         "[Auth] Login success: identity={}, yandex_sub={}, ip={}, method=yandex",
-        identity.id, yandex_sub, _client_ip(request),
+        identity.id,
+        yandex_sub,
+        _client_ip(request),
     )
     redirect = RedirectResponse(return_to, status_code=302)
     set_auth_cookie(redirect, token, request)

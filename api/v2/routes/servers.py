@@ -1,8 +1,9 @@
 from fastapi import APIRouter
 
-from api.v2.schemas import ServerBase, ServerResponse, ServerUpdate
 from api.v2.base_crud import generate_crud_router
+from api.v2.schemas import ServerBase, ServerResponse, ServerUpdate
 from database.models import Server
+
 
 router = generate_crud_router(
     model=Server,

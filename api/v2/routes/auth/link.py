@@ -49,9 +49,7 @@ async def link_email_send_code(
     if existing and existing.id != identity.id:
         our_tg = identity.tg_id
         their_tg = existing.tg_id
-        can_merge = their_tg is None or (
-            our_tg is not None and int(their_tg) == int(our_tg)
-        )
+        can_merge = their_tg is None or (our_tg is not None and int(their_tg) == int(our_tg))
         if not can_merge:
             raise HTTPException(
                 status_code=409,

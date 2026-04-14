@@ -1,4 +1,5 @@
 import asyncio
+
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
@@ -6,9 +7,9 @@ from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.cache_config import (
+    KEYS_LIST_CACHE_TTL_SEC,
     KEY_COUNT_CACHE_TTL_SEC,
     KEY_DETAILS_CACHE_TTL_SEC,
-    KEYS_LIST_CACHE_TTL_SEC,
 )
 from core.redis_cache import cache_delete, cache_get, cache_key, cache_set
 from database.access.resolution import resolve_user_optional
@@ -312,17 +313,13 @@ async def get_key_count(session: AsyncSession, legacy_user_ref: int) -> int:
 
 async def get_key_by_user_and_email(session: AsyncSession, user_id: int, email: str) -> Key | None:
     """Возвращает ORM-объект Key по паре (users.id, email) или None."""
-    result = await session.execute(
-        select(Key).where(Key.user_id == int(user_id), Key.email == email)
-    )
+    result = await session.execute(select(Key).where(Key.user_id == int(user_id), Key.email == email))
     return result.scalar_one_or_none()
 
 
 async def delete_key_by_user_and_email(session: AsyncSession, user_id: int, email: str) -> None:
     """Удаляет ключ по паре (users.id, email). Commit — ответственность caller'а."""
-    await session.execute(
-        delete(Key).where(Key.user_id == int(user_id), Key.email == email)
-    )
+    await session.execute(delete(Key).where(Key.user_id == int(user_id), Key.email == email))
 
 
 async def get_user_keys_with_servers_by_email(
@@ -366,19 +363,13 @@ async def get_user_keys_with_servers_by_email(
     return rows
 
 
-async def get_key_client_id_by_email_and_server(
-    session: AsyncSession, email: str, server_id: str
-) -> str | None:
+async def get_key_client_id_by_email_and_server(session: AsyncSession, email: str, server_id: str) -> str | None:
     """Возвращает ``client_id`` первого ключа для пары (email, server_id).
 
     Используется для remnawave traffic reset, где нам нужен только client_id,
     без остальных полей ключа.
     """
-    result = await session.execute(
-        select(Key.client_id)
-        .where(Key.email == email, Key.server_id == server_id)
-        .limit(1)
-    )
+    result = await session.execute(select(Key.client_id).where(Key.email == email, Key.server_id == server_id).limit(1))
     return result.scalar()
 
 
@@ -389,9 +380,7 @@ async def count_keys_by_server_id(session: AsyncSession, server_id: str) -> int:
     (у ``keys.server_id`` колонка типа String, содержит либо cluster_name,
     либо server_name в зависимости от страны/кластера).
     """
-    result = await session.execute(
-        select(func.count()).select_from(Key).where(Key.server_id == server_id)
-    )
+    result = await session.execute(select(func.count()).select_from(Key).where(Key.server_id == server_id))
     return int(result.scalar() or 0)
 
 
@@ -413,9 +402,7 @@ async def count_active_keys_for_user(session: AsyncSession, user_id: int) -> int
     Используется в проверке "новый пользователь" для купонных правил.
     """
     result = await session.execute(
-        select(func.count())
-        .select_from(Key)
-        .where(Key.user_id == int(user_id), Key.is_frozen.is_(False))
+        select(func.count()).select_from(Key).where(Key.user_id == int(user_id), Key.is_frozen.is_(False))
     )
     return int(result.scalar() or 0)
 
@@ -424,9 +411,7 @@ async def delete_key(session: AsyncSession, identifier: int | str):
     legacy_for_cache = None
     email_for_cache = None
     if isinstance(identifier, str):
-        res = await session.execute(
-            select(Key.user_id, Key.email).where(Key.client_id == identifier).limit(1)
-        )
+        res = await session.execute(select(Key.user_id, Key.email).where(Key.client_id == identifier).limit(1))
         row = res.first()
         if row:
             legacy_for_cache, email_for_cache = row[0], row[1]
@@ -675,7 +660,9 @@ async def save_key_tariff_selection(
     if u is None:
         return
     selected_devices_val = int(selected_devices) if selected_devices is not None else None
-    selected_traffic_val = int(selected_traffic_gb) if selected_traffic_gb is not None and int(selected_traffic_gb) > 0 else None
+    selected_traffic_val = (
+        int(selected_traffic_gb) if selected_traffic_gb is not None and int(selected_traffic_gb) > 0 else None
+    )
 
     await session.execute(
         update(Key)

@@ -92,7 +92,6 @@ from services.tariffs import calculate_config_price
 from services.tariffs.tariff_display import GB, get_effective_limits_for_key, get_key_tariff_addons_state
 
 
-
 router = generate_crud_router(
     model=Key,
     schema_response=KeyResponse,
@@ -103,8 +102,6 @@ router = generate_crud_router(
     enabled_methods=["get_all", "get_one", "get_by_email", "get_all_by_field"],
 )
 user_router = APIRouter()
-
-
 
 
 def _key_actions_config() -> AccountKeyActionsConfigResponse:
@@ -223,13 +220,9 @@ async def _resolve_available_location_servers(session: AsyncSession, db_key: Key
             bound_servers = [s for s in available_servers if special in (s.get("special_groups") or [])]
             if bound_servers:
                 available_servers = bound_servers
-    names = sorted(
-        {
-            str(s.get("server_name") or "").strip()
-            for s in available_servers
-            if str(s.get("server_name") or "").strip()
-        }
-    )
+    names = sorted({
+        str(s.get("server_name") or "").strip() for s in available_servers if str(s.get("server_name") or "").strip()
+    })
     return names
 
 
@@ -275,5 +268,3 @@ def _normalize_expiry_ms(raw_value: int | float | None) -> int:
     elif value < 10**10:
         value *= 1000
     return value
-
-

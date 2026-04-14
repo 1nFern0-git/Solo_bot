@@ -7,8 +7,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_balance, set_user_balance, update_balance
-from database.models import Payment
 from database.access.resolution import resolve_user_optional
+from database.models import Payment
 from database.payments import add_payment
 from filters.admin import IsAdminFilter
 from utils.csv_export import export_user_all_payments_csv
@@ -32,7 +32,11 @@ def format_admin_operation(amount: float, created_at: datetime) -> str:
 
 
 def format_user_payment(
-    amount: float, created_at: datetime, payment_system: str, status: str, payment_id: str | None = None,
+    amount: float,
+    created_at: datetime,
+    payment_system: str,
+    status: str,
+    payment_id: str | None = None,
 ) -> str:
     date_str = created_at.strftime("%Y-%m-%d %H:%M:%S")
     abs_amount = abs(amount)
@@ -58,9 +62,7 @@ async def _render_balance_page(
     u = await resolve_user_optional(session, tg_id)
     uid = u.id if u is not None else tg_id
 
-    total_count_result = await session.execute(
-        select(func.count()).where(Payment.user_id == uid)
-    )
+    total_count_result = await session.execute(select(func.count()).where(Payment.user_id == uid))
     total = total_count_result.scalar() or 0
 
     total_pages = max(1, (total + 4) // 5)

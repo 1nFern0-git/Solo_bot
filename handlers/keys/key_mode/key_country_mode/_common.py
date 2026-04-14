@@ -37,8 +37,8 @@ from database import (
     update_balance,
     update_trial,
 )
-from database.models import Key, Server, ServerSpecialgroup
 from database.access.resolution import notify_telegram_chat_id, resolve_user_optional
+from database.models import Key, Server, ServerSpecialgroup
 from handlers.buttons import (
     BACK,
     CONNECT_DEVICE,
@@ -49,12 +49,6 @@ from handlers.buttons import (
     TV_BUTTON,
 )
 from handlers.keys.utils import build_key_callback, resolve_key
-from services.operations import create_client_on_server
-from services.operations.aggregated_links import make_aggregated_link
-from services.tariffs.tariff_display import (
-    build_key_created_message,
-    get_effective_limits_for_key,
-)
 from handlers.texts import SELECT_COUNTRY_MSG
 from handlers.utils import (
     ALLOWED_GROUP_CODES,
@@ -73,9 +67,14 @@ from hooks.processors import (
 from logger import logger
 from panels._3xui import delete_client, get_xui_instance
 from panels.remnawave import RemnawaveAPI, get_vless_link_for_remnawave_by_username
+from services.operations import create_client_on_server
+from services.operations.aggregated_links import make_aggregated_link
+from services.tariffs.tariff_display import (
+    build_key_created_message,
+    get_effective_limits_for_key,
+)
 
 
 router = Router()
 moscow_tz = pytz.timezone("Europe/Moscow")
 GB = 1024 * 1024 * 1024
-

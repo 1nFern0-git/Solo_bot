@@ -8,16 +8,16 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from filters.admin import IsAdminFilter
 from database.models import Gift, GiftUsage
 from database.tariffs import create_subgroup_hash, find_subgroup_by_hash, get_tariffs
+from filters.admin import IsAdminFilter
+from handlers.buttons import BACK
+from handlers.texts import get_site_gift_link
 from handlers.utils import edit_or_send_message, format_days, format_months
 from logger import logger
 
 from ..panel.keyboard import AdminPanelCallback
 from .keyboard import build_admin_gifts_kb, build_gifts_list_kb
-from handlers.buttons import BACK
-from handlers.texts import get_site_gift_link
 
 
 router = Router()

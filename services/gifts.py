@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
@@ -28,6 +29,7 @@ from logger import logger
 from services.formatting import format_days, format_months, get_gift_link, get_site_gift_link
 
 from .errors import InsufficientFundsError, NotFoundError, ValidationError
+
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -65,7 +67,7 @@ def normalize_gift_code(raw: str) -> str:
     for prefix in ("start=gift_", "start="):
         idx = s.find(prefix)
         if idx >= 0:
-            token = s[idx + len(prefix):]
+            token = s[idx + len(prefix) :]
             return token.split("&")[0].split("?")[0].split("#")[0].strip()
     return s.split("?")[0].split("#")[0].strip()
 
@@ -159,6 +161,7 @@ async def redeem_gift(
 
     try:
         from database.web_notifications import notify_web
+
         await notify_web(
             session,
             tg_id=wu.tg_id,
@@ -193,9 +196,7 @@ async def create_gift(
     if not tariff or tariff.get("group_code") != "gifts":
         raise NotFoundError("Тариф не найден")
 
-    price_to_charge = (
-        int(selected_price_rub) if selected_price_rub is not None else int(tariff["price_rub"])
-    )
+    price_to_charge = int(selected_price_rub) if selected_price_rub is not None else int(tariff["price_rub"])
 
     balance = await get_balance(session, sender_user_ref)
     if balance < price_to_charge:

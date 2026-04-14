@@ -9,7 +9,6 @@ from aiogram.types import (
     Message,
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from handlers.buttons import BACK
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,6 +19,7 @@ from database.tariffs import (
     get_tariffs,
 )
 from filters.admin import IsAdminFilter
+from handlers.buttons import BACK
 
 from . import router
 from .keyboard import AdminTariffCallback, build_tariff_menu_kb

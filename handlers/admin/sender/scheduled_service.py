@@ -3,6 +3,7 @@ import asyncio
 from datetime import datetime, timezone
 
 import pytz
+
 from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -136,7 +137,9 @@ async def execute_broadcast_payload(payload: dict, bot: Bot | None = None) -> di
                 "recipients": 0,
                 "stats": {"total_messages": 0},
             }
-        keyboard = InlineKeyboardMarkup.model_validate(payload["keyboard_json"]) if payload.get("keyboard_json") else None
+        keyboard = (
+            InlineKeyboardMarkup.model_validate(payload["keyboard_json"]) if payload.get("keyboard_json") else None
+        )
         messages = [
             {
                 "tg_id": tg_id,
@@ -197,7 +200,9 @@ async def process_due_scheduled_broadcasts_once(bot: Bot, limit: int = 3) -> int
                 if result.get("success"):
                     await mark_scheduled_broadcast_sent(session, broadcast.id, result)
                 else:
-                    await mark_scheduled_broadcast_failed(session, broadcast.id, result.get("message", "Broadcast failed"))
+                    await mark_scheduled_broadcast_failed(
+                        session, broadcast.id, result.get("message", "Broadcast failed")
+                    )
                 await session.commit()
         except Exception as exc:
             async with async_session_maker() as session:

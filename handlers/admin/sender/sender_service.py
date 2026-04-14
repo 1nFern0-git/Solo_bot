@@ -1,8 +1,8 @@
 import asyncio
 import time
 
-from collections.abc import Awaitable, Callable
 from collections import deque
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from aiogram import Bot
@@ -33,10 +33,7 @@ def run_broadcast_in_thread(
     try:
         bot = Bot(token=api_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
         keyboard = InlineKeyboardMarkup.model_validate(keyboard_data) if keyboard_data else None
-        messages = [
-            {"tg_id": tg_id, "text": text_message, "photo": photo, "keyboard": keyboard}
-            for tg_id in tg_ids
-        ]
+        messages = [{"tg_id": tg_id, "text": text_message, "photo": photo, "keyboard": keyboard} for tg_id in tg_ids]
         service = BroadcastService(bot=bot, session=None, messages_per_second=35)
 
         async def on_progress(completed: int, total: int, sent: int, failed: int) -> None:
@@ -345,8 +342,10 @@ class BroadcastService:
             return
         try:
             from database.web_notifications import notify_web
+
             text = messages[0].get("text", "")
             import re
+
             clean = re.sub(r"<[^>]+>", "", text).strip()
             lines = clean.split("\n", 1)
             title = (lines[0][:120] + "…") if len(lines[0]) > 120 else lines[0]
@@ -355,6 +354,7 @@ class BroadcastService:
             session = self._session
             if session is None:
                 from database import async_session_maker
+
                 async with async_session_maker() as session:
                     for msg in messages:
                         tg_id = msg.get("tg_id")

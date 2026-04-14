@@ -27,15 +27,12 @@ from database import (
     update_balance,
     update_key_expiry,
 )
-from database.models import Key, Server
 from database.access.resolution import notify_telegram_chat_id
+from database.models import Key, Server
 from database.notifications import check_hot_lead_discount
 from database.tariffs import create_subgroup_hash, find_subgroup_by_hash, get_tariffs
 from handlers.buttons import BACK, MAIN_MENU, MY_SUB, PAYMENT
-from services.operations import renew_key_in_cluster
-from services.payments.currency_rates import format_for_user
 from handlers.payments.fast_payment_flow import try_fast_payment_flow
-from services.tariffs.tariff_display import GB, get_effective_limits_for_key
 from handlers.texts import (
     DISCOUNT_OFFER_MESSAGE,
     DISCOUNT_OFFER_STEP2,
@@ -46,7 +43,6 @@ from handlers.texts import (
     get_renewal_message,
 )
 from handlers.utils import edit_or_send_message, format_discount_time_left, get_russian_month
-from middlewares.session import release_session_early
 from hooks.hook_buttons import insert_hook_buttons
 from hooks.processors import (
     process_process_callback_renew_key,
@@ -56,6 +52,10 @@ from hooks.processors import (
     process_renewal_forbidden_groups,
 )
 from logger import logger
+from middlewares.session import release_session_early
+from services.operations import renew_key_in_cluster
+from services.payments.currency_rates import format_for_user
+from services.tariffs.tariff_display import GB, get_effective_limits_for_key
 
 from .utils import add_tariff_button_generic, build_key_callback, key_owned_by_user, resolve_key
 
@@ -711,8 +711,8 @@ async def complete_key_renewal(
     selected_price_rub: int | None = None,
 ):
     """Продлевает подписку через сервис и отправляет Telegram-уведомление."""
-    from services.keys import execute_renewal
     from services.errors import ServiceError
+    from services.keys import execute_renewal
 
     try:
         logger.info(f"[Info] Продление ключа {client_id} по тарифу ID={tariff_id} (Start)")
@@ -745,7 +745,7 @@ async def complete_key_renewal(
 
         try:
             await release_session_early(session)
-            result = await execute_renewal(
+            await execute_renewal(
                 session=session,
                 billing_user_id=tg_id,
                 client_id=client_id,
@@ -774,8 +774,10 @@ async def complete_key_renewal(
             sel_dev = int(selected_device_limit) if selected_device_limit is not None else None
             sel_trf = int(selected_traffic_limit) if selected_traffic_limit is not None else None
             dev_eff, trf_bytes = await get_effective_limits_for_key(
-                session=session, tariff_id=tariff_id,
-                selected_device_limit=sel_dev, selected_traffic_gb=sel_trf,
+                session=session,
+                tariff_id=tariff_id,
+                selected_device_limit=sel_dev,
+                selected_traffic_gb=sel_trf,
             )
             device_limit_effective = dev_eff
             traffic_limit_gb_effective = int(trf_bytes / GB) if trf_bytes else 0

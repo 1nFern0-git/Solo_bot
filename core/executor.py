@@ -1,11 +1,14 @@
 import asyncio
 import atexit
-import signal
 import multiprocessing
+import signal
+
+from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
-from typing import Callable, TypeVar
+from typing import TypeVar
 
 from logger import logger
+
 
 T = TypeVar("T")
 
@@ -32,6 +35,7 @@ def get_thread_pool() -> ThreadPoolExecutor:
     global _thread_pool
     if _thread_pool is None:
         from config import EXECUTOR_POOL_SIZE
+
         size = max(1, int(EXECUTOR_POOL_SIZE))
         _thread_pool = ThreadPoolExecutor(max_workers=size, thread_name_prefix="bot-thread")
         logger.debug("[Executor] Пул потоков: {} воркеров", size)
@@ -55,6 +59,7 @@ def get_process_pool() -> ProcessPoolExecutor:
     global _process_pool
     if _process_pool is None:
         from config import PROCESS_POOL_SIZE
+
         size = max(1, min(int(PROCESS_POOL_SIZE), multiprocessing.cpu_count() or 4))
         ctx = multiprocessing.get_context("spawn")
         ctx.Process = _IgnoreSIGINTProcess
@@ -84,6 +89,7 @@ def should_run_heavy_tasks_separately() -> bool:
     """
     try:
         from config import EXECUTOR_POOL_SIZE
+
         pool_size = max(1, int(EXECUTOR_POOL_SIZE))
     except Exception:
         pool_size = 1
@@ -91,13 +97,13 @@ def should_run_heavy_tasks_separately() -> bool:
     return cpu_count >= 2 or pool_size >= 2
 
 
-async def run_io(fn: Callable[..., T], *args: object) -> T:
+async def run_io[T](fn: Callable[..., T], *args: object) -> T:
     """Выполняет fn(*args) в пуле потоков (I/O). Один вызов для всех блокирующих операций."""
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(get_thread_pool(), lambda: fn(*args))
 
 
-async def run_cpu(fn: Callable[..., T], *args: object) -> T:
+async def run_cpu[T](fn: Callable[..., T], *args: object) -> T:
     """Выполняет fn(*args) в пуле процессов (CPU). fn — функция уровня модуля (для pickle)."""
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(get_process_pool(), fn, *args)

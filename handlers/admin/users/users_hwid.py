@@ -2,15 +2,15 @@ from aiogram import F, Router, types
 from aiogram.types import CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from filters.admin import IsAdminFilter
 from panels.remnawave_runtime import (
     invalidate_remnawave_profile,
     resolve_remnawave_api_url,
     with_remnawave_api,
 )
-from filters.admin import IsAdminFilter
+from services.users_utils import resolve_admin_key
 
 from .keyboard import AdminUserEditorCallback, build_editor_kb, build_hwid_menu_kb
-from services.users_utils import resolve_admin_key
 
 
 router = Router()

@@ -75,8 +75,9 @@ async def register_by_email(
     )
     ip = _client_ip(request)
     try:
-        from core.redis_cache import cache_incr_checked
         from api.v2.routes.auth._fallback_limiter import check_and_increment
+        from core.redis_cache import cache_incr_checked
+
         count, redis_ok = await cache_incr_checked(f"register_rate:{ip}", 3600)
         if not redis_ok:
             count = check_and_increment(f"register_rate:{ip}", 5, 3600)
@@ -144,8 +145,9 @@ async def login(
         raise HTTPException(status_code=400, detail="Email обязателен")
     ip = _client_ip(request)
     try:
-        from core.redis_cache import cache_get, cache_incr_checked
         from api.v2.routes.auth._fallback_limiter import check_and_increment
+        from core.redis_cache import cache_get, cache_incr_checked
+
         lockout_key = f"login_lockout:{email}"
         locked = await cache_get(lockout_key)
         if locked:
@@ -164,6 +166,7 @@ async def login(
     if not result:
         try:
             from core.redis_cache import cache_incr, cache_set
+
             fail_key = f"login_fail:{email}"
             fails = await cache_incr(fail_key, 900)
             if fails >= 10:
@@ -173,6 +176,7 @@ async def login(
         raise HTTPException(status_code=401, detail="Неверный email или пароль")
     try:
         from core.redis_cache import cache_delete
+
         await cache_delete(f"login_fail:{email}")
     except Exception:
         pass
@@ -193,8 +197,9 @@ async def send_login_code(
     """Отправить код входа на email (SMTP + Redis)."""
     ip = _client_ip(request)
     try:
-        from core.redis_cache import cache_incr_checked
         from api.v2.routes.auth._fallback_limiter import check_and_increment
+        from core.redis_cache import cache_incr_checked
+
         count, redis_ok = await cache_incr_checked(f"send_code_rate:{ip}", 3600)
         if not redis_ok:
             count = check_and_increment(f"send_code_rate:{ip}", 10, 3600)
@@ -292,7 +297,10 @@ async def login_by_code(
         from sqlalchemy import update as sa_update
 
         from database.models import Identity as IdentityModel
-        await session.execute(sa_update(IdentityModel).where(IdentityModel.id == identity.id).values(email_verified=True))
+
+        await session.execute(
+            sa_update(IdentityModel).where(IdentityModel.id == identity.id).values(email_verified=True)
+        )
     await bind_identity_actor(request, session, identity)
     token = await idb.issue_token_for_identity(session, identity)
     logger.info("[Auth] Login success: identity={}, email={}, method=code", identity.id, email_norm)

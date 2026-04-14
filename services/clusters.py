@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
-from config import ADMIN_USERNAME, ADMIN_PASSWORD, REMNAWAVE_LOGIN, REMNAWAVE_PASSWORD
+from collections.abc import Callable, Coroutine
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
+
+from config import ADMIN_PASSWORD, ADMIN_USERNAME, REMNAWAVE_LOGIN, REMNAWAVE_PASSWORD
 from database.keys import count_keys_by_server_id, get_all_key_server_ids
 from database.servers import (
     filter_cluster_by_subgroup,
@@ -18,6 +20,7 @@ from logger import logger
 
 from .errors import NotFoundError, ValidationError
 
+
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,6 +30,7 @@ ALLOWED_GROUP_CODES = ["trial", "discounts", "discounts_max", "gifts"]
 @dataclass
 class ClusterSelection:
     """Результат выбора кластера."""
+
     cluster_name: str
     load: int
     available_servers: list[dict[str, Any]]
@@ -35,6 +39,7 @@ class ClusterSelection:
 @dataclass
 class ServerAvailability:
     """Результат проверки доступности сервера."""
+
     server_name: str
     available: bool
     panel_type: str
@@ -95,10 +100,12 @@ async def check_server_availability(server_info: dict[str, Any], session: AsyncS
     try:
         if panel_type == "remnawave":
             from panels.remnawave import RemnawaveAPI
+
             remna = RemnawaveAPI(server_info["api_url"])
             await asyncio.wait_for(remna.login(REMNAWAVE_LOGIN, REMNAWAVE_PASSWORD), timeout=5.0)
         else:
             from panels._3xui import AsyncApi
+
             xui = AsyncApi(
                 server_info["api_url"],
                 username=ADMIN_USERNAME,
@@ -196,7 +203,11 @@ async def filter_servers_for_key(
 
     if subgroup_title:
         filtered = await filter_cluster_by_subgroup(
-            session, enabled, subgroup_title, cluster_id, tariff_id=tariff_id,
+            session,
+            enabled,
+            subgroup_title,
+            cluster_id,
+            tariff_id=tariff_id,
         )
         if filtered:
             enabled = filtered

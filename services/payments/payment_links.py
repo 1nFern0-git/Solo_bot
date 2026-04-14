@@ -2,9 +2,10 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from hooks.hooks import run_hooks
 from logger import logger
-from sqlalchemy.ext.asyncio import AsyncSession
 
 
 @dataclass(frozen=True)

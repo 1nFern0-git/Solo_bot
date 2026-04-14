@@ -88,9 +88,7 @@ def register_middleware(
             "actor": ActorMiddleware(),
             "answer": CallbackAnswerMiddleware(),
         }
-        middlewares = [
-            wrap(mw, name) for name, mw in available_middlewares.items() if middleware_enabled(name)
-        ]
+        middlewares = [wrap(mw, name) for name, mw in available_middlewares.items() if middleware_enabled(name)]
     else:
         wrapped = []
         for mw in middlewares:

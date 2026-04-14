@@ -11,6 +11,7 @@ from core.webhook_abuse import (
 from logger import logger
 from services.payments.pipeline import ParsedPayment, process_success_payment
 
+
 _PROVIDER = "kassai"
 
 
@@ -23,9 +24,7 @@ def verify_kassai_signature(data: dict, signature: str) -> bool:
         expected_signature = hashlib.md5(sign_string.encode("utf-8")).hexdigest()
         result = signature.upper() == expected_signature.upper()
         if not result:
-            logger.error(
-                f"KassaAI signature mismatch. Expected: {expected_signature}, Got: {signature}"
-            )
+            logger.error(f"KassaAI signature mismatch. Expected: {expected_signature}, Got: {signature}")
         else:
             logger.info("KassaAI webhook: подпись успешно проверена")
         return result
@@ -43,9 +42,7 @@ def _parse_kassai(data) -> ParsedPayment | None:
         tg_id = int(str(order_id).split("_")[1])
         amount = float(amount_raw)
     except (IndexError, ValueError) as e:
-        logger.error(
-            f"KassaAI webhook: не удалось извлечь tg_id/amount из order_id={order_id}: {e}"
-        )
+        logger.error(f"KassaAI webhook: не удалось извлечь tg_id/amount из order_id={order_id}: {e}")
         return None
     return ParsedPayment(
         payment_id=str(order_id),

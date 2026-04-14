@@ -1,5 +1,6 @@
 import asyncio
 import time
+
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -68,9 +69,7 @@ class ConcurrencyLimiterMiddleware(BaseMiddleware):
             bot: Bot = data.get("bot")
             uid = event.from_user.id if event.from_user else None
             should_notify = (
-                bot
-                and uid is not None
-                and await cache_setnx(cache_key("concurrency_notice", uid), 1, self._notice_ttl)
+                bot and uid is not None and await cache_setnx(cache_key("concurrency_notice", uid), 1, self._notice_ttl)
             )
             if should_notify and event.message and getattr(event.message, "chat", None):
                 try:
@@ -84,9 +83,7 @@ class ConcurrencyLimiterMiddleware(BaseMiddleware):
             bot: Bot = data.get("bot")
             uid = event.from_user.id if event.from_user else None
             should_notify = (
-                bot
-                and uid is not None
-                and await cache_setnx(cache_key("concurrency_notice", uid), 1, self._notice_ttl)
+                bot and uid is not None and await cache_setnx(cache_key("concurrency_notice", uid), 1, self._notice_ttl)
             )
             if should_notify:
                 try:

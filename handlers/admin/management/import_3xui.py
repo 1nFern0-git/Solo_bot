@@ -5,10 +5,10 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from filters.admin import IsAdminFilter
 from database.models import Key, User
-from services.operations import update_subscription
+from filters.admin import IsAdminFilter
 from logger import logger
+from services.operations import update_subscription
 
 from . import router
 from .keyboard import AdminPanelCallback, build_back_to_db_menu, build_post_import_kb
@@ -70,10 +70,7 @@ async def handle_resync_after_import(callback: CallbackQuery, session: AsyncSess
     await callback.answer("🔁 Начинаю перевыпуск подписок...")
 
     result = await session.execute(
-        select(User.tg_id, Key.email)
-        .select_from(Key)
-        .join(User, Key.user_id == User.id)
-        .where(User.tg_id.isnot(None))
+        select(User.tg_id, Key.email).select_from(Key).join(User, Key.user_id == User.id).where(User.tg_id.isnot(None))
     )
     keys = result.all()
 

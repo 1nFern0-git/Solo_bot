@@ -32,6 +32,7 @@ from database import (
 from database.models import TrackingSource
 from handlers.buttons import (
     ABOUT_VPN,
+    ADMIN_BTN,
     BACK,
     CHANNEL,
     DONAT_BUTTON,
@@ -40,7 +41,6 @@ from handlers.buttons import (
     SUB_CHANELL_DONE,
     SUPPORT,
     TRIAL_SUB,
-    ADMIN_BTN,
 )
 from handlers.captcha import generate_captcha
 from handlers.coupons import activate_coupon

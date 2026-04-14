@@ -7,10 +7,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.depends import get_session, verify_admin_token
 from api.v1.routes.base_crud import generate_crud_router
 from api.v1.schemas.keys import KeyBase, KeyCreateRequest, KeyResponse, KeyUpdate
-from database.models import Admin, Key, Tariff
 from database.access.resolution import resolve_user_optional
-from services.operations import create_key_on_cluster, delete_key_from_cluster, renew_key_in_cluster
+from database.models import Admin, Key, Tariff
 from logger import logger
+from services.operations import create_key_on_cluster, delete_key_from_cluster, renew_key_in_cluster
 
 
 router = generate_crud_router(

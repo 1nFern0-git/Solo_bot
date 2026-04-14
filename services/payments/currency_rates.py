@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import time
+
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Optional, Tuple
 
 import aiohttp
 import sqlalchemy as sa
 
-from config import FX_MARKUP as DEFAULT_FX_MARKUP
-from config import RUB_TO_USD as DEFAULT_RUB_TO_USD
+from config import (
+    FX_MARKUP as DEFAULT_FX_MARKUP,
+    RUB_TO_USD as DEFAULT_RUB_TO_USD,
+)
 from core.bootstrap import MONEY_CONFIG
 
 
@@ -173,9 +176,9 @@ async def money_for_user(
     db_session,
     tg_id: int,
     amount_rub: float | int | Decimal,
-    language_code: Optional[str],
-    force_currency: Optional[str] = None,
-) -> Tuple[str, str, Decimal]:
+    language_code: str | None,
+    force_currency: str | None = None,
+) -> tuple[str, str, Decimal]:
     """
     Возвращает: (text, currency, value)
     text: строка для показа пользователю, например "$12.34" или "1 234.00 ₽"
@@ -183,6 +186,7 @@ async def money_for_user(
     value: Decimal в выбранной валюте
     """
     from database.users import get_user_preferred_currency
+
     user_currency = await get_user_preferred_currency(db_session, tg_id)
 
     txt, cur, val = await display_price(
@@ -199,8 +203,8 @@ async def format_for_user(
     db_session,
     tg_id: int,
     amount_rub: float | int | Decimal,
-    language_code: Optional[str],
-    force_currency: Optional[str] = None,
+    language_code: str | None,
+    force_currency: str | None = None,
 ) -> str:
     text, _, _ = await money_for_user(
         db_session,

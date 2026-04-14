@@ -74,9 +74,7 @@ async def get_gift_usage(session: AsyncSession, gift_id: str, user_id: int) -> G
 
 async def count_gift_usages(session: AsyncSession, gift_id: str) -> int:
     """Сколько раз подарок был активирован (для `is_unlimited=False` с лимитом)."""
-    result = await session.execute(
-        select(func.count()).select_from(GiftUsage).where(GiftUsage.gift_id == gift_id)
-    )
+    result = await session.execute(select(func.count()).select_from(GiftUsage).where(GiftUsage.gift_id == gift_id))
     return int(result.scalar_one() or 0)
 
 

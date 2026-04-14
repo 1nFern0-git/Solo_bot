@@ -4,6 +4,7 @@ import platform
 import shutil
 import sys
 
+
 COMPILED_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "compiled")
 
 

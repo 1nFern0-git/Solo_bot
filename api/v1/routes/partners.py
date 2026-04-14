@@ -1,5 +1,6 @@
-from datetime import datetime
 import csv
+
+from datetime import datetime
 from io import StringIO
 
 from fastapi import APIRouter, Depends, Path, Query
@@ -8,6 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.depends import get_session, verify_admin_token
+
 
 try:
     from modules.partner_program.settings import PARTNER_BONUS_PERCENTAGES
@@ -880,13 +882,13 @@ async def reset_disabled_payout_methods(
     """Сбрасывает реквизиты для отключённых способов вывода."""
 
     try:
+        from modules.partner_program import buttons as B
         from modules.partner_program.settings import (
             ENABLE_PAYOUT_CARD,
             ENABLE_PAYOUT_SBP,
             ENABLE_PAYOUT_TON,
             ENABLE_PAYOUT_USDT,
         )
-        from modules.partner_program import buttons as B
     except Exception:
         ENABLE_PAYOUT_CARD = True
         ENABLE_PAYOUT_USDT = True

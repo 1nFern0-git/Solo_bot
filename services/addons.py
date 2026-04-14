@@ -14,6 +14,7 @@ from logger import logger
 from .errors import InsufficientFundsError, NotFoundError, ValidationError
 from .keys import resolve_cluster_name
 
+
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -92,6 +93,7 @@ def calc_pack_full_price_rub(
 @dataclass
 class AddonsPreviewResult:
     """Результат предпросмотра аддонов."""
+
     total_price_rub: int
     extra_price_rub: int
     balance: float
@@ -108,6 +110,7 @@ class AddonsPreviewResult:
 @dataclass
 class AddonsApplyResult:
     """Результат применения аддонов."""
+
     ok: bool
     client_id: str
     tariff_id: int
@@ -134,7 +137,7 @@ async def preview_addons(
     if not tariff:
         raise NotFoundError("Тариф не найден")
 
-    cfg = normalize_tariff_config(tariff)
+    normalize_tariff_config(tariff)
     has_device, has_traffic, _ = get_pack_flags()
 
     key_details = await get_key_details(session, key_email)
@@ -145,13 +148,19 @@ async def preview_addons(
     current_traffic = key_details.get("current_traffic_limit")
 
     total_price = calc_pack_full_price_rub(
-        tariff, has_device, has_traffic,
-        selected_device_limit, selected_traffic_gb,
+        tariff,
+        has_device,
+        has_traffic,
+        selected_device_limit,
+        selected_traffic_gb,
     )
 
     current_price = calc_pack_full_price_rub(
-        tariff, has_device, has_traffic,
-        current_device, current_traffic,
+        tariff,
+        has_device,
+        has_traffic,
+        current_device,
+        current_traffic,
     )
     extra_price = max(0, total_price - current_price)
 
@@ -197,9 +206,9 @@ async def apply_addons(
     if not key_details:
         raise NotFoundError("Подписка не найдена")
 
-    from services.tariffs.tariff_display import GB, get_effective_limits_for_key
     from services.operations import renew_key_in_cluster
-    from .keys import resolve_cluster_name
+    from services.tariffs.tariff_display import GB, get_effective_limits_for_key
+
     dev_eff, trf_bytes = await get_effective_limits_for_key(
         session=session,
         tariff_id=tariff_id,
@@ -231,11 +240,14 @@ async def apply_addons(
     if extra_price_rub > 0:
         await update_balance(session, billing_user_id, -extra_price_rub)
 
-    cfg = normalize_tariff_config(tariff)
+    normalize_tariff_config(tariff)
     has_device, has_traffic, _ = get_pack_flags()
     total_price = calc_pack_full_price_rub(
-        tariff, has_device, has_traffic,
-        selected_device_limit, selected_traffic_gb,
+        tariff,
+        has_device,
+        has_traffic,
+        selected_device_limit,
+        selected_traffic_gb,
     )
 
     await save_key_config_with_mode(

@@ -8,8 +8,10 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, Teleg
 from aiogram.filters import ExceptionTypeFilter
 from aiogram.types import BufferedInputFile, ErrorEvent
 from aiogram.utils.markdown import hbold
-from sqlalchemy.exc import InterfaceError as SQLAlchemyInterfaceError
-from sqlalchemy.exc import OperationalError as SQLAlchemyOperationalError
+from sqlalchemy.exc import (
+    InterfaceError as SQLAlchemyInterfaceError,
+    OperationalError as SQLAlchemyOperationalError,
+)
 
 from config import ADMIN_ID
 from database import async_session_maker
@@ -104,7 +106,7 @@ def setup_error_handlers(dp: Dispatcher) -> None:
 
         if isinstance(
             event.exception,
-            (SQLAlchemyInterfaceError, SQLAlchemyOperationalError),
+            SQLAlchemyInterfaceError | SQLAlchemyOperationalError,
         ):
             chat_id = None
             if event.update.message:

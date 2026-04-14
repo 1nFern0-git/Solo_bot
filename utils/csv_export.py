@@ -8,8 +8,8 @@ from sqlalchemy import exists, func, join, not_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.constants import PAYMENT_SYSTEMS_EXCLUDED
-from database.models import Key, Payment, Referral, Tariff, User
 from database.access.resolution import resolve_user_optional
+from database.models import Key, Payment, Referral, Tariff, User
 
 
 async def export_users_csv(session: AsyncSession) -> BufferedInputFile:

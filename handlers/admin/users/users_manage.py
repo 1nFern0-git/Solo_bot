@@ -1,7 +1,6 @@
 import pytz
 
 from aiogram import F, Router, types
-from logger import logger
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.types import (
@@ -19,10 +18,11 @@ from database import (
     get_key_details,
     update_trial,
 )
-from database.models import Admin, Identity, Key, ManualBan, Payment, Referral, User
 from database.access.resolution import resolve_user_optional
+from database.models import Admin, Identity, Key, ManualBan, Payment, Referral, User
 from filters.admin import IsAdminFilter
 from handlers.utils import sanitize_key_name
+from logger import logger
 from utils.csv_export import export_referrals_csv
 
 from ..panel.keyboard import (
@@ -113,9 +113,9 @@ async def handle_user_data_input(message: Message, state: FSMContext, session: A
         tg_id = int(raw)
     elif "@" in raw and "." in raw.split("@", 1)[-1]:
         email = raw.lower()
-        ident = (await session.execute(
-            select(Identity).where(func.lower(Identity.email) == email).limit(1)
-        )).scalar_one_or_none()
+        ident = (
+            await session.execute(select(Identity).where(func.lower(Identity.email) == email).limit(1))
+        ).scalar_one_or_none()
 
         if ident is None:
             await message.answer(
@@ -127,9 +127,9 @@ async def handle_user_data_input(message: Message, state: FSMContext, session: A
         if ident.tg_id is not None:
             tg_id = ident.tg_id
         else:
-            user_id = (await session.execute(
-                select(User.id).where(User.identity_id == ident.id).limit(1)
-            )).scalar_one_or_none()
+            user_id = (
+                await session.execute(select(User.id).where(User.identity_id == ident.id).limit(1))
+            ).scalar_one_or_none()
             if user_id is None:
                 await message.answer(
                     text=f"🚫 Веб-аккаунт <code>{ident.email}</code> не имеет биллинг-профиля.",
@@ -249,8 +249,10 @@ async def handle_send_user_message(callback_query: CallbackQuery, state: FSMCont
             )
         try:
             import re
+
             from database import async_session_maker
             from database.web_notifications import notify_web
+
             clean = re.sub(r"<[^>]+>", "", text_message or "").strip()
             lines = clean.split("\n", 1)
             title = lines[0][:120]
@@ -396,9 +398,7 @@ async def process_user_search(
     real_tg_id = u.tg_id
     identity_email = None
     if u.identity_id:
-        identity_email = await session.scalar(
-            select(Identity.email).where(Identity.id == u.identity_id)
-        )
+        identity_email = await session.scalar(select(Identity.email).where(Identity.id == u.identity_id))
 
     stmt_user = select(User.username, User.balance, User.created_at, User.updated_at, User.trial).where(User.id == uid)
     result_user = await session.execute(stmt_user)

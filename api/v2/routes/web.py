@@ -2,12 +2,11 @@ import hashlib
 import re
 import uuid
 
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel
-from datetime import datetime, timedelta, timezone
-
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -54,6 +53,7 @@ EXTENSION_CONTENT_TYPES: dict[str, frozenset[str]] = {
 
 def _sanitize_svg(data: bytes) -> bytes:
     import re as _re
+
     text = data.decode("utf-8", errors="replace")
     text = _re.sub(r"<script[^>]*>.*?</script>", "", text, flags=_re.DOTALL | _re.IGNORECASE)
     text = _re.sub(r"<style[^>]*>.*?</style>", "", text, flags=_re.DOTALL | _re.IGNORECASE)
@@ -535,9 +535,7 @@ async def list_custom_element_builds(
     session: AsyncSession = Depends(get_session),
     _identity=Depends(verify_identity_admin),
 ):
-    result = await session.execute(
-        select(WebCustomElementBuild).order_by(WebCustomElementBuild.created_at.desc())
-    )
+    result = await session.execute(select(WebCustomElementBuild).order_by(WebCustomElementBuild.created_at.desc()))
     builds = result.scalars().all()
     return [_build_to_dict(b) for b in builds]
 
@@ -630,8 +628,9 @@ async def ingest_flow_events(
     session: AsyncSession = Depends(get_session),
 ):
     try:
-        from core.redis_cache import cache_incr_checked
         from api.v2.routes.auth._fallback_limiter import check_and_increment
+        from core.redis_cache import cache_incr_checked
+
         ip = (request.client.host if request.client else "") or "unknown"
         count, redis_ok = await cache_incr_checked(f"analytics_rate:{ip}", 60)
         if not redis_ok:
@@ -709,9 +708,7 @@ async def get_flow_funnel(
 
     for i, node in enumerate(funnel):
         prev_entered = funnel[i - 1]["entered"] if i > 0 else node["entered"]
-        node["dropOff"] = round(
-            (1 - node["entered"] / prev_entered) * 100, 1
-        ) if prev_entered > 0 else 0
+        node["dropOff"] = round((1 - node["entered"] / prev_entered) * 100, 1) if prev_entered > 0 else 0
 
     return {"flowId": flow_id, "days": days, "funnel": funnel}
 
@@ -732,6 +729,7 @@ def _error_signature(name: str, message: str, stack: str | None, url: str | None
     if url:
         try:
             from urllib.parse import urlparse
+
             pathname = urlparse(url).path[:100]
         except Exception:
             pass
@@ -757,8 +755,9 @@ async def ingest_error_report(
     session: AsyncSession = Depends(get_session),
 ):
     try:
-        from core.redis_cache import cache_incr_checked
         from api.v2.routes.auth._fallback_limiter import check_and_increment
+        from core.redis_cache import cache_incr_checked
+
         ip = (request.client.host if request.client else "") or "unknown"
         count, redis_ok = await cache_incr_checked(f"error_report_rate:{ip}", 60)
         if not redis_ok:
@@ -773,9 +772,7 @@ async def ingest_error_report(
     signature = _error_signature(body.name, body.message, body.stack, body.url)
 
     existing = (
-        await session.execute(
-            select(WebErrorReport).where(WebErrorReport.signature == signature)
-        )
+        await session.execute(select(WebErrorReport).where(WebErrorReport.signature == signature))
     ).scalar_one_or_none()
 
     if existing:

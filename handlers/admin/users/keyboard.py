@@ -4,7 +4,6 @@ from aiogram.filters.callback_data import CallbackData
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
-from handlers.buttons import BACK
 
 from config import HWID_RESET_BUTTON
 from database import get_clusters, get_key_expiry_presets
@@ -12,9 +11,9 @@ from handlers.buttons import BACK, FREEZE, UNFREEZE
 from handlers.utils import format_days
 from hooks.hook_buttons import insert_hook_buttons
 from hooks.hooks import run_hooks
+from services.users_utils import build_admin_key_ref
 
 from ..panel.keyboard import build_admin_back_btn
-from services.users_utils import build_admin_key_ref
 
 
 class AdminUserEditorCallback(CallbackData, prefix="admin_users"):
@@ -147,26 +146,39 @@ def build_users_balance_change_kb(tg_id: int) -> InlineKeyboardMarkup:
 
 
 async def build_users_balance_kb(
-    session: AsyncSession, tg_id: int, page: int = 0, total_pages: int = 1,
+    session: AsyncSession,
+    tg_id: int,
+    page: int = 0,
+    total_pages: int = 1,
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
 
     if total_pages > 1:
         nav_buttons = []
         if page > 0:
-            nav_buttons.append(InlineKeyboardButton(
-                text="◀️",
-                callback_data=AdminUserEditorCallback(action="users_balance_page", tg_id=tg_id, data=page - 1).pack(),
-            ))
-        nav_buttons.append(InlineKeyboardButton(
-            text=f"{page + 1}/{total_pages}",
-            callback_data="noop",
-        ))
+            nav_buttons.append(
+                InlineKeyboardButton(
+                    text="◀️",
+                    callback_data=AdminUserEditorCallback(
+                        action="users_balance_page", tg_id=tg_id, data=page - 1
+                    ).pack(),
+                )
+            )
+        nav_buttons.append(
+            InlineKeyboardButton(
+                text=f"{page + 1}/{total_pages}",
+                callback_data="noop",
+            )
+        )
         if page < total_pages - 1:
-            nav_buttons.append(InlineKeyboardButton(
-                text="▶️",
-                callback_data=AdminUserEditorCallback(action="users_balance_page", tg_id=tg_id, data=page + 1).pack(),
-            ))
+            nav_buttons.append(
+                InlineKeyboardButton(
+                    text="▶️",
+                    callback_data=AdminUserEditorCallback(
+                        action="users_balance_page", tg_id=tg_id, data=page + 1
+                    ).pack(),
+                )
+            )
         builder.row(*nav_buttons)
 
     for amount in [100, 250, 500, 1000]:
@@ -563,15 +575,21 @@ def build_user_audit_kb(
     builder.row(
         InlineKeyboardButton(
             text="Все",
-            callback_data=AdminUserEditorCallback(action="users_audit", tg_id=tg_id, data=f"all|{category_filter}|0").pack(),
+            callback_data=AdminUserEditorCallback(
+                action="users_audit", tg_id=tg_id, data=f"all|{category_filter}|0"
+            ).pack(),
         ),
         InlineKeyboardButton(
             text="API",
-            callback_data=AdminUserEditorCallback(action="users_audit", tg_id=tg_id, data=f"api|{category_filter}|0").pack(),
+            callback_data=AdminUserEditorCallback(
+                action="users_audit", tg_id=tg_id, data=f"api|{category_filter}|0"
+            ).pack(),
         ),
         InlineKeyboardButton(
             text="Telegram",
-            callback_data=AdminUserEditorCallback(action="users_audit", tg_id=tg_id, data=f"telegram|{category_filter}|0").pack(),
+            callback_data=AdminUserEditorCallback(
+                action="users_audit", tg_id=tg_id, data=f"telegram|{category_filter}|0"
+            ).pack(),
         ),
     )
 

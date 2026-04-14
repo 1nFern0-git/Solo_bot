@@ -30,6 +30,7 @@ from handlers.texts import HAPP_ANNOUNCE, HIDDIFY_PROFILE_TITLE, SUBSCRIPTION_IN
 from handlers.utils import convert_to_bytes
 from logger import logger
 
+
 _subscription_semaphore = asyncio.Semaphore(SUBSCRIPTION_HANDLER_CONCURRENCY)
 
 

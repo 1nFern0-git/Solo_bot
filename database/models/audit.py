@@ -18,6 +18,7 @@ from ._base import Base, DictLikeMixin
 
 class AuditEvent(DictLikeMixin, Base):
     """События аудита (флоу пользователя)."""
+
     __tablename__ = "audit_events"
     __table_args__ = (
         Index("ix_audit_events_tg_created", "actor_tg_id", "created_at"),

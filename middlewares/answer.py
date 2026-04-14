@@ -28,11 +28,7 @@ class EarlyCallbackAnswerMiddleware(BaseMiddleware):
                     data["callback_answered_early"] = True
                 except TelegramBadRequest as e:
                     msg = str(e).lower()
-                    if (
-                        "query is too old" in msg
-                        or "response timeout expired" in msg
-                        or "query id is invalid" in msg
-                    ):
+                    if "query is too old" in msg or "response timeout expired" in msg or "query id is invalid" in msg:
                         pass
                     else:
                         raise

@@ -3,6 +3,7 @@ __all__ = ("router",)
 from aiogram import Router
 
 from core.tasks import lifecycle as _task_lifecycle
+
 from .general_notifications import router as general_notifications_router
 from .special_notifications import router as special_notifications_router
 

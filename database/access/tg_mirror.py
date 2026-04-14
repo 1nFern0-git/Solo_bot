@@ -37,14 +37,8 @@ async def refresh_tg_mirrors_for_user(session: AsyncSession, user_id: int) -> No
     await session.execute(update(BlockedUser).where(BlockedUser.user_id == user_id).values(tg_id=tg))
     await session.execute(update(ManualBan).where(ManualBan.user_id == user_id).values(tg_id=tg))
 
-    await session.execute(
-        update(Referral).where(Referral.referred_user_id == user_id).values(referred_tg_id=tg)
-    )
-    await session.execute(
-        update(Referral).where(Referral.referrer_user_id == user_id).values(referrer_tg_id=tg)
-    )
+    await session.execute(update(Referral).where(Referral.referred_user_id == user_id).values(referred_tg_id=tg))
+    await session.execute(update(Referral).where(Referral.referrer_user_id == user_id).values(referrer_tg_id=tg))
 
     await session.execute(update(Gift).where(Gift.sender_user_id == user_id).values(sender_tg_id=tg))
-    await session.execute(
-        update(Gift).where(Gift.recipient_user_id == user_id).values(recipient_tg_id=tg)
-    )
+    await session.execute(update(Gift).where(Gift.recipient_user_id == user_id).values(recipient_tg_id=tg))

@@ -3,6 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.depends import get_session, verify_identity_admin
+from api.v2.base_crud import generate_crud_router
 from api.v2.schemas import (
     BlockedUserResponse,
     ManualBanResponse,
@@ -11,7 +12,6 @@ from api.v2.schemas import (
     TemporaryDataResponse,
     TrackingSourceResponse,
 )
-from api.v2.base_crud import generate_crud_router
 from database import get_tracking_source_stats
 from database.access.resolution import resolve_user_optional
 from database.models import (
@@ -22,6 +22,7 @@ from database.models import (
     TemporaryData,
     TrackingSource,
 )
+
 
 router = APIRouter()
 

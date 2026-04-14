@@ -128,17 +128,13 @@ async def check_server_name_by_cluster(session: AsyncSession, server_name: str) 
 
 async def get_panel_types_for_cluster(session: AsyncSession, cluster_name: str) -> list[str]:
     """Список panel_type всех серверов кластера (для проверки "весь remnawave")."""
-    result = await session.execute(
-        select(Server.panel_type).where(Server.cluster_name == cluster_name)
-    )
+    result = await session.execute(select(Server.panel_type).where(Server.cluster_name == cluster_name))
     return list(result.scalars().all())
 
 
 async def get_panel_type_for_server(session: AsyncSession, server_name: str) -> str | None:
     """Возвращает panel_type конкретного сервера по его имени."""
-    result = await session.execute(
-        select(Server.panel_type).where(Server.server_name == server_name)
-    )
+    result = await session.execute(select(Server.panel_type).where(Server.server_name == server_name))
     return result.scalar_one_or_none()
 
 
@@ -152,17 +148,13 @@ async def get_enabled_server_subscription_url(session: AsyncSession, server_name
 
 async def cluster_name_exists(session: AsyncSession, cluster_name: str) -> bool:
     """Есть ли хоть один сервер с таким cluster_name."""
-    result = await session.execute(
-        select(Server).where(Server.cluster_name == cluster_name).limit(1)
-    )
+    result = await session.execute(select(Server).where(Server.cluster_name == cluster_name).limit(1))
     return result.scalars().first() is not None
 
 
 async def get_cluster_name_for_server_name(session: AsyncSession, server_name: str) -> str | None:
     """Возвращает cluster_name для указанного server_name (строго по server_name)."""
-    result = await session.execute(
-        select(Server.cluster_name).where(Server.server_name == server_name).limit(1)
-    )
+    result = await session.execute(select(Server.cluster_name).where(Server.server_name == server_name).limit(1))
     return result.scalar()
 
 

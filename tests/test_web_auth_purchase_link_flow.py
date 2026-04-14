@@ -1,11 +1,13 @@
 import asyncio
 import unittest
+
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from starlette.requests import Request
 
-setattr(asyncio, "_validate_client_code_ran", True)
+
+asyncio._validate_client_code_ran = True
 
 from api.v2.routes.auth import auth_summary, register_by_email
 from api.v2.routes.keys import user_keys
@@ -70,7 +72,9 @@ class WebEmailRegistrationFlowTests(unittest.IsolatedAsyncioTestCase):
     async def test_register_by_email_applies_referral_code_to_new_billing_user(self):
         request = _make_request()
         session = object()
-        body = RegisterByEmailRequest(email="invite@test.com", password="strongpass", referral_code="https://example.com/referral/321")
+        body = RegisterByEmailRequest(
+            email="invite@test.com", password="strongpass", referral_code="https://example.com/referral/321"
+        )
         identity = SimpleNamespace(id="ident-invite", tg_id=None)
         referrer_user = SimpleNamespace(id=321, tg_id=None)
 
@@ -81,8 +85,12 @@ class WebEmailRegistrationFlowTests(unittest.IsolatedAsyncioTestCase):
                 new=AsyncMock(return_value=(identity, "issued-token")),
             ),
             patch("api.v2.routes.auth.bind_identity_actor", new=AsyncMock()),
-            patch("api.v2.routes.auth.resolve_user_optional", new=AsyncMock(return_value=referrer_user)) as resolve_user_mock,
-            patch("api.v2.routes.auth.idb.ensure_billing_user_for_identity", new=AsyncMock(return_value=555)) as ensure_billing_user_mock,
+            patch(
+                "api.v2.routes.auth.resolve_user_optional", new=AsyncMock(return_value=referrer_user)
+            ) as resolve_user_mock,
+            patch(
+                "api.v2.routes.auth.idb.ensure_billing_user_for_identity", new=AsyncMock(return_value=555)
+            ) as ensure_billing_user_mock,
             patch("api.v2.routes.auth.get_referral_by_referred_id", new=AsyncMock(return_value=None)),
             patch("api.v2.routes.auth.add_referral", new=AsyncMock()) as add_referral_mock,
         ):
@@ -163,7 +171,11 @@ class WebTariffPaymentLinkFlowTests(unittest.IsolatedAsyncioTestCase):
             ) as ensure_billing_user_mock,
             patch(
                 "api.v2.routes.payment_links.create_payment_link",
-                new=AsyncMock(return_value=SimpleNamespace(success=True, payment_id="pid-1", payment_url="https://pay.test", error=None)),
+                new=AsyncMock(
+                    return_value=SimpleNamespace(
+                        success=True, payment_id="pid-1", payment_url="https://pay.test", error=None
+                    )
+                ),
             ) as create_payment_link_mock,
             patch("api.v2.routes.payment_links.create_temporary_data", new=AsyncMock()) as create_temporary_data_mock,
         ):
@@ -222,11 +234,15 @@ class WebAccountKeysFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result[0].is_frozen)
 
     async def test_auth_summary_returns_referral_code_for_web_identity(self):
-        session = SimpleNamespace(execute=AsyncMock(side_effect=[
-            SimpleNamespace(scalar_one=lambda: 2),
-            SimpleNamespace(scalar_one=lambda: 1),
-            SimpleNamespace(scalar_one=lambda: 0),
-        ]))
+        session = SimpleNamespace(
+            execute=AsyncMock(
+                side_effect=[
+                    SimpleNamespace(scalar_one=lambda: 2),
+                    SimpleNamespace(scalar_one=lambda: 1),
+                    SimpleNamespace(scalar_one=lambda: 0),
+                ]
+            )
+        )
         identity = SimpleNamespace(id="ident-email", email="web@example.com", tg_id=None)
         request = _make_request()
 
@@ -351,8 +367,7 @@ class TelegramLinkFlowTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertTrue(
             any(
-                "DELETE FROM users" in str(compiled)
-                and compiled.params.get("id_1") == 41
+                "DELETE FROM users" in str(compiled) and compiled.params.get("id_1") == 41
                 for compiled in compiled_statements
             )
         )

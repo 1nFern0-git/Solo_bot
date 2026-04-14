@@ -6,7 +6,9 @@ from ._base import Base, DictLikeMixin
 class Key(DictLikeMixin, Base):
     __tablename__ = "keys"
 
-    user_id = Column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True, nullable=False, index=True)
+    user_id = Column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True, nullable=False, index=True
+    )
     client_id = Column(String, primary_key=True)
     tg_id = Column(BigInteger, ForeignKey("users.tg_id"), nullable=True, index=True)
     email = Column(String, unique=True)

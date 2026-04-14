@@ -3,7 +3,6 @@ import time
 import uuid
 
 from datetime import datetime, timedelta, timezone
-from handlers.buttons import BACK
 
 import pytz
 
@@ -31,12 +30,18 @@ from database import (
     mark_key_as_frozen,
     mark_key_as_unfrozen,
     save_admin_key_config,
-    update_key_subscription_links,
     update_key_expiry,
+    update_key_subscription_links,
 )
 from database.models import Key
 from filters.admin import IsAdminFilter
+from handlers.buttons import BACK
+from handlers.utils import generate_random_email, handle_error
+from hooks.hook_buttons import insert_hook_buttons
+from hooks.processors import process_admin_key_edit_menu
+from logger import logger
 from middlewares.session import release_session_early
+from panels.remnawave import RemnawaveAPI
 from services.operations import (
     create_key_on_cluster,
     delete_key_from_cluster,
@@ -46,11 +51,7 @@ from services.operations import (
     toggle_client_on_cluster,
     update_subscription,
 )
-from handlers.utils import generate_random_email, handle_error
-from hooks.hook_buttons import insert_hook_buttons
-from hooks.processors import process_admin_key_edit_menu
-from logger import logger
-from panels.remnawave import RemnawaveAPI
+from services.users_utils import resolve_admin_key
 
 from ...panel.keyboard import AdminPanelCallback, build_admin_back_btn, build_admin_back_kb
 from ..keyboard import (
@@ -65,13 +66,13 @@ from ..keyboard import (
     build_users_key_expiry_kb,
     build_users_key_show_kb,
 )
-from services.users_utils import resolve_admin_key
 from ..users_states import RenewTariffState, UserEditorState
 
 
 MOSCOW_TZ = pytz.timezone("Europe/Moscow")
 
 router = Router()
+
 
 async def resolve_callback_key(
     session: AsyncSession,

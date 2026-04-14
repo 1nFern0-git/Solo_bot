@@ -18,6 +18,7 @@ from filters.admin import IsAdminFilter
 from logger import logger
 from utils.backup import _find_docker_postgres_container
 
+
 _PG_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
@@ -25,6 +26,7 @@ def _safe_pg_identifier(value: str, label: str) -> str:
     if not _PG_IDENT_RE.match(value):
         raise ValueError(f"Недопустимый PostgreSQL-идентификатор ({label}): {value!r}")
     return value
+
 
 from . import router
 from .keyboard import AdminPanelCallback, build_back_to_db_menu, build_database_kb, build_export_db_sources_kb
@@ -174,8 +176,17 @@ def sync_restore_database(
                     return False, "pg_restore не найден на хосте и контейнер PostgreSQL не обнаружен"
                 result = subprocess.run(
                     [
-                        "pg_restore", f"--dbname={db_name}", "-U", db_user,
-                        "-h", pg_host, "-p", pg_port, "--no-owner", "--exit-on-error", tmp_path,
+                        "pg_restore",
+                        f"--dbname={db_name}",
+                        "-U",
+                        db_user,
+                        "-h",
+                        pg_host,
+                        "-p",
+                        pg_port,
+                        "--no-owner",
+                        "--exit-on-error",
+                        tmp_path,
                     ],
                     capture_output=True,
                     text=True,

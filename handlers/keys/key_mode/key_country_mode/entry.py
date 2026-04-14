@@ -1,6 +1,7 @@
 from ._common import *  # noqa: F401,F403
 from ._common import router  # noqa: F401
 
+
 async def key_country_mode(
     tg_id: int,
     expiry_time: datetime,

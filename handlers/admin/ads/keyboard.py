@@ -2,8 +2,9 @@ from aiogram.filters.callback_data import CallbackData
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from ..panel.keyboard import build_admin_back_btn
 from handlers.buttons import BACK
+
+from ..panel.keyboard import build_admin_back_btn
 
 
 class AdminAdsCallback(CallbackData, prefix="admin_ads"):

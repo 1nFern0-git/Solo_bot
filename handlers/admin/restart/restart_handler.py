@@ -6,9 +6,9 @@ import sys
 import psutil
 
 from aiogram import F, Router
-from core.executor import run_io
 from aiogram.types import CallbackQuery
 
+from core.executor import run_io
 from filters.admin import IsAdminFilter
 
 from ..panel.keyboard import AdminPanelCallback, build_admin_back_kb

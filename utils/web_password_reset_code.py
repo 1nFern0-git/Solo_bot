@@ -11,6 +11,7 @@ from core.redis_cache import (
     redis_connection_ok,
 )
 
+
 _RESEND_COOLDOWN_SEC = 60.0
 _IP_WINDOW_SEC = 3600.0
 _IP_MAX_SENDS = 40

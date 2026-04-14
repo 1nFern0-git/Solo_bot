@@ -22,7 +22,6 @@ from database.models import Key, User
 from database.tariffs import get_tariffs
 from handlers.buttons import CONNECT_DEVICE, MAIN_MENU, SUPPORT, TRIAL_BONUS
 from handlers.keys.utils import build_key_callback
-from services.operations import get_user_traffic
 from handlers.notifications.notify_utils import send_messages_with_limit
 from handlers.texts import (
     TRIAL_INACTIVE_BONUS_MSG,
@@ -33,6 +32,7 @@ from handlers.utils import format_days, is_full_remnawave_cluster
 from hooks.hook_buttons import insert_hook_buttons
 from hooks.hooks import run_hooks
 from logger import logger
+from services.operations import get_user_traffic
 
 
 router = Router()

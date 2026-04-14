@@ -1,5 +1,5 @@
-import locale
 import json
+import locale
 import os
 import re
 import shutil
@@ -12,6 +12,7 @@ from time import sleep
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+
 
 try:
     import requests
@@ -26,30 +27,28 @@ try:
     from rich.prompt import Confirm, Prompt
     from rich.table import Table
 except ImportError:
+
     def _strip_markup(value):
         if not isinstance(value, str):
             return str(value)
         return re.sub(r"\[[^\]]+\]", "", value)
 
-
     class Group:
-        def __init__(self, *items):
+        def __init__(self, *items) -> None:
             self.items = items
 
-        def __str__(self):
+        def __str__(self) -> str:
             return "\n".join(_strip_markup(item) for item in self.items)
 
-
     class Panel:
-        def __init__(self, renderable, **kwargs):
+        def __init__(self, renderable, **kwargs) -> None:
             self.renderable = renderable
 
-        def __str__(self):
+        def __str__(self) -> str:
             return _strip_markup(self.renderable)
 
-
     class Table:
-        def __init__(self, title=None, **kwargs):
+        def __init__(self, title=None, **kwargs) -> None:
             self.title = title
             self.rows = []
 
@@ -59,16 +58,15 @@ except ImportError:
         def add_row(self, *row):
             self.rows.append(row)
 
-        def __str__(self):
+        def __str__(self) -> str:
             lines = []
             if self.title:
                 lines.append(_strip_markup(self.title))
             lines.extend(" | ".join(_strip_markup(cell) for cell in row) for row in self.rows)
             return "\n".join(lines)
 
-
     class Live:
-        def __init__(self, **kwargs):
+        def __init__(self, **kwargs) -> None:
             self.last_renderable = None
 
         def __enter__(self):
@@ -81,18 +79,15 @@ except ImportError:
             self.last_renderable = renderable
             print(_strip_markup(str(renderable)))
 
-
     class SpinnerColumn:
         pass
 
-
     class TextColumn:
-        def __init__(self, *args, **kwargs):
+        def __init__(self, *args, **kwargs) -> None:
             pass
 
-
     class Progress:
-        def __init__(self, *args, **kwargs):
+        def __init__(self, *args, **kwargs) -> None:
             self.last_description = None
 
         def __enter__(self):
@@ -111,7 +106,6 @@ except ImportError:
                 self.last_description = description
                 print(_strip_markup(description))
 
-
     class Prompt:
         @staticmethod
         def ask(message, choices=None, default=None, show_choices=True, **kwargs):
@@ -127,7 +121,6 @@ except ImportError:
                 raise ValueError(f"Ожидается одно из значений: {', '.join(choices)}")
             return value
 
-
     class Confirm:
         @staticmethod
         def ask(message, default=False, **kwargs):
@@ -136,7 +129,6 @@ except ImportError:
             if not value:
                 return default
             return value in {"y", "yes", "1", "true"}
-
 
     class Console:
         def print(self, *args, **kwargs):
@@ -197,7 +189,7 @@ VENV_PYTHON = os.path.join(PROJECT_DIR, "venv", "bin", "python")
 
 
 class HttpResponse:
-    def __init__(self, status_code: int, text: str):
+    def __init__(self, status_code: int, text: str) -> None:
         self.status_code = status_code
         self.text = text
 
@@ -1127,7 +1119,8 @@ def _copy_local_web_source(src: str, dst: str) -> bool:
     if shutil.which("rsync"):
         result = subprocess.run(
             [
-                "rsync", "-a",
+                "rsync",
+                "-a",
                 "--exclude=node_modules",
                 "--exclude=.next",
                 "--exclude=.git",
@@ -1151,8 +1144,16 @@ def _copy_local_web_source(src: str, dst: str) -> bool:
                 src,
                 dst,
                 ignore=shutil.ignore_patterns(
-                    "node_modules", ".next", ".git", ".env", ".env.local",
-                    ".env.production", "logs", ".deploy", ".data", ".claude",
+                    "node_modules",
+                    ".next",
+                    ".git",
+                    ".env",
+                    ".env.local",
+                    ".env.production",
+                    "logs",
+                    ".deploy",
+                    ".data",
+                    ".claude",
                 ),
             )
         except Exception:
@@ -1170,7 +1171,9 @@ def _prepare_web_sources(dst: str) -> bool:
         console.print("[yellow]Не удалось скопировать локальные исходники.[/yellow]")
 
     console.print("[red]❌ Локальные исходники web-app не найдены и не удалось использовать.[/red]")
-    console.print("[yellow]Проверьте, что пакет ghcr.io/vladless/solo-brick публичен, либо что рядом с CLI лежит каталог web-app.[/yellow]")
+    console.print(
+        "[yellow]Проверьте, что пакет ghcr.io/vladless/solo-brick публичен, либо что рядом с CLI лежит каталог web-app.[/yellow]"
+    )
     return False
 
 
@@ -1193,7 +1196,8 @@ def _build_web_image(src_dir: str) -> bool:
     console.print("[cyan]Сборка Docker-образа (несколько минут)...[/cyan]")
     result = subprocess.run(
         ["docker", "build", "-t", WEB_IMAGE, "."],
-        cwd=src_dir, check=False,
+        cwd=src_dir,
+        check=False,
     )
     if result.returncode != 0:
         console.print("[red]❌ Ошибка сборки. Проверьте логи выше.[/red]")
@@ -1213,6 +1217,7 @@ def _ensure_web_image(src_dir: str, force_pull: bool = False) -> bool:
 def _check_feature(name: str) -> bool:
     try:
         from core.rpc import check_feature
+
         return check_feature(name)
     except Exception:
         return False
@@ -1221,6 +1226,7 @@ def _check_feature(name: str) -> bool:
 def _verify_license_for_web(code: str, password: str) -> tuple[bool, str]:
     try:
         from core.rpc import verify_web_license
+
         return verify_web_license(code, password)
     except Exception:
         return False, ""
@@ -1313,16 +1319,29 @@ def _setup_ssl(domain):
     """Получает SSL сертификат через certbot."""
     if not shutil.which("certbot"):
         try:
-            subprocess.run(["sudo", "apt-get", "install", "-y", "-qq", "certbot", "python3-certbot-nginx"],
-                           check=True, stdout=subprocess.DEVNULL)
+            subprocess.run(
+                ["sudo", "apt-get", "install", "-y", "-qq", "certbot", "python3-certbot-nginx"],
+                check=True,
+                stdout=subprocess.DEVNULL,
+            )
         except subprocess.CalledProcessError:
             console.print("[yellow]Не удалось установить certbot.[/yellow]")
             return False
     try:
-        subprocess.run([
-            "sudo", "certbot", "--nginx", "-d", domain,
-            "--non-interactive", "--agree-tos", "--register-unsafely-without-email", "--redirect",
-        ], check=True)
+        subprocess.run(
+            [
+                "sudo",
+                "certbot",
+                "--nginx",
+                "-d",
+                domain,
+                "--non-interactive",
+                "--agree-tos",
+                "--register-unsafely-without-email",
+                "--redirect",
+            ],
+            check=True,
+        )
         return True
     except subprocess.CalledProcessError:
         console.print(f"[yellow]Не удалось получить SSL. Убедитесь что {domain} указывает на этот сервер.[/yellow]")
@@ -1374,6 +1393,7 @@ def install_website():
 
     try:
         import getpass
+
         lc_pass = getpass.getpass("  Пароль: ")
     except Exception:
         lc_pass = safe_prompt("[cyan]Пароль[/cyan]")
@@ -1398,7 +1418,9 @@ def install_website():
 
     console.print("\n[bold][2/5] Настройки[/bold]\n")
 
-    console.print("[dim]Домен, по которому будет открываться сайт.\nDNS (A-запись) должна уже указывать на IP этого сервера.[/dim]")
+    console.print(
+        "[dim]Домен, по которому будет открываться сайт.\nDNS (A-запись) должна уже указывать на IP этого сервера.[/dim]"
+    )
     domain = safe_prompt("[cyan]Домен сайта[/cyan] (например vpn.example.com)")
     if not domain or not domain.strip():
         console.print("[red]Домен обязателен.[/red]")
@@ -1407,26 +1429,39 @@ def install_website():
 
     try:
         from config import API_PORT as _BOT_API_PORT
+
         _bot_api_port = int(_BOT_API_PORT)
     except Exception:
         _bot_api_port = 3004
     _api_default = f"http://localhost:{_bot_api_port}"
-    console.print(f"\n[dim]Адрес API вашего бота (FastAPI).\nЕсли бот на этом же сервере — оставьте по умолчанию.\nЕсли на другом — укажите полный адрес, например http://123.45.67.89:{_bot_api_port}[/dim]")
+    console.print(
+        f"\n[dim]Адрес API вашего бота (FastAPI).\nЕсли бот на этом же сервере — оставьте по умолчанию.\nЕсли на другом — укажите полный адрес, например http://123.45.67.89:{_bot_api_port}[/dim]"
+    )
     api_url = safe_prompt("[cyan]Адрес backend API[/cyan]", default=_api_default)
 
-    console.print("\n[dim]Внутренний порт, на котором запустится сайт.\nNginx проксирует на него запросы. Менять нужно только если порт занят.[/dim]")
+    console.print(
+        "\n[dim]Внутренний порт, на котором запустится сайт.\nNginx проксирует на него запросы. Менять нужно только если порт занят.[/dim]"
+    )
     web_port = safe_prompt("[cyan]Порт сайта[/cyan]", default="3000")
 
-    console.print("\n[dim]Для push-уведомлений на сайте (колокольчик).\nГенерируется командой: npx web-push generate-vapid-keys\nЕсли не нужны — пропустите.[/dim]")
+    console.print(
+        "\n[dim]Для push-уведомлений на сайте (колокольчик).\nГенерируется командой: npx web-push generate-vapid-keys\nЕсли не нужны — пропустите.[/dim]"
+    )
     vapid_key = safe_prompt("[cyan]VAPID Public Key[/cyan] (Enter — пропустить)", default="")
 
-    console.print("\n[dim]Cloudflare Turnstile защищает формы логина от ботов.\nПолучите ключ на dash.cloudflare.com → Turnstile.\nЕсли не нужно — пропустите, формы будут работать без CAPTCHA.[/dim]")
+    console.print(
+        "\n[dim]Cloudflare Turnstile защищает формы логина от ботов.\nПолучите ключ на dash.cloudflare.com → Turnstile.\nЕсли не нужно — пропустите, формы будут работать без CAPTCHA.[/dim]"
+    )
     turnstile_key = safe_prompt("[cyan]Turnstile Site Key[/cyan] (Enter — пропустить)", default="")
 
-    console.print("\n[dim]Username Telegram-бота (без @) для кнопки «Войти через Telegram» на сайте.\nЕсли не нужно — пропустите.[/dim]")
+    console.print(
+        "\n[dim]Username Telegram-бота (без @) для кнопки «Войти через Telegram» на сайте.\nЕсли не нужно — пропустите.[/dim]"
+    )
     tg_bot_username = safe_prompt("[cyan]Telegram Bot Username[/cyan] (Enter — пропустить)", default="")
 
-    console.print("\n[dim]Для отправки email-кодов (логин, подтверждение, сброс пароля).\nЕсли не нужно — пропустите, регистрация по email+паролю будет работать без этого.[/dim]")
+    console.print(
+        "\n[dim]Для отправки email-кодов (логин, подтверждение, сброс пароля).\nЕсли не нужно — пропустите, регистрация по email+паролю будет работать без этого.[/dim]"
+    )
     smtp_host = safe_prompt("[cyan]SMTP Host[/cyan] (Enter — пропустить)", default="")
     smtp_user = ""
     smtp_password = ""
@@ -1435,6 +1470,7 @@ def install_website():
         smtp_user = safe_prompt("[cyan]SMTP User[/cyan]", default="")
         try:
             import getpass
+
             smtp_password = getpass.getpass("  SMTP Password: ")
         except Exception:
             smtp_password = safe_prompt("[cyan]SMTP Password[/cyan]", default="")
@@ -1455,6 +1491,7 @@ def install_website():
     os.makedirs(WEB_DIR, exist_ok=True)
 
     from urllib.parse import urlparse
+
     parsed_api = urlparse(api_url)
     api_port_from_url = ""
     if parsed_api.port is not None:
@@ -1474,13 +1511,13 @@ def install_website():
         f.write(f"NEXT_PUBLIC_SITE_URL={site_url}\n")
         f.write(f"NEXT_PUBLIC_VAPID_PUBLIC_KEY={vapid_key}\n")
         f.write(f"NEXT_PUBLIC_TURNSTILE_SITE_KEY={turnstile_key}\n")
-        f.write(f"NEXT_PUBLIC_LOG_LEVEL=info\n")
+        f.write("NEXT_PUBLIC_LOG_LEVEL=info\n")
         f.write(f"WEB_PORT={web_port}\n")
         if tg_bot_username:
             f.write(f"NEXT_PUBLIC_TELEGRAM_BOT_USERNAME={tg_bot_username}\n")
         if smtp_host:
             f.write(f"EMAIL_SMTP_HOST={smtp_host}\n")
-            f.write(f"EMAIL_SMTP_PORT=465\n")
+            f.write("EMAIL_SMTP_PORT=465\n")
             f.write(f"EMAIL_SMTP_USER={smtp_user}\n")
             f.write(f"EMAIL_SMTP_PASSWORD={smtp_password}\n")
             f.write(f"EMAIL_FROM={smtp_from}\n")
@@ -1573,8 +1610,9 @@ def manage_website():
     table.add_row("8", "Назад")
     console.print(table)
 
-    choice = safe_prompt("[bold blue]👉 Выберите действие[/bold blue]",
-                         choices=[str(i) for i in range(1, 9)], show_choices=False)
+    choice = safe_prompt(
+        "[bold blue]👉 Выберите действие[/bold blue]", choices=[str(i) for i in range(1, 9)], show_choices=False
+    )
 
     if choice == "1":
         subprocess.run(["docker", "compose", "ps"], cwd=WEB_DIR)
@@ -1653,11 +1691,7 @@ def _parse_solo_brick_semver(tag: str):
 
 
 def read_installed_solo_brick_version() -> str | None:
-    """Читает установленную версию сайта из лейбла скачанного докер-образа.
-
-    На клиентской машине исходников нет — единственный источник истины это
-    лейбл `org.opencontainers.image.version`, который CI проставляет при сборке.
-    """
+    """Версия установленного Solo-brick по лейблу докер-образа."""
     for image_ref in (f"ghcr.io/{GHCR_IMAGE}:latest", f"ghcr.io/{GHCR_IMAGE}"):
         try:
             result = subprocess.run(
@@ -1666,7 +1700,7 @@ def read_installed_solo_brick_version() -> str | None:
                     "image",
                     "inspect",
                     "--format",
-                    "{{index .Config.Labels \"org.opencontainers.image.version\"}}",
+                    '{{index .Config.Labels "org.opencontainers.image.version"}}',
                     image_ref,
                 ],
                 capture_output=True,
@@ -1725,8 +1759,7 @@ def show_website_version_banner():
         elif cur and nxt:
             tag = "  [green]✅ Актуально[/green]"
     console.print(
-        f"[dim]Solo-brick:[/dim] установлено [bold]{installed_str}[/bold] · "
-        f"доступно [bold]{latest_str}[/bold]{tag}"
+        f"[dim]Solo-brick:[/dim] установлено [bold]{installed_str}[/bold] · доступно [bold]{latest_str}[/bold]{tag}"
     )
 
 
@@ -1772,7 +1805,9 @@ def main():
             elif choice == "2":
                 if not os.path.exists(VENV_PYTHON):
                     console.print("[yellow]Виртуальное окружение ещё не создано.[/yellow]")
-                    if safe_confirm("[green]Подготовить окружение через автоматическую установку?[/green]", default=True):
+                    if safe_confirm(
+                        "[green]Подготовить окружение через автоматическую установку?[/green]", default=True
+                    ):
                         install_bot()
                     continue
                 if safe_confirm("[green]Вы действительно хотите запустить main.py вручную?[/green]"):

@@ -28,11 +28,10 @@ from database import (
     get_referral_by_referred_id,
     get_referral_stats,
 )
-from database.models import Referral
 from database.access.resolution import resolve_user_optional
+from database.models import Referral
 from database.tariffs import get_tariffs
 from handlers.buttons import BACK, INVITE, MAIN_MENU, QR, TOP_FIVE
-from services.payments.currency_rates import format_for_user
 from handlers.texts import (
     INVITE_MESSAGE_TEMPLATE,
     INVITE_TEXT_NON_INLINE,
@@ -42,6 +41,7 @@ from handlers.texts import (
     TOP_REFERRALS_TEXT,
 )
 from logger import logger
+from services.payments.currency_rates import format_for_user
 
 from .texts import get_referral_link
 from .utils import edit_or_send_message, format_days, safe_answer_inline_query

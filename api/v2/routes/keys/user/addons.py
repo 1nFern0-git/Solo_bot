@@ -7,11 +7,11 @@
 from .._common import *  # noqa: F401,F403 — подтягиваем все имена для endpoints
 from .._common import (
     _key_actions_config,
+    _normalize_expiry_ms,
     _resolve_available_location_servers,
     _resolve_billing_user_id,
     _resolve_default_web_payment_provider,
     _resolve_public_base_url,
-    _normalize_expiry_ms,
     router,
     user_router,
 )
@@ -35,9 +35,7 @@ async def user_key_addons_preview(
         raise HTTPException(status_code=403, detail="Доп. опции отключены в настройках")
     billing_user_id = await _resolve_billing_user_id(request, identity, session)
     db_key = (
-        await session.execute(
-            select(Key).where(Key.user_id == billing_user_id, Key.client_id == client_id).limit(1)
-        )
+        await session.execute(select(Key).where(Key.user_id == billing_user_id, Key.client_id == client_id).limit(1))
     ).scalar_one_or_none()
     if db_key is None:
         raise HTTPException(status_code=404, detail="Подписка не найдена")
@@ -118,26 +116,32 @@ async def user_key_addons_preview(
     if not has_device_option and not has_traffic_option:
         raise HTTPException(status_code=400, detail="Доп. опции для этой подписки недоступны")
     if pack_mode:
-        include_device_effective = bool(include_device) if include_device is not None else selected_device_limit is not None
-        include_traffic_effective = bool(include_traffic) if include_traffic is not None else selected_traffic_gb is not None
-        selected_device = (
-            selected_device_limit
-            if selected_device_limit is not None
-            else None
+        include_device_effective = (
+            bool(include_device) if include_device is not None else selected_device_limit is not None
         )
-        selected_traffic = (
-            selected_traffic_gb
-            if selected_traffic_gb is not None
-            else None
+        include_traffic_effective = (
+            bool(include_traffic) if include_traffic is not None else selected_traffic_gb is not None
         )
+        selected_device = selected_device_limit if selected_device_limit is not None else None
+        selected_traffic = selected_traffic_gb if selected_traffic_gb is not None else None
     else:
         include_device_effective = has_device_option
         include_traffic_effective = has_traffic_option
         selected_device = selected_device_limit if selected_device_limit is not None else current_device_limit
         selected_traffic = selected_traffic_gb if selected_traffic_gb is not None else current_traffic_gb
-    if has_device_option and include_device_effective and selected_device is not None and int(selected_device) not in device_options:
+    if (
+        has_device_option
+        and include_device_effective
+        and selected_device is not None
+        and int(selected_device) not in device_options
+    ):
         raise HTTPException(status_code=400, detail="Выбранный пакет устройств недоступен")
-    if has_traffic_option and include_traffic_effective and selected_traffic is not None and int(selected_traffic) not in traffic_options:
+    if (
+        has_traffic_option
+        and include_traffic_effective
+        and selected_traffic is not None
+        and int(selected_traffic) not in traffic_options
+    ):
         raise HTTPException(status_code=400, detail="Выбранный пакет трафика недоступен")
     current_devices_for_price = int(current_device_limit) if current_device_limit is not None else None
     current_traffic_for_price = int(current_traffic_gb) if current_traffic_gb is not None else None
@@ -154,8 +158,12 @@ async def user_key_addons_preview(
                 tariff=tariff,
                 has_device_option=bool(has_device_option and include_device_effective),
                 has_traffic_option=bool(has_traffic_option and include_traffic_effective),
-                selected_devices=int(selected_device) if has_device_option and include_device_effective and selected_device is not None else None,
-                selected_traffic_gb=int(selected_traffic) if has_traffic_option and include_traffic_effective and selected_traffic is not None else None,
+                selected_devices=int(selected_device)
+                if has_device_option and include_device_effective and selected_device is not None
+                else None,
+                selected_traffic_gb=int(selected_traffic)
+                if has_traffic_option and include_traffic_effective and selected_traffic is not None
+                else None,
             )
         )
         recalc_enabled = bool(
@@ -177,8 +185,12 @@ async def user_key_addons_preview(
         total_price_rub = int(
             calculate_config_price(
                 tariff=tariff,
-        selected_device_limit=int(selected_device) if has_device_option and include_device_effective and selected_device is not None else None,
-        selected_traffic_gb=int(selected_traffic) if has_traffic_option and include_traffic_effective and selected_traffic is not None else None,
+                selected_device_limit=int(selected_device)
+                if has_device_option and include_device_effective and selected_device is not None
+                else None,
+                selected_traffic_gb=int(selected_traffic)
+                if has_traffic_option and include_traffic_effective and selected_traffic is not None
+                else None,
             )
         )
         extra_price_rub = int(max(0, total_price_rub - base_price_for_current))
@@ -196,8 +208,12 @@ async def user_key_addons_preview(
         has_traffic_option=bool(has_traffic_option),
         current_device_limit=int(current_device_limit) if current_device_limit is not None else None,
         current_traffic_gb=int(current_traffic_gb) if current_traffic_gb is not None else None,
-        selected_device_limit=int(selected_device) if has_device_option and include_device_effective and selected_device is not None else None,
-        selected_traffic_gb=int(selected_traffic) if has_traffic_option and include_traffic_effective and selected_traffic is not None else None,
+        selected_device_limit=int(selected_device)
+        if has_device_option and include_device_effective and selected_device is not None
+        else None,
+        selected_traffic_gb=int(selected_traffic)
+        if has_traffic_option and include_traffic_effective and selected_traffic is not None
+        else None,
         device_options=[
             AccountKeyAddonOptionResponse(
                 value=int(val),
@@ -212,11 +228,7 @@ async def user_key_addons_preview(
         traffic_options=[
             AccountKeyAddonOptionResponse(
                 value=int(val),
-                label=(
-                    "Безлимит трафика"
-                    if int(val) <= 0
-                    else (f"+{int(val)} ГБ" if pack_mode else f"{int(val)} ГБ")
-                ),
+                label=("Безлимит трафика" if int(val) <= 0 else (f"+{int(val)} ГБ" if pack_mode else f"{int(val)} ГБ")),
             )
             for val in traffic_options
         ],
@@ -243,9 +255,7 @@ async def user_key_apply_addons(
         raise HTTPException(status_code=403, detail="Доп. опции отключены в настройках")
     billing_user_id = await _resolve_billing_user_id(request, identity, session)
     db_key = (
-        await session.execute(
-            select(Key).where(Key.user_id == billing_user_id, Key.client_id == client_id).limit(1)
-        )
+        await session.execute(select(Key).where(Key.user_id == billing_user_id, Key.client_id == client_id).limit(1))
     ).scalar_one_or_none()
     if db_key is None:
         raise HTTPException(status_code=404, detail="Подписка не найдена")
@@ -332,24 +342,26 @@ async def user_key_apply_addons(
         include_traffic_effective = (
             bool(body.include_traffic) if body.include_traffic is not None else body.selected_traffic_gb is not None
         )
-        selected_device = (
-            body.selected_device_limit
-            if body.selected_device_limit is not None
-            else None
-        )
-        selected_traffic = (
-            body.selected_traffic_gb
-            if body.selected_traffic_gb is not None
-            else None
-        )
+        selected_device = body.selected_device_limit if body.selected_device_limit is not None else None
+        selected_traffic = body.selected_traffic_gb if body.selected_traffic_gb is not None else None
     else:
         include_device_effective = has_device_option
         include_traffic_effective = has_traffic_option
         selected_device = body.selected_device_limit if body.selected_device_limit is not None else current_device_limit
         selected_traffic = body.selected_traffic_gb if body.selected_traffic_gb is not None else current_traffic_gb
-    if has_device_option and include_device_effective and selected_device is not None and int(selected_device) not in device_options:
+    if (
+        has_device_option
+        and include_device_effective
+        and selected_device is not None
+        and int(selected_device) not in device_options
+    ):
         raise HTTPException(status_code=400, detail="Выбранный пакет устройств недоступен")
-    if has_traffic_option and include_traffic_effective and selected_traffic is not None and int(selected_traffic) not in traffic_options:
+    if (
+        has_traffic_option
+        and include_traffic_effective
+        and selected_traffic is not None
+        and int(selected_traffic) not in traffic_options
+    ):
         raise HTTPException(status_code=400, detail="Выбранный пакет трафика недоступен")
     current_devices_for_price = int(current_device_limit) if current_device_limit is not None else None
     current_traffic_for_price = int(current_traffic_gb) if current_traffic_gb is not None else None
@@ -367,8 +379,12 @@ async def user_key_apply_addons(
                 tariff=tariff,
                 has_device_option=bool(has_device_option and include_device_effective),
                 has_traffic_option=bool(has_traffic_option and include_traffic_effective),
-                selected_devices=int(selected_device) if has_device_option and include_device_effective and selected_device is not None else None,
-                selected_traffic_gb=int(selected_traffic) if has_traffic_option and include_traffic_effective and selected_traffic is not None else None,
+                selected_devices=int(selected_device)
+                if has_device_option and include_device_effective and selected_device is not None
+                else None,
+                selected_traffic_gb=int(selected_traffic)
+                if has_traffic_option and include_traffic_effective and selected_traffic is not None
+                else None,
             )
         )
         recalc_enabled = bool(
@@ -390,8 +406,12 @@ async def user_key_apply_addons(
         selected_total_price = int(
             calculate_config_price(
                 tariff=tariff,
-                selected_device_limit=int(selected_device) if has_device_option and selected_device is not None else None,
-                selected_traffic_gb=int(selected_traffic) if has_traffic_option and selected_traffic is not None else None,
+                selected_device_limit=int(selected_device)
+                if has_device_option and selected_device is not None
+                else None,
+                selected_traffic_gb=int(selected_traffic)
+                if has_traffic_option and selected_traffic is not None
+                else None,
             )
         )
         extra_price_rub = int(max(0, selected_total_price - base_price_for_current))
@@ -458,8 +478,12 @@ async def user_key_apply_addons(
                 "payment_flow": "key_addons",
                 "tariff_id": int(tariff_id),
                 "email": email,
-                "selected_device_limit": int(selected_device) if has_device_option and include_device_effective and selected_device is not None else None,
-                "selected_traffic_gb": int(selected_traffic) if has_traffic_option and include_traffic_effective and selected_traffic is not None else None,
+                "selected_device_limit": int(selected_device)
+                if has_device_option and include_device_effective and selected_device is not None
+                else None,
+                "selected_traffic_gb": int(selected_traffic)
+                if has_traffic_option and include_traffic_effective and selected_traffic is not None
+                else None,
                 "current_device_limit": int(current_device_limit) if current_device_limit is not None else None,
                 "current_traffic_gb": int(current_traffic_gb) if current_traffic_gb is not None else None,
                 "original_price": int(base_price_for_current),
@@ -480,8 +504,12 @@ async def user_key_apply_addons(
                 "tariff_id": int(tariff_id),
                 "email": email,
                 "required_amount": int(required_amount),
-                "selected_device_limit": int(selected_device) if has_device_option and include_device_effective and selected_device is not None else None,
-                "selected_traffic_gb": int(selected_traffic) if has_traffic_option and include_traffic_effective and selected_traffic is not None else None,
+                "selected_device_limit": int(selected_device)
+                if has_device_option and include_device_effective and selected_device is not None
+                else None,
+                "selected_traffic_gb": int(selected_traffic)
+                if has_traffic_option and include_traffic_effective and selected_traffic is not None
+                else None,
                 "current_device_limit": int(current_device_limit) if current_device_limit is not None else None,
                 "current_traffic_gb": int(current_traffic_gb) if current_traffic_gb is not None else None,
                 "original_price": int(base_price_for_current),
@@ -561,22 +589,34 @@ async def user_key_apply_addons(
             session=session,
             email=email,
             selected_devices=int(new_device_limit_effective) if new_device_limit_effective is not None else None,
-            selected_traffic_gb=int(new_traffic_limit_gb_effective) if new_traffic_limit_gb_effective is not None else None,
+            selected_traffic_gb=int(new_traffic_limit_gb_effective)
+            if new_traffic_limit_gb_effective is not None
+            else None,
             total_price=int(total_price_after_purchase),
             has_device_choice=bool(has_device_option and include_device_effective),
             has_traffic_choice=bool(has_traffic_option and include_traffic_effective),
             config_mode="pack",
         )
     else:
-        selected_device_for_effective = int(selected_device) if has_device_option and include_device_effective and selected_device is not None else None
-        selected_traffic_for_effective = int(selected_traffic) if has_traffic_option and include_traffic_effective and selected_traffic is not None else 0
+        selected_device_for_effective = (
+            int(selected_device)
+            if has_device_option and include_device_effective and selected_device is not None
+            else None
+        )
+        selected_traffic_for_effective = (
+            int(selected_traffic)
+            if has_traffic_option and include_traffic_effective and selected_traffic is not None
+            else 0
+        )
         device_limit_effective_new, traffic_limit_bytes_effective_new = await get_effective_limits_for_key(
             session=session,
             tariff_id=int(tariff_id),
             selected_device_limit=selected_device_for_effective,
             selected_traffic_gb=selected_traffic_for_effective,
         )
-        traffic_limit_gb_effective = int(traffic_limit_bytes_effective_new / GB) if traffic_limit_bytes_effective_new else 0
+        traffic_limit_gb_effective = (
+            int(traffic_limit_bytes_effective_new / GB) if traffic_limit_bytes_effective_new else 0
+        )
         await renew_key_in_cluster(
             cluster_id=server_id,
             email=email,
@@ -593,8 +633,12 @@ async def user_key_apply_addons(
         await save_key_config_with_mode(
             session=session,
             email=email,
-            selected_devices=int(selected_device) if has_device_option and include_device_effective and selected_device is not None else None,
-            selected_traffic_gb=int(selected_traffic) if has_traffic_option and include_traffic_effective and selected_traffic is not None else None,
+            selected_devices=int(selected_device)
+            if has_device_option and include_device_effective and selected_device is not None
+            else None,
+            selected_traffic_gb=int(selected_traffic)
+            if has_traffic_option and include_traffic_effective and selected_traffic is not None
+            else None,
             total_price=int(total_price_after_purchase),
             has_device_choice=bool(has_device_option and include_device_effective),
             has_traffic_choice=bool(has_traffic_option and include_traffic_effective),

@@ -1,9 +1,11 @@
 import asyncio
+
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
 import pytz
+
 from aiogram import Bot, Router
 from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -47,13 +49,11 @@ from database.tariffs import (
     get_tariff_by_id,
     get_tariffs_for_cluster,
 )
-from services.operations import delete_key_from_cluster, renew_key_in_cluster
 from handlers.notifications.notify_kb import (
     build_change_tariff_kb,
     build_notification_expired_kb,
     build_notification_kb,
 )
-from services.tariffs.tariff_display import GB, get_effective_limits_for_key, resolve_price_to_charge
 from handlers.texts import (
     KEY_CANNOT_RENEW_CURRENT,
     KEY_DELETED_MSG,
@@ -66,6 +66,8 @@ from handlers.utils import format_hours, format_minutes, get_russian_month
 from hooks.hooks import run_hooks
 from logger import logger
 from middlewares.session import release_session_early, wrap_session
+from services.operations import delete_key_from_cluster, renew_key_in_cluster
+from services.tariffs.tariff_display import GB, get_effective_limits_for_key, resolve_price_to_charge
 
 from .hot_leads_notifications import notify_hot_leads
 from .notify_utils import (
@@ -87,15 +89,15 @@ class NotificationContext:
     bot: Bot
     session: AsyncSession
     current_time: int
-    preload_data: Optional[dict] = None
-    bulk_updates: Optional[dict] = None
+    preload_data: dict | None = None
+    bulk_updates: dict | None = None
 
     def get_balance(self, tg_id: int) -> float:
         if self.preload_data and tg_id in self.preload_data.get("balances_cache", {}):
             return self.preload_data["balances_cache"][tg_id]
         return 0.0
 
-    def get_tariff(self, tariff_id: int) -> Optional[dict]:
+    def get_tariff(self, tariff_id: int) -> dict | None:
         if self.preload_data and tariff_id in self.preload_data.get("tariffs_cache", {}):
             return self.preload_data["tariffs_cache"][tariff_id]
         return None
@@ -189,9 +191,7 @@ async def execute_bulk_updates(session: AsyncSession, bulk_updates: dict[str, An
             await bulk_delete_notifications(session, to_delete)
 
         if to_add or to_delete:
-            logger.info(
-                f"Bulk: обработано {len(to_add)} добавлений и {len(to_delete)} удалений уведомлений"
-            )
+            logger.info(f"Bulk: обработано {len(to_add)} добавлений и {len(to_delete)} удалений уведомлений")
 
         await session.commit()
 
@@ -308,7 +308,7 @@ async def send_renewed_notification(ctx: NotificationContext, key, tariff: dict,
     return result
 
 
-async def try_auto_renew(ctx: NotificationContext, key) -> tuple[bool, Optional[dict], Optional[int]]:
+async def try_auto_renew(ctx: NotificationContext, key) -> tuple[bool, dict | None, int | None]:
     tg_id = key.tg_id
     email = key.email or ""
     renew_notification_id = f"{email}_renew"
@@ -445,7 +445,7 @@ async def notify_expiring_keys(
     notify_type: str,
     photo: str,
     notify_renew_enabled: bool,
-    sessionmaker: Optional[async_sessionmaker] = None,
+    sessionmaker: async_sessionmaker | None = None,
 ):
     if min_hours > 0:
         logger.info(f"Начало проверки подписок, истекающих через {min_hours}-{max_hours} часов.")
@@ -509,22 +509,19 @@ async def notify_expiring_keys(
             })
             try:
                 from database.web_notifications import notify_web
-                await notify_web(ctx.session, tg_id=tg_id, type="key_expiry", template_vars={"email": email}, data={"email": email})
+
+                await notify_web(
+                    ctx.session, tg_id=tg_id, type="key_expiry", template_vars={"email": email}, data={"email": email}
+                )
             except Exception as e:
                 logger.warning("[Notifications] Ошибка web-уведомления key_expiry tg_id={}: {}", tg_id, e)
 
-
-    renew_results: list[tuple[Any, str, bool, Optional[dict], Optional[int]]] = []
-    use_parallel = (
-        notify_renew_enabled
-        and renew_candidates
-        and sessionmaker is not None
-        and EXECUTOR_POOL_SIZE > 1
-    )
+    renew_results: list[tuple[Any, str, bool, dict | None, int | None]] = []
+    use_parallel = notify_renew_enabled and renew_candidates and sessionmaker is not None and EXECUTOR_POOL_SIZE > 1
     if use_parallel:
         semaphore = asyncio.Semaphore(EXECUTOR_POOL_SIZE)
 
-        async def do_one_renew(key: Any, notification_id: str) -> tuple[Any, str, bool, Optional[dict], Optional[int]]:
+        async def do_one_renew(key: Any, notification_id: str) -> tuple[Any, str, bool, dict | None, int | None]:
             async with semaphore:
                 async with sessionmaker() as session:
                     session = wrap_session(session, sessionmaker)
@@ -556,7 +553,6 @@ async def notify_expiring_keys(
                 continue
             renew_results.append(r)
     else:
-
         for key, notification_id in renew_candidates:
             tg_id = key.tg_id
             try:
@@ -678,7 +674,6 @@ async def periodic_notifications(bot: Bot, *, sessionmaker: async_sessionmaker):
 
         async with notification_lock:
             try:
-
                 current_time = int(datetime.now(moscow_tz).timestamp() * 1000)
                 start_time = datetime.now()
                 preload_data = None

@@ -1,15 +1,17 @@
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
-from sqlalchemy import inspect as sa_inspect
-from sqlalchemy import select
+from sqlalchemy import (
+    inspect as sa_inspect,
+    select,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 
 from api.depends import get_session, verify_admin_token
-from database.models import Admin
 from database.access.resolution import resolve_user_optional
+from database.models import Admin
 from handlers.texts import get_site_gift_link, get_telegram_gift_link
 
 
@@ -27,23 +29,23 @@ def cast_identifier_type(field: InstrumentedAttribute, value: int | str):
 
 
 def normalize_outgoing_object(obj: object) -> None:
-    if hasattr(obj, "vless") and getattr(obj, "vless") is None:
-        setattr(obj, "vless", False)
+    if hasattr(obj, "vless") and obj.vless is None:
+        obj.vless = False
     cls_name = type(obj).__name__
     if cls_name == "Gift":
         gift_id = getattr(obj, "gift_id", None)
         if gift_id:
-            setattr(obj, "telegram_gift_link", get_telegram_gift_link(gift_id))
-            setattr(obj, "site_gift_link", get_site_gift_link(gift_id))
+            obj.telegram_gift_link = get_telegram_gift_link(gift_id)
+            obj.site_gift_link = get_site_gift_link(gift_id)
     if cls_name in ("ManualBan", "BlockedUser", "TemporaryData"):
         insp = sa_inspect(obj)
         stored = getattr(obj, "tg_id", None)
         if "user" in insp.unloaded:
-            setattr(obj, "tg_id", stored)
+            obj.tg_id = stored
             return
         rel = getattr(obj, "user", None)
         rel_tg = getattr(rel, "tg_id", None) if rel is not None else None
-        setattr(obj, "tg_id", stored if stored is not None else rel_tg)
+        obj.tg_id = stored if stored is not None else rel_tg
 
 
 def to_schema(schema_response: type, obj: object):
@@ -70,7 +72,7 @@ def generate_crud_router(
             u = await resolve_user_optional(session, int(value))
             if u is None:
                 return None
-            return getattr(model, "user_id"), u.id
+            return model.user_id, u.id
         field = getattr(model, identifier_field)
         return field, cast_identifier_type(field, value)
 
@@ -113,9 +115,7 @@ def generate_crud_router(
             if resolved is None:
                 raise HTTPException(status_code=404, detail=f"{model.__name__} not found")
             field, casted = resolved
-            result = await session.execute(
-                _apply_user_relationship_loader(model, select(model).where(field == casted))
-            )
+            result = await session.execute(_apply_user_relationship_loader(model, select(model).where(field == casted)))
             obj = result.scalar_one_or_none()
             if not obj:
                 raise HTTPException(status_code=404, detail=f"{model.__name__} not found")
@@ -133,9 +133,7 @@ def generate_crud_router(
             if resolved is None:
                 raise HTTPException(status_code=404, detail=f"{model.__name__} not found")
             field, casted = resolved
-            result = await session.execute(
-                _apply_user_relationship_loader(model, select(model).where(field == casted))
-            )
+            result = await session.execute(_apply_user_relationship_loader(model, select(model).where(field == casted)))
             objs = result.scalars().all()
             if not objs:
                 raise HTTPException(status_code=404, detail=f"{model.__name__} not found")

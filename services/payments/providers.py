@@ -2,6 +2,7 @@ from typing import Any
 
 from hooks.hooks import run_hooks
 
+
 PROVIDERS_BASE: dict[str, dict[str, Any]] = {
     "YOOKASSA": {
         "currency": "RUB",

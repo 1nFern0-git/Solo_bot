@@ -32,13 +32,13 @@ from handlers.buttons import (
     PC,
     TV,
 )
+from handlers.keys.utils import build_key_callback, key_owned_by_user, resolve_key
 from handlers.texts import (
     ANDROID_DESCRIPTION_TEMPLATE,
     CHOOSE_DEVICE_TEXT,
     IOS_DESCRIPTION_TEMPLATE,
     SUBSCRIPTION_DESCRIPTION,
 )
-from handlers.keys.utils import build_key_callback, key_owned_by_user, resolve_key
 from handlers.utils import edit_or_send_message
 from hooks.hook_buttons import insert_hook_buttons
 from hooks.processors import process_connect_device_menu
@@ -76,7 +76,9 @@ async def handle_connect_device(callback_query: CallbackQuery, session: AsyncSes
 
         builder = InlineKeyboardBuilder()
         client_id = record.get("client_id")
-        builder.row(InlineKeyboardButton(text=IPHONE, callback_data=build_key_callback("connect_ios", client_id, key_name)))
+        builder.row(
+            InlineKeyboardButton(text=IPHONE, callback_data=build_key_callback("connect_ios", client_id, key_name))
+        )
         builder.row(
             InlineKeyboardButton(text=ANDROID, callback_data=build_key_callback("connect_android", client_id, key_name))
         )
@@ -148,7 +150,9 @@ async def process_callback_connect_phone(callback_query: CallbackQuery, session:
         )
     if INSTRUCTIONS_BUTTON:
         builder.row(InlineKeyboardButton(text=MANUAL_INSTRUCTIONS, callback_data="instructions"))
-    builder.row(InlineKeyboardButton(text=BACK, callback_data=build_key_callback("view_key", record.get("client_id"), email)))
+    builder.row(
+        InlineKeyboardButton(text=BACK, callback_data=build_key_callback("view_key", record.get("client_id"), email))
+    )
 
     await edit_or_send_message(
         target_message=callback_query.message,
@@ -194,7 +198,9 @@ async def process_callback_connect_ios(callback_query: CallbackQuery, session: A
     if INSTRUCTIONS_BUTTON:
         builder.row(InlineKeyboardButton(text=MANUAL_INSTRUCTIONS, callback_data="instructions"))
     builder.row(
-        InlineKeyboardButton(text=BACK, callback_data=build_key_callback("connect_device", record.get("client_id"), email))
+        InlineKeyboardButton(
+            text=BACK, callback_data=build_key_callback("connect_device", record.get("client_id"), email)
+        )
     )
     builder.row(InlineKeyboardButton(text=MAIN_MENU, callback_data="profile"))
 
@@ -242,7 +248,9 @@ async def process_callback_connect_android(callback_query: CallbackQuery, sessio
     if INSTRUCTIONS_BUTTON:
         builder.row(InlineKeyboardButton(text=MANUAL_INSTRUCTIONS, callback_data="instructions"))
     builder.row(
-        InlineKeyboardButton(text=BACK, callback_data=build_key_callback("connect_device", record.get("client_id"), email))
+        InlineKeyboardButton(
+            text=BACK, callback_data=build_key_callback("connect_device", record.get("client_id"), email)
+        )
     )
     builder.row(InlineKeyboardButton(text=MAIN_MENU, callback_data="profile"))
 

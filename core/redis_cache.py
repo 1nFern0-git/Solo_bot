@@ -55,9 +55,7 @@ async def _get_redis() -> Any | None:
         return client
     except Exception as exc:
         url_display = REDIS_URL.split("@")[-1] if "@" in REDIS_URL else REDIS_URL
-        logger.warning(
-            f"[Redis] Подключение не удалось ({url_display}): {exc}. Повтор через {_REDIS_BACKOFF_SEC} с."
-        )
+        logger.warning(f"[Redis] Подключение не удалось ({url_display}): {exc}. Повтор через {_REDIS_BACKOFF_SEC} с.")
         _REDIS_UNAVAILABLE_UNTIL = _now() + _REDIS_BACKOFF_SEC
         _drop_client(client_key)
         return None

@@ -45,9 +45,7 @@ async def _ensure_migrations_table(conn: AsyncConnection) -> None:
 
 async def _get_current_version(conn: AsyncConnection) -> int:
     await _ensure_migrations_table(conn)
-    r = await conn.execute(
-        text("SELECT COALESCE(MAX(version), 0) FROM schema_migrations")
-    )
+    r = await conn.execute(text("SELECT COALESCE(MAX(version), 0) FROM schema_migrations"))
     row = r.first()
     return int(row[0]) if row else 0
 
@@ -186,9 +184,7 @@ async def _drop_pk(conn: AsyncConnection, table: str) -> None:
 
 
 async def _column_has_nulls(conn: AsyncConnection, table: str, column: str) -> bool:
-    r = await conn.execute(
-        text(f'SELECT 1 FROM "{table}" WHERE "{column}" IS NULL LIMIT 1')
-    )
+    r = await conn.execute(text(f'SELECT 1 FROM "{table}" WHERE "{column}" IS NULL LIMIT 1'))
     return r.first() is not None
 
 
@@ -309,9 +305,7 @@ async def _migration_v2_add_user_id_columns(conn: AsyncConnection) -> None:
             await conn.execute(text(f'ALTER TABLE "{table}" ADD COLUMN {column} BIGINT'))
 
 
-async def _backfill_users_from_table(
-    conn: AsyncConnection, table: str, tg_col: str = "tg_id"
-) -> int:
+async def _backfill_users_from_table(conn: AsyncConnection, table: str, tg_col: str = "tg_id") -> int:
     """Auto-создание users для orphan tg_id'ов из указанной таблицы.
 
     Legacy клиенты обновляются с TG-only схемы (где только tg_id), и в связанных
@@ -358,9 +352,7 @@ async def _backfill_users_from_table(
     )
     created = result.rowcount or 0
     if created > 0:
-        logger.info(
-            f"[schema_upgrade] users backfill: создано {created} юзеров из orphan {table}.{tg_col}"
-        )
+        logger.info(f"[schema_upgrade] users backfill: создано {created} юзеров из orphan {table}.{tg_col}")
     return created
 
 
@@ -400,9 +392,7 @@ async def _migration_v3_populate_user_ids(conn: AsyncConnection) -> None:
             if updated > 0:
                 logger.debug(f"[schema_upgrade] v3: заполнено {updated} записей {user_col} в {table}")
 
-            null_count = await conn.execute(
-                text(f'SELECT COUNT(*) FROM "{table}" WHERE {user_col} IS NULL')
-            )
+            null_count = await conn.execute(text(f'SELECT COUNT(*) FROM "{table}" WHERE {user_col} IS NULL'))
             nulls = null_count.scalar()
             if nulls > 0:
                 logger.warning(f"[schema_upgrade] v3: в {table} осталось {nulls} записей с NULL {user_col}")
@@ -511,17 +501,13 @@ async def _migration_v5_switch_pks_to_user_id(conn: AsyncConnection) -> None:
             await _drop_pk(conn, "referrals")
             await conn.execute(text("ALTER TABLE referrals ALTER COLUMN referred_user_id SET NOT NULL"))
             await conn.execute(text("ALTER TABLE referrals ALTER COLUMN referrer_user_id SET NOT NULL"))
-            await conn.execute(
-                text("ALTER TABLE referrals ADD PRIMARY KEY (referred_user_id, referrer_user_id)")
-            )
+            await conn.execute(text("ALTER TABLE referrals ADD PRIMARY KEY (referred_user_id, referrer_user_id)"))
         else:
             logger.warning("[schema_upgrade] referrals содержит NULL user_id, пропуск перевода PK")
 
     if await _table_exists(conn, "notifications") and await _safe_set_not_null(conn, "notifications", "user_id"):
         await _drop_pk(conn, "notifications")
-        await conn.execute(
-            text("ALTER TABLE notifications ADD PRIMARY KEY (user_id, notification_type)")
-        )
+        await conn.execute(text("ALTER TABLE notifications ADD PRIMARY KEY (user_id, notification_type)"))
 
     if await _table_exists(conn, "gift_usages") and await _safe_set_not_null(conn, "gift_usages", "user_id"):
         await _drop_pk(conn, "gift_usages")
@@ -980,6 +966,7 @@ async def _migration_v14_web_flow_graph_model(conn: AsyncConnection) -> None:
                         "target": node_id,
                     })
             import json
+
             await conn.execute(
                 text("UPDATE web_flows SET nodes = :nodes, edges = :edges, entry_node_id = :entry WHERE id = :fid"),
                 {"nodes": json.dumps(new_nodes), "edges": json.dumps(new_edges), "entry": entry_id, "fid": flow_id},
@@ -1054,10 +1041,7 @@ async def _migration_v15_recover_orphan_users(conn: AsyncConnection) -> None:
             )
         )
         if result.rowcount and result.rowcount > 0:
-            logger.info(
-                f"[schema_upgrade] v15: повторно заполнено {result.rowcount} записей "
-                f"{table}.{user_col}"
-            )
+            logger.info(f"[schema_upgrade] v15: повторно заполнено {result.rowcount} записей {table}.{user_col}")
 
 
 async def _migration_v18_web_error_reports(conn: AsyncConnection) -> None:
@@ -1206,10 +1190,10 @@ async def _migration_v20_add_identity_google_sub(conn: AsyncConnection) -> None:
     if not await _table_exists(conn, "identities"):
         return
     if not await _column_exists(conn, "identities", "google_sub"):
-        await _exec_ignore(conn, 'ALTER TABLE identities ADD COLUMN google_sub VARCHAR(64)')
+        await _exec_ignore(conn, "ALTER TABLE identities ADD COLUMN google_sub VARCHAR(64)")
     await _exec_ignore(
         conn,
-        'CREATE UNIQUE INDEX IF NOT EXISTS ix_identities_google_sub ON identities (google_sub) WHERE google_sub IS NOT NULL',
+        "CREATE UNIQUE INDEX IF NOT EXISTS ix_identities_google_sub ON identities (google_sub) WHERE google_sub IS NOT NULL",
     )
 
 
@@ -1218,10 +1202,10 @@ async def _migration_v21_add_identity_yandex_sub(conn: AsyncConnection) -> None:
     if not await _table_exists(conn, "identities"):
         return
     if not await _column_exists(conn, "identities", "yandex_sub"):
-        await _exec_ignore(conn, 'ALTER TABLE identities ADD COLUMN yandex_sub VARCHAR(64)')
+        await _exec_ignore(conn, "ALTER TABLE identities ADD COLUMN yandex_sub VARCHAR(64)")
     await _exec_ignore(
         conn,
-        'CREATE UNIQUE INDEX IF NOT EXISTS ix_identities_yandex_sub ON identities (yandex_sub) WHERE yandex_sub IS NOT NULL',
+        "CREATE UNIQUE INDEX IF NOT EXISTS ix_identities_yandex_sub ON identities (yandex_sub) WHERE yandex_sub IS NOT NULL",
     )
 
 

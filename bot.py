@@ -1,5 +1,6 @@
 from importlib import import_module
 
+
 version = "0.5.3"
 
 from aiogram import Bot, Dispatcher
@@ -14,6 +15,7 @@ from utils.button_icons import apply_button_icons_patch, set_button_icon_config
 from utils.custom_emojis import initialize_custom_emojis
 from utils.errors import setup_error_handlers
 from utils.modules_loader import load_modules_from_folder, modules_hub
+
 
 apply_button_icons_patch()
 
@@ -32,10 +34,12 @@ load_modules_from_folder()
 
 from handlers.buttons import BUTTON_ICON_CONFIG
 
+
 set_button_icon_config(BUTTON_ICON_CONFIG)
 
 dp.message.filter(IsPrivateFilter())
 dp.callback_query.filter(IsPrivateFilter())
+
 
 async def _on_dispatcher_startup(*_args, **_kwargs):
     from core.tasks import ensure_periodic_task_manager_started

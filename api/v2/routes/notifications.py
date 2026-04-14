@@ -3,8 +3,9 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.depends import get_session, verify_identity_token
-from database.models import Identity
 from database import web_notifications as wn_db
+from database.models import Identity
+
 
 router = APIRouter()
 
@@ -55,7 +56,9 @@ async def get_notifications(
     identity: Identity = Depends(verify_identity_token),
 ):
     notifications = await wn_db.get_notifications_for_identity(
-        session, identity.id, limit=limit,
+        session,
+        identity.id,
+        limit=limit,
     )
     unread_count = await wn_db.count_unread_for_identity(session, identity.id)
 

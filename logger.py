@@ -10,6 +10,7 @@ from loguru import logger
 
 import config as cfg
 
+
 try:
     from core.cache_config import (
         ERROR_THROTTLE_MAX_KEYS,
@@ -76,13 +77,9 @@ class InterceptHandler(logging.Handler):
             and "Invalid method encountered" in message
             and "b'\\x16\\x03\\x01'" in message
         ):
-            logger.opt(depth=6).warning(
-                "[HTTP] На порт пришли TLS/HTTPS данные вместо HTTP, соединение закрыто"
-            )
+            logger.opt(depth=6).warning("[HTTP] На порт пришли TLS/HTTPS данные вместо HTTP, соединение закрыто")
             return
-        logger.opt(depth=6, exception=record.exc_info).log(
-            level_mapping.get(record.levelno, "INFO"), message
-        )
+        logger.opt(depth=6, exception=record.exc_info).log(level_mapping.get(record.levelno, "INFO"), message)
 
 
 logging.basicConfig(handlers=[InterceptHandler()], level=0)
@@ -119,7 +116,7 @@ def _error_throttle_key(record):
 def _error_throttle_prune():
     if len(_error_throttle) <= ERROR_THROTTLE_MAX_KEYS:
         return
-    now = time.monotonic()
+    time.monotonic()
     by_ts = [(v[0], k) for k, v in _error_throttle.items()]
     by_ts.sort()
     for _, k in by_ts[: len(_error_throttle) - ERROR_THROTTLE_MAX_KEYS]:

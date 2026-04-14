@@ -1,4 +1,5 @@
 import os
+
 from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any
@@ -24,14 +25,14 @@ from database import (
     get_tariffs_for_cluster,
     get_trial,
 )
-from database.users import get_balance
-from handlers.payments.fast_payment_flow import try_fast_payment_flow
+from database.access.resolution import notify_telegram_chat_id
 from database.models import Admin
 from database.notifications import check_hot_lead_discount
-from database.access.resolution import notify_telegram_chat_id
 from database.tariffs import create_subgroup_hash, find_subgroup_by_hash, get_tariffs
+from database.users import get_balance
 from handlers.admin.panel.keyboard import AdminPanelCallback
-from handlers.buttons import MAIN_MENU, BACK
+from handlers.buttons import BACK, MAIN_MENU
+from handlers.payments.fast_payment_flow import try_fast_payment_flow
 from handlers.texts import (
     CREATING_CONNECTION_MSG,
     DISCOUNT_OFFER_MESSAGE,
@@ -154,13 +155,15 @@ async def handle_key_creation(
                         await edit_or_send_message(
                             target_message=target_message,
                             text=f"💰 Пробная подписка стоит {int(trial_price)} ₽.\n"
-                                 f"Ваш баланс: {int(balance)} ₽.\n\n"
-                                 f"Пополните баланс для активации.",
+                            f"Ваш баланс: {int(balance)} ₽.\n\n"
+                            f"Пополните баланс для активации.",
                             reply_markup=builder.as_markup(),
                         )
                         return
 
-                logger.info(f"[Trial] Доступен {total_days}-дневный триал для пользователя {tg_id} (цена: {trial_price})")
+                logger.info(
+                    f"[Trial] Доступен {total_days}-дневный триал для пользователя {tg_id} (цена: {trial_price})"
+                )
 
                 await edit_or_send_message(
                     target_message=target_message,

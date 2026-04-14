@@ -29,6 +29,7 @@ async def ensure_on_remnawave(
 ) -> tuple[str | None, str | None]:
     from panels.remnawave import RemnawaveAPI
     from services.operations.utils import bytes_from_gb
+
     if not servers:
         return None, None
 
@@ -154,6 +155,7 @@ async def ensure_on_3xui(
     attempt_update_first: bool,
 ):
     from services.operations.utils import bytes_from_gb
+
     tasks = []
     traffic = bytes_from_gb(total_gb)
     for s in servers:
@@ -245,6 +247,7 @@ async def migrate_between_subgroups(
 ) -> tuple[str, str | None]:
     from services.operations.deletion import delete_on_3xui, delete_on_remnawave
     from services.operations.utils import norm_name, split_by_panel
+
     target = await filter_cluster_by_subgroup(session, cluster_all, target_subgroup, cluster_id, tariff_id=tariff_id)
     xui_tgt, remna_tgt = split_by_panel(target)
 

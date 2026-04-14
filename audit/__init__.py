@@ -3,10 +3,11 @@ from __future__ import annotations
 import json
 import uuid
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from typing import Any, Iterable
+from typing import Any
 
 from aiogram.types import CallbackQuery, InlineQuery, Message, TelegramObject, User
 from fastapi import Request
@@ -16,11 +17,11 @@ from database.audit import (
     create_audit_reset_marker_db,
     delete_old_audit_events_db,
     ensure_audit_table,
-    fetch_existing_audit_request_ids_db,
-    fetch_latest_audit_reset_db,
     fetch_audit_events_db,
     fetch_audit_events_db_window,
     fetch_audit_rows_db,
+    fetch_existing_audit_request_ids_db,
+    fetch_latest_audit_reset_db,
     fetch_successful_payment_rows_db,
 )
 from database.models import AuditEvent
@@ -34,6 +35,7 @@ from .rules import (
     _normalize_path_to_step,
     _normalize_path_to_steps,
 )
+
 
 try:
     from core.cache_config import (
@@ -57,6 +59,8 @@ _MAX_TEXT_LEN = 160
 _AUDIT_REDIS_PROCESSING_KEY = f"{AUDIT_REDIS_FLUSH_KEY}:processing"
 _AUDIT_REDIS_DRAIN_LOCK_KEY = f"{AUDIT_REDIS_FLUSH_KEY}:drain_lock"
 _AUDIT_REDIS_DRAIN_LOCK_TTL_SEC = 15 * 60
+
+
 @dataclass
 class AuditContext:
     request_id: str
@@ -89,13 +93,13 @@ def _trim(value: Any, limit: int = _MAX_TEXT_LEN) -> str | None:
 
 
 def _jsonable(value: Any) -> Any:
-    if value is None or isinstance(value, (str, int, float, bool)):
+    if value is None or isinstance(value, str | int | float | bool):
         return value
     if isinstance(value, datetime):
         return value.isoformat()
     if isinstance(value, dict):
         return {str(k): _jsonable(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple, set)):
+    if isinstance(value, list | tuple | set):
         return [_jsonable(item) for item in value]
     return _trim(value, 500)
 
@@ -114,7 +118,9 @@ async def get_audit_db_reset_at(session: AsyncSession) -> datetime | None:
 
 
 async def set_audit_db_reset_at(session: AsyncSession, at: datetime | None = None) -> datetime:
-    created = at.astimezone(timezone.utc).replace(tzinfo=None) if at is not None and at.tzinfo else (at or datetime.utcnow())
+    created = (
+        at.astimezone(timezone.utc).replace(tzinfo=None) if at is not None and at.tzinfo else (at or datetime.utcnow())
+    )
     await create_audit_reset_marker_db(session, source="db", created_at=created)
     await session.commit()
     return created.replace(tzinfo=timezone.utc)
@@ -268,19 +274,21 @@ def log_api_access(
     context = ensure_api_context(request)
     client_ip = request.client.host if request.client else "-"
     logger.debug(
-        f"[AUDIT_ACCESS] {_serialize({
-            'request_id': context.request_id,
-            'channel': 'api',
-            'method': request.method,
-            'path': context.path_or_handler,
-            'status_code': status_code,
-            'duration_ms': duration_ms,
-            'result': result,
-            'reason': reason,
-            'client_ip': client_ip,
-            'actor_identity_id': context.actor_identity_id,
-            'actor_tg_id': context.actor_tg_id,
-        })}"
+        f"[AUDIT_ACCESS] {
+            _serialize({
+                'request_id': context.request_id,
+                'channel': 'api',
+                'method': request.method,
+                'path': context.path_or_handler,
+                'status_code': status_code,
+                'duration_ms': duration_ms,
+                'result': result,
+                'reason': reason,
+                'client_ip': client_ip,
+                'actor_identity_id': context.actor_identity_id,
+                'actor_tg_id': context.actor_tg_id,
+            })
+        }"
     )
 
 
@@ -298,18 +306,20 @@ def log_telegram_access(
     )
     user = _event_user(event)
     logger.debug(
-        f"[AUDIT_ACCESS] {_serialize({
-            'request_id': context.request_id,
-            'channel': 'telegram',
-            'path_or_handler': context.path_or_handler,
-            'event_type': type(event).__name__,
-            'message': _message_text(event),
-            'result': result,
-            'reason': reason,
-            'actor_identity_id': context.actor_identity_id,
-            'actor_tg_id': context.actor_tg_id or (user.id if user else None),
-            'username': getattr(user, 'username', None) if user else None,
-        })}"
+        f"[AUDIT_ACCESS] {
+            _serialize({
+                'request_id': context.request_id,
+                'channel': 'telegram',
+                'path_or_handler': context.path_or_handler,
+                'event_type': type(event).__name__,
+                'message': _message_text(event),
+                'result': result,
+                'reason': reason,
+                'actor_identity_id': context.actor_identity_id,
+                'actor_tg_id': context.actor_tg_id or (user.id if user else None),
+                'username': getattr(user, 'username', None) if user else None,
+            })
+        }"
     )
 
 
@@ -345,20 +355,22 @@ async def record_audit_event(
     session.add(event)
     await session.flush()
     logger.debug(
-        f"[AUDIT_EVENT] {_serialize({
-            'id': event.id,
-            'request_id': event.request_id,
-            'channel': event.channel,
-            'event_type': event.event_type,
-            'actor_identity_id': event.actor_identity_id,
-            'actor_tg_id': event.actor_tg_id,
-            'path_or_handler': event.path_or_handler,
-            'entity_type': event.entity_type,
-            'entity_id': event.entity_id,
-            'result': event.result,
-            'reason': event.reason,
-            'metadata': event.metadata_,
-        })}"
+        f"[AUDIT_EVENT] {
+            _serialize({
+                'id': event.id,
+                'request_id': event.request_id,
+                'channel': event.channel,
+                'event_type': event.event_type,
+                'actor_identity_id': event.actor_identity_id,
+                'actor_tg_id': event.actor_tg_id,
+                'path_or_handler': event.path_or_handler,
+                'entity_type': event.entity_type,
+                'entity_id': event.entity_id,
+                'result': event.result,
+                'reason': event.reason,
+                'metadata': event.metadata_,
+            })
+        }"
     )
     return event
 
@@ -658,7 +670,9 @@ async def safe_record_telegram_event(
         event_type=event_type,
         channel="telegram",
         path_or_handler=path_or_handler or (context.path_or_handler if context else "telegram"),
-        actor_identity_id=actor_identity_id if actor_identity_id is not None else (context.actor_identity_id if context else None),
+        actor_identity_id=actor_identity_id
+        if actor_identity_id is not None
+        else (context.actor_identity_id if context else None),
         actor_tg_id=actor_tg_id if actor_tg_id is not None else (context.actor_tg_id if context else None),
         entity_type=entity_type,
         entity_id=entity_id,
@@ -777,17 +791,15 @@ def _aggregate_audit_rows(
         fail = data["fail"]
         unique = len(data["actors"])
         fail_rate = round(100.0 * fail / total, 1) if total else 0
-        by_path_list.append(
-            {
-                "step": step,
-                "label": AUDIT_STEP_LABELS.get(step, step),
-                "total": total,
-                "success": data["success"],
-                "fail": fail,
-                "unique_users": unique,
-                "fail_rate_pct": fail_rate,
-            }
-        )
+        by_path_list.append({
+            "step": step,
+            "label": AUDIT_STEP_LABELS.get(step, step),
+            "total": total,
+            "success": data["success"],
+            "fail": fail,
+            "unique_users": unique,
+            "fail_rate_pct": fail_rate,
+        })
     return by_step, by_path_list, all_actors
 
 
@@ -859,9 +871,7 @@ async def list_audit_events(
             offset=offset,
         )
 
-    redis_events = await _list_audit_events_from_redis(
-        tg_id, identity_id, channel, event_types_list, max_events=3000
-    )
+    redis_events = await _list_audit_events_from_redis(tg_id, identity_id, channel, event_types_list, max_events=3000)
     need = offset + limit + len(redis_events)
     db_events = await fetch_audit_events_db_window(
         session,
@@ -899,7 +909,7 @@ async def get_audit_stats(
     d_to = _naive_utc(date_to)
     rows = await fetch_audit_rows_db(session, date_from=d_from, date_to=d_to, limit=max_events)
     rows.extend(await fetch_successful_payment_rows_db(session, date_from=d_from, date_to=d_to, limit=max_events))
-    by_step, by_path_list, all_actors = _aggregate_audit_rows(rows)
+    _by_step, by_path_list, all_actors = _aggregate_audit_rows(rows)
     raw_total_events = sum(1 for row in rows if not _is_ignored_analytics_event(row[0] or ""))
     analytics_total_events = sum(row["total"] for row in by_path_list)
     return {
@@ -921,7 +931,7 @@ async def get_audit_stats_from_redis(max_events: int = 5000) -> dict[str, Any] |
     events = await list_audit_events_from_redis_buffer(max_events=max_events)
     filtered_events = events
     rows = [(e.path_or_handler, e.result, e.actor_tg_id, e.actor_identity_id) for e in filtered_events]
-    by_step, by_path_list, all_actors = _aggregate_audit_rows(rows)
+    _by_step, by_path_list, all_actors = _aggregate_audit_rows(rows)
     raw_total_events = sum(1 for row in rows if not _is_ignored_analytics_event(row[0] or ""))
     analytics_total_events = sum(row["total"] for row in by_path_list)
     return {
@@ -949,7 +959,7 @@ async def get_audit_stats_from_redis_since(
         threshold = date_from.astimezone(timezone.utc) if date_from.tzinfo else date_from.replace(tzinfo=timezone.utc)
         filtered_events = [e for e in events if getattr(e, "created_at", None) and e.created_at >= threshold]
     rows = [(e.path_or_handler, e.result, e.actor_tg_id, e.actor_identity_id) for e in filtered_events]
-    by_step, by_path_list, all_actors = _aggregate_audit_rows(rows)
+    _by_step, by_path_list, all_actors = _aggregate_audit_rows(rows)
     raw_total_events = sum(1 for row in rows if not _is_ignored_analytics_event(row[0] or ""))
     analytics_total_events = sum(row["total"] for row in by_path_list)
     return {
@@ -1012,14 +1022,12 @@ def _funnel_from_rows(
         if prev_actors is not None and prev_actors:
             overlap = len(prev_actors & actors)
             conversion = round(100.0 * overlap / len(prev_actors), 1)
-        funnel_list.append(
-            {
-                "step": step,
-                "label": AUDIT_STEP_LABELS.get(step, step),
-                "count": count,
-                "conversion_from_prev_pct": conversion,
-            }
-        )
+        funnel_list.append({
+            "step": step,
+            "label": AUDIT_STEP_LABELS.get(step, step),
+            "count": count,
+            "conversion_from_prev_pct": conversion,
+        })
         prev_actors = actors
     return funnel_list
 
@@ -1072,7 +1080,9 @@ async def drain_audit_redis_to_db(session_factory: Any) -> int:
                 break
             batch = [rec for rec in raw_batch if isinstance(rec, dict)]
             if not batch:
-                logger.warning("[Audit] drain_audit_redis_to_db: отброшен пустой/битый батч ({} элементов)", len(raw_batch))
+                logger.warning(
+                    "[Audit] drain_audit_redis_to_db: отброшен пустой/битый батч ({} элементов)", len(raw_batch)
+                )
                 await cache_lpop_batch(_AUDIT_REDIS_PROCESSING_KEY, len(raw_batch))
                 continue
             try:

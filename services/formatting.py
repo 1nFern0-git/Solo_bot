@@ -36,5 +36,6 @@ def get_gift_link(user_id: int, gift_id: str) -> str:
 
 def get_site_gift_link(gift_id: str) -> str:
     from core.settings.web_config import get_site_url
+
     site_url = get_site_url()
     return f"{site_url}/gift/{gift_id}"

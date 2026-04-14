@@ -1,16 +1,17 @@
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 from aiogram import F, Router
+from aiogram.enums import MessageEntityType
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.enums import MessageEntityType
 from aiogram.types import CallbackQuery, Message, MessageEntity
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from filters.admin import IsAdminFilter
 from handlers.buttons import BACK
+
 from ..panel.keyboard import AdminPanelCallback, build_admin_back_kb
 
 

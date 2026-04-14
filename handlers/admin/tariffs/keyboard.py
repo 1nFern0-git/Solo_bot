@@ -3,9 +3,9 @@ from collections import defaultdict
 from aiogram.filters.callback_data import CallbackData
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from handlers.buttons import BACK
 
 from database.tariffs import create_subgroup_hash
+from handlers.buttons import BACK
 
 from ..panel.keyboard import AdminPanelCallback
 

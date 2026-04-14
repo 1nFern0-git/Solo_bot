@@ -22,7 +22,7 @@ def encode_referral_code(user_id: int) -> str:
     raw = int(user_id).to_bytes(8, byteorder="big", signed=False)
     secret = _secret_bytes()
     mask = hmac.new(secret, b"ref-mask-v1", hashlib.sha256).digest()[:8]
-    obfuscated = bytes(a ^ b for a, b in zip(raw, mask))
+    obfuscated = bytes(a ^ b for a, b in zip(raw, mask, strict=False))
     signature = hmac.new(secret, b"ref-sign-v1:" + obfuscated, hashlib.sha256).digest()[:6]
     payload = base64.urlsafe_b64encode(obfuscated + signature).decode("ascii").rstrip("=")
     return f"r1_{payload}"
@@ -34,7 +34,7 @@ def encode_partner_code(user_id: int) -> str:
     raw = int(user_id).to_bytes(8, byteorder="big", signed=False)
     secret = _secret_bytes()
     mask = hmac.new(secret, b"partner-mask-v1", hashlib.sha256).digest()[:8]
-    obfuscated = bytes(a ^ b for a, b in zip(raw, mask))
+    obfuscated = bytes(a ^ b for a, b in zip(raw, mask, strict=False))
     signature = hmac.new(secret, b"partner-sign-v1:" + obfuscated, hashlib.sha256).digest()[:6]
     payload = base64.urlsafe_b64encode(obfuscated + signature).decode("ascii").rstrip("=")
     return f"p1_{payload}"
@@ -58,7 +58,7 @@ def decode_referral_code(value: str | None) -> int | None:
         if not hmac.compare_digest(signature, expected):
             return None
         mask = hmac.new(secret, b"ref-mask-v1", hashlib.sha256).digest()[:8]
-        raw = bytes(a ^ b for a, b in zip(obfuscated, mask))
+        raw = bytes(a ^ b for a, b in zip(obfuscated, mask, strict=False))
         parsed = int.from_bytes(raw, byteorder="big", signed=False)
         return parsed if parsed > 0 else None
     if token.startswith("p1_"):
@@ -88,7 +88,7 @@ def decode_partner_code(value: str | None) -> int | None:
         if not hmac.compare_digest(signature, expected):
             return None
         mask = hmac.new(secret, b"partner-mask-v1", hashlib.sha256).digest()[:8]
-        raw = bytes(a ^ b for a, b in zip(obfuscated, mask))
+        raw = bytes(a ^ b for a, b in zip(obfuscated, mask, strict=False))
         parsed = int.from_bytes(raw, byteorder="big", signed=False)
         return parsed if parsed > 0 else None
     if token.startswith("r1_"):

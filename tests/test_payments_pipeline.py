@@ -1,4 +1,5 @@
 import unittest
+
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -13,7 +14,7 @@ from services.payments.pipeline import (
 class _FakeSessionContext:
     """Async context manager, который возвращает переданный session при __aenter__."""
 
-    def __init__(self, session):
+    def __init__(self, session) -> None:
         self._session = session
 
     async def __aenter__(self):
@@ -99,9 +100,7 @@ class ProcessSuccessPaymentTests(unittest.IsolatedAsyncioTestCase):
     async def test_fresh_payment_uses_add_payment(self):
         """Нет pending-записи → add_payment создаёт новую."""
         session = SimpleNamespace(commit=AsyncMock())
-        parsed = ParsedPayment(
-            payment_id="p2", tg_id=100, amount=750.0, currency="RUB", metadata={"k": "v"}
-        )
+        parsed = ParsedPayment(payment_id="p2", tg_id=100, amount=750.0, currency="RUB", metadata={"k": "v"})
 
         with (
             patch("services.payments.pipeline.async_session_maker", _sessionmaker_returning(session)),
@@ -109,9 +108,7 @@ class ProcessSuccessPaymentTests(unittest.IsolatedAsyncioTestCase):
                 "services.payments.pipeline.get_payment_by_payment_id",
                 new=AsyncMock(return_value=None),
             ),
-            patch(
-                "services.payments.pipeline.update_payment_status", new=AsyncMock()
-            ) as upd_mock,
+            patch("services.payments.pipeline.update_payment_status", new=AsyncMock()) as upd_mock,
             patch("services.payments.pipeline.add_payment", new=AsyncMock()) as add_mock,
             patch("services.payments.pipeline.update_balance", new=AsyncMock()) as balance_mock,
             patch(
@@ -178,17 +175,13 @@ class ProcessSuccessPaymentTests(unittest.IsolatedAsyncioTestCase):
             patch("services.payments.pipeline.update_balance", new=AsyncMock()) as balance_mock,
             patch("services.payments.pipeline.send_payment_success_notification", new=AsyncMock()) as notify_mock,
             patch("services.payments.pipeline.invalidate_payment_cache", new=AsyncMock()),
-
             patch(
                 "services.payments.pipeline.select",
                 return_value=SimpleNamespace(where=lambda *a, **k: SimpleNamespace(limit=lambda n: None)),
             ),
         ):
-
             fake_payment_obj = SimpleNamespace(currency=None, original_amount=None)
-            session.execute = AsyncMock(
-                return_value=SimpleNamespace(scalar_one_or_none=lambda: fake_payment_obj)
-            )
+            session.execute = AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: fake_payment_obj))
             result = await process_success_payment(
                 "CRYPTOBOT",
                 parsed,
@@ -224,14 +217,10 @@ class ProcessSuccessPaymentTests(unittest.IsolatedAsyncioTestCase):
             patch("services.payments.pipeline.send_payment_success_notification", new=AsyncMock()),
             patch("services.payments.pipeline.invalidate_payment_cache", new=AsyncMock()),
         ):
-            await process_success_payment(
-                "CRYPTOBOT", parsed, metadata_patch={"fx": {"rate": 90.5}}
-            )
+            await process_success_payment("CRYPTOBOT", parsed, metadata_patch={"fx": {"rate": 90.5}})
 
         upd_mock.assert_awaited_once()
-        self.assertEqual(
-            upd_mock.await_args.kwargs["metadata_patch"], {"fx": {"rate": 90.5}}
-        )
+        self.assertEqual(upd_mock.await_args.kwargs["metadata_patch"], {"fx": {"rate": 90.5}})
 
 
 class ProcessCancelledPaymentTests(unittest.IsolatedAsyncioTestCase):
@@ -291,9 +280,7 @@ class ProcessCancelledPaymentTests(unittest.IsolatedAsyncioTestCase):
             patch("services.payments.pipeline.add_payment", new=AsyncMock()) as add,
             patch("services.payments.pipeline.invalidate_payment_cache", new=AsyncMock()),
         ):
-            result = await process_cancelled_payment(
-                "heleket", parsed, new_status="failed"
-            )
+            result = await process_cancelled_payment("heleket", parsed, new_status="failed")
 
         self.assertTrue(result.ok)
         add.assert_awaited_once()

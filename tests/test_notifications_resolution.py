@@ -1,4 +1,5 @@
 import unittest
+
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -49,7 +50,9 @@ class NotificationsResolutionTests(unittest.IsolatedAsyncioTestCase):
             patch("database.notifications.resolve_user_optional", new=AsyncMock(return_value=user)),
             patch("database.notifications._utc_now", return_value=now),
         ):
-            old_allowed = await check_notification_time(old_session, legacy_user_ref=3333, notification_type="n3", hours=12)
+            old_allowed = await check_notification_time(
+                old_session, legacy_user_ref=3333, notification_type="n3", hours=12
+            )
             recent_allowed = await check_notification_time(
                 recent_session, legacy_user_ref=3333, notification_type="n3", hours=12
             )

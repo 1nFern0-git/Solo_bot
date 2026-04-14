@@ -1,4 +1,5 @@
 import unittest
+
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -54,7 +55,10 @@ class ReferralsResolutionTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch("api.v2.routes.referrals.idb.ensure_billing_user_for_identity", new=AsyncMock(return_value=555)),
-            patch("api.v2.routes.referrals.resolve_user_optional", new=AsyncMock(side_effect=[referrer_user, referred_user])),
+            patch(
+                "api.v2.routes.referrals.resolve_user_optional",
+                new=AsyncMock(side_effect=[referrer_user, referred_user]),
+            ),
             patch("api.v2.routes.referrals.get_referral_by_referred_id", new=AsyncMock(return_value=None)),
             patch("api.v2.routes.referrals.add_referral", new=AsyncMock()) as add_referral_mock,
         ):

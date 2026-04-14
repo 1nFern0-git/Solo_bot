@@ -2,8 +2,8 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from database.models import BlockedUser, User
 from database.access.resolution import resolve_user_optional
+from database.models import BlockedUser, User
 from logger import logger
 
 
@@ -30,11 +30,7 @@ async def save_blocked_user_ids(session: AsyncSession, tg_ids: list[int]) -> Non
         res = await session.execute(select(User.id, User.tg_id).where(User.tg_id.in_(batch)))
         rows = res.all()
         uid_by_tg = {int(tgid): int(uid) for uid, tgid in rows if tgid is not None}
-        values = [
-            {"user_id": uid_by_tg[int(tg)], "tg_id": int(tg)}
-            for tg in batch
-            if int(tg) in uid_by_tg
-        ]
+        values = [{"user_id": uid_by_tg[int(tg)], "tg_id": int(tg)} for tg in batch if int(tg) in uid_by_tg]
         if not values:
             continue
         stmt = insert(BlockedUser).values(values).on_conflict_do_nothing(index_elements=[BlockedUser.user_id])

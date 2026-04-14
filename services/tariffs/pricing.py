@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from core.settings.tariffs_config import normalize_tariff_config
+
 from .tariff_display import GB
 
 

@@ -89,7 +89,9 @@ async def get_user_traffic(session: AsyncSession, tg_id: int, email: str) -> dic
         user_traffic_data[server] = result
 
     if remnawave_client_id and remnawave_server_ref:
-        profile = await get_remnawave_profile(session, str(remnawave_server_ref), remnawave_client_id, fallback_any=True)
+        profile = await get_remnawave_profile(
+            session, str(remnawave_server_ref), remnawave_client_id, fallback_any=True
+        )
         if not profile:
             user_traffic_data["Remnawave (общий)"] = "Данные недоступны"
         else:

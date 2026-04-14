@@ -47,6 +47,7 @@ def verify_webapp_init_data(
     https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app
     """
     import json
+
     from urllib.parse import parse_qs
 
     if not init_data or not bot_token:

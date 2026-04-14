@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+
 from typing import Any
 
 from aiogram import BaseMiddleware
@@ -22,6 +23,7 @@ def _is_bot_blocked_error(exc: BaseException) -> bool:
             return True
     return False
 
+
 try:
     from config import LOG_SESSION_DURATION
 except ImportError:
@@ -34,7 +36,7 @@ async def release_session_early(session: Any) -> bool:
     return False
 
 
-def wrap_session(session: AsyncSession, maker) -> "_SessionProxy":
+def wrap_session(session: AsyncSession, maker) -> _SessionProxy:
     """Оборачивает сессию в прокси с release_early (для фоновых задач вроде periodic_notifications)."""
     return _SessionProxy(session, maker, {})
 
@@ -91,7 +93,7 @@ class _SessionProxy:
 
 
 class SessionMiddleware(BaseMiddleware):
-    def __init__(self, sessionmaker):
+    def __init__(self, sessionmaker) -> None:
         self.sessionmaker = sessionmaker
 
     async def _rollback(self, session: AsyncSession, context: str) -> None:
@@ -122,7 +124,6 @@ class SessionMiddleware(BaseMiddleware):
             proxy = _SessionProxy(session, self.sessionmaker, data)
             data["session"] = proxy
             committed = False
-            rolled_back = False
             try:
                 result = await handler(event, data)
                 if data.get("_session_released_early"):
@@ -142,7 +143,6 @@ class SessionMiddleware(BaseMiddleware):
                         exc_info=True,
                     )
                     await self._rollback(session, "commit failure")
-                    rolled_back = True
                     return result
             except Exception as e:
                 if _is_bot_blocked_error(e):
@@ -161,7 +161,6 @@ class SessionMiddleware(BaseMiddleware):
                         exc_info=True,
                     )
                 await self._rollback(session, "handler failure")
-                rolled_back = True
                 raise
             finally:
                 if not committed and not data.get("_session_released_early"):

@@ -50,7 +50,12 @@ async def login_telegram(
     identity = await idb.get_or_create_identity_for_tg(session, body.id)
     await bind_identity_actor(request, session, identity)
     token = await idb.issue_token_for_identity(session, identity)
-    logger.info("[Auth] Login success: identity={}, tg_id={}, ip={}, method=telegram_widget", identity.id, body.id, _client_ip(request))
+    logger.info(
+        "[Auth] Login success: identity={}, tg_id={}, ip={}, method=telegram_widget",
+        identity.id,
+        body.id,
+        _client_ip(request),
+    )
     set_auth_cookie(response, token, request)
     set_is_admin_cookie(response, identity, request)
     return LoginResponse(identity_id=identity.id)
@@ -65,6 +70,7 @@ async def login_telegram_webapp(
 ):
     """Вход через Telegram WebApp initData. Валидирует HMAC, находит/создаёт Identity по tg_id."""
     from utils.telegram_login import verify_webapp_init_data
+
     result = verify_webapp_init_data(body.init_data, API_TOKEN)
     if not result:
         raise HTTPException(status_code=401, detail="Неверная подпись initData")
@@ -74,7 +80,12 @@ async def login_telegram_webapp(
     identity = await idb.get_or_create_identity_for_tg(session, int(tg_id))
     await bind_identity_actor(request, session, identity)
     token = await idb.issue_token_for_identity(session, identity)
-    logger.info("[Auth] Login success: identity={}, tg_id={}, ip={}, method=telegram_webapp", identity.id, tg_id, _client_ip(request))
+    logger.info(
+        "[Auth] Login success: identity={}, tg_id={}, ip={}, method=telegram_webapp",
+        identity.id,
+        tg_id,
+        _client_ip(request),
+    )
     set_auth_cookie(response, token, request)
     set_is_admin_cookie(response, identity, request)
     return LoginResponse(identity_id=identity.id)

@@ -1,7 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from handlers.keys.utils import build_key_ref, resolve_key
 from database.models import Key
+from handlers.keys.utils import build_key_ref, resolve_key
 
 
 def build_admin_key_ref(client_id: str | None, email: str | None = None) -> str:

@@ -5,7 +5,6 @@ from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import SUPERNODE
-from panels.remnawave_runtime import invalidate_remnawave_profile, with_remnawave_api
 from database import (
     delete_notification,
     filter_cluster_by_subgroup,
@@ -17,7 +16,6 @@ from database import (
     update_key_expiry,
     update_key_link,
 )
-from services.clusters import ALLOWED_GROUP_CODES
 from hooks.processors import process_get_cryptolink_after_renewal
 from logger import (
     CLOGGER as logger,
@@ -25,6 +23,8 @@ from logger import (
     PANEL_XUI,
 )
 from panels._3xui import extend_client_key, get_xui_instance
+from panels.remnawave_runtime import invalidate_remnawave_profile, with_remnawave_api
+from services.clusters import ALLOWED_GROUP_CODES
 
 from .aggregated_links import make_aggregated_link
 
@@ -271,6 +271,7 @@ async def renew_key_in_cluster(
 
         if (target_subgroup or "") != (old_subgroup or "") and not single_server:
             from services.tariffs.subgroup_migration import migrate_between_subgroups
+
             new_client_id, remna_link = await migrate_between_subgroups(
                 session=session,
                 cluster_all=cluster,

@@ -12,9 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from audit import (
     AUDIT_STEP_LABELS,
     clear_audit_redis_buffers,
+    get_audit_db_reset_at,
     get_audit_funnel,
     get_audit_funnel_from_redis,
-    get_audit_db_reset_at,
     get_audit_stats,
     get_audit_stats_from_redis,
     set_audit_db_reset_at,
@@ -141,9 +141,7 @@ async def handle_stats(callback_query: CallbackQuery, session: AsyncSession):
         total_users = await count_total_users(session)
         users_updated_today = await count_users_updated_today(session, today_start_utc)
         registrations_today = await count_users_registered_since(session, today_start_utc)
-        registrations_yesterday = await count_users_registered_between(
-            session, yesterday_start_utc, yesterday_end_utc
-        )
+        registrations_yesterday = await count_users_registered_between(session, yesterday_start_utc, yesterday_end_utc)
         registrations_week = await count_users_registered_since(session, week_start_utc)
         registrations_month = await count_users_registered_since(session, month_start_utc)
         registrations_last_month = await count_users_registered_between(
@@ -157,9 +155,12 @@ async def handle_stats(callback_query: CallbackQuery, session: AsyncSession):
 
         expired_keys = total_keys - active_keys
         tariff_ids = [tid for tid, _ in tariff_counts]
-        tariff_names, tariff_groups, tariff_subgroups, tariff_durations = (
-            await get_tariff_names_groups_subgroups_durations(session, tariff_ids)
-        )
+        (
+            tariff_names,
+            tariff_groups,
+            tariff_subgroups,
+            tariff_durations,
+        ) = await get_tariff_names_groups_subgroups_durations(session, tariff_ids)
 
         grouped_tariffs = {}
         for tid, count in tariff_counts:
@@ -339,10 +340,7 @@ async def _build_audit_report(session: AsyncSession, source: str = "db") -> tupl
             funnel = await get_audit_funnel(session, date_from=effective_start_utc, date_to=end_utc)
             stats = await get_audit_stats(session, date_from=effective_start_utc, date_to=end_utc)
             if effective_start_utc != start_utc:
-                reset_note = (
-                    "🧹 Сброс БД: "
-                    f"<b>{reset_at.astimezone(moscow_tz).strftime('%d.%m.%Y %H:%M')}</b>"
-                )
+                reset_note = f"🧹 Сброс БД: <b>{reset_at.astimezone(moscow_tz).strftime('%d.%m.%Y %H:%M')}</b>"
             summary = stats["summary"]
             by_path = stats["by_path"]
             header = f"📊 <b>Аудит</b> (БД за {report_date.strftime('%d.%m.%Y')} МСК)"
@@ -376,8 +374,12 @@ async def _build_audit_report(session: AsyncSession, source: str = "db") -> tupl
         connect_opened = success_by_step.get("connect", 0)
         pct_pay = round(100.0 * pay_ok / pay_start, 1) if pay_start else 0
         pct_connect = round(100.0 * connect_opened / key_created, 1) if key_created else 0
-        lines.append("<b>Оплата:</b> начало {0}, успешная {1}, % успешных от созданных: {2}%".format(pay_start, pay_ok, pct_pay))
-        lines.append("<b>Подписка:</b> оформлена {0}, открыто подключение {1}, % от оформленных: {2}%".format(key_created, connect_opened, pct_connect))
+        lines.append(
+            f"<b>Оплата:</b> начало {pay_start}, успешная {pay_ok}, % успешных от созданных: {pct_pay}%"
+        )
+        lines.append(
+            f"<b>Подписка:</b> оформлена {key_created}, открыто подключение {connect_opened}, % от оформленных: {pct_connect}%"
+        )
         lines.append("")
         lines.append("<b>Воронка (уник. пользователей по точным шагам):</b>")
         for step in funnel:
@@ -447,16 +449,14 @@ async def handle_audit_refresh_db(callback_query: CallbackQuery, session: AsyncS
         pass
 
 
-@router.callback_query(AdminPanelCallback.filter(F.action.in_(["audit_reset_ask_redis", "audit_reset_ask_db"])), IsAdminFilter())
+@router.callback_query(
+    AdminPanelCallback.filter(F.action.in_(["audit_reset_ask_redis", "audit_reset_ask_db"])), IsAdminFilter()
+)
 async def handle_audit_reset_ask(callback_query: CallbackQuery):
     await callback_query.answer()
     source = "redis" if callback_query.data and "redis" in callback_query.data else "db"
     source_label = "Redis raw" if source == "redis" else "БД вчера"
-    text = (
-        f"🧹 <b>Сброс аудита</b>\n\n"
-        f"Источник: <b>{source_label}</b>\n"
-        "Подтвердите действие."
-    )
+    text = f"🧹 <b>Сброс аудита</b>\n\nИсточник: <b>{source_label}</b>\nПодтвердите действие."
     if source == "redis":
         text += "\n\nБудет очищен только Redis-буфер отчёта аудита. История по пользователям останется."
     else:
@@ -467,7 +467,9 @@ async def handle_audit_reset_ask(callback_query: CallbackQuery):
         pass
 
 
-@router.callback_query(AdminPanelCallback.filter(F.action.in_(["audit_reset_do_redis", "audit_reset_do_db"])), IsAdminFilter())
+@router.callback_query(
+    AdminPanelCallback.filter(F.action.in_(["audit_reset_do_redis", "audit_reset_do_db"])), IsAdminFilter()
+)
 async def handle_audit_reset_do(callback_query: CallbackQuery, session: AsyncSession):
     source = "redis" if callback_query.data and "redis" in callback_query.data else "db"
     try:
@@ -478,7 +480,9 @@ async def handle_audit_reset_do(callback_query: CallbackQuery, session: AsyncSes
         await callback_query.answer("Аудит сброшен")
         text, err = await _build_audit_report(session, source=source)
         if err:
-            await callback_query.message.edit_text(f"❗ Ошибка: {escape(err)}", reply_markup=build_audit_refresh_kb(source))
+            await callback_query.message.edit_text(
+                f"❗ Ошибка: {escape(err)}", reply_markup=build_audit_refresh_kb(source)
+            )
             return
         try:
             await callback_query.message.edit_text(text, reply_markup=build_audit_refresh_kb(source))

@@ -1,19 +1,20 @@
 from fastapi import APIRouter
 
 from api.v1.routes import (
-    users,
-    keys,
     coupons,
-    servers,
-    tariffs,
     gifts,
-    referrals,
-    misc,
-    partners,
-    modules,
+    keys,
     management,
+    misc,
+    modules,
+    partners,
+    referrals,
+    servers,
     settings,
+    tariffs,
+    users,
 )
+
 
 router = APIRouter()
 

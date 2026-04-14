@@ -59,6 +59,7 @@ async def run_hooks(name: str, require_enabled: bool = True, **kwargs) -> list[A
                 coro = func(**kwargs)
             else:
                 from core.executor import run_io
+
                 coro = run_io(lambda: func(**kwargs))
 
             result = await asyncio.wait_for(coro, timeout=DEFAULT_HOOK_TIMEOUT)

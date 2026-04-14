@@ -25,15 +25,9 @@ from config import (
     USE_COUNTRY_SELECTION,
 )
 from core.bootstrap import BUTTONS_CONFIG, MODES_CONFIG
-from panels.remnawave_runtime import (
-    get_remnawave_profile,
-    invalidate_remnawave_profile,
-    resolve_remnawave_api_url,
-    with_remnawave_api,
-)
-from database import get_key_details, get_keys
-from database.models import Key
+from database import get_key_details, get_keys, get_vless_enabled_batch
 from database.access.resolution import resolve_user_optional
+from database.models import Key
 from handlers.buttons import (
     ADDONS_BUTTON_DEVICES,
     ADDONS_BUTTON_DEVICES_TRAFFIC,
@@ -50,8 +44,7 @@ from handlers.buttons import (
     ROUTER_BUTTON,
     TV_BUTTON,
 )
-from database import get_vless_enabled_batch
-from services.tariffs.tariff_display import GB, get_key_tariff_addons_state
+from handlers.keys.utils import build_key_callback, build_key_ref, key_owned_by_user, resolve_key
 from handlers.texts import (
     DAYS_LEFT_MESSAGE,
     FROZEN_SUBSCRIPTION_MSG,
@@ -61,7 +54,6 @@ from handlers.texts import (
     RENAME_KEY_PROMPT,
     key_message,
 )
-from handlers.keys.utils import build_key_callback, build_key_ref, key_owned_by_user, resolve_key
 from handlers.utils import (
     edit_or_send_message,
     format_days,
@@ -78,6 +70,15 @@ from hooks.processors import (
     process_view_key_menu,
 )
 from logger import logger
+from panels.remnawave_runtime import (
+    get_remnawave_profile,
+    invalidate_remnawave_profile,
+    resolve_remnawave_api_url,
+    with_remnawave_api,
+)
+from services.tariffs.tariff_display import GB, get_key_tariff_addons_state
+
+
 router = Router()
 moscow_tz = pytz.timezone("Europe/Moscow")
 
@@ -280,9 +281,7 @@ async def handle_new_alias_input(message: Message, state: FSMContext, session: A
             await message.answer("❌ Не удалось переименовать подписку.")
             await state.clear()
             return
-        await session.execute(
-            update(Key).where(Key.user_id == u.id, Key.client_id == client_id).values(alias=alias)
-        )
+        await session.execute(update(Key).where(Key.user_id == u.id, Key.client_id == client_id).values(alias=alias))
         await session.commit()
     except Exception as error:
         await message.answer("❌ Не удалось переименовать подписку.")
@@ -464,7 +463,9 @@ async def build_key_view_payload(session: AsyncSession, tg_id: int, key_ref_or_e
                 )
             )
 
-    builder.row(InlineKeyboardButton(text=RENEW_KEY, callback_data=build_key_callback("renew_key", client_id, key_name)))
+    builder.row(
+        InlineKeyboardButton(text=RENEW_KEY, callback_data=build_key_callback("renew_key", client_id, key_name))
+    )
 
     if is_tariff_configurable and (addons_devices_enabled or addons_traffic_enabled):
         if addons_devices_enabled and addons_traffic_enabled:
@@ -473,23 +474,31 @@ async def build_key_view_payload(session: AsyncSession, tg_id: int, key_ref_or_e
             addons_text = ADDONS_BUTTON_DEVICES
         else:
             addons_text = ADDONS_BUTTON_TRAFFIC
-        builder.row(InlineKeyboardButton(text=addons_text, callback_data=build_key_callback("key_addons", client_id, key_name)))
+        builder.row(
+            InlineKeyboardButton(text=addons_text, callback_data=build_key_callback("key_addons", client_id, key_name))
+        )
 
     hwid_reset_enabled = bool(BUTTONS_CONFIG.get("HWID_RESET_BUTTON_ENABLE", HWID_RESET_BUTTON))
     qrcode_enabled = bool(BUTTONS_CONFIG.get("QRCODE_BUTTON_ENABLE", QRCODE))
     delete_key_enabled = bool(BUTTONS_CONFIG.get("DELETE_KEY_BUTTON_ENABLE", ENABLE_DELETE_KEY_BUTTON))
     if hwid_reset_enabled and hwid_count > 0:
-        builder.row(InlineKeyboardButton(text=HWID_BUTTON, callback_data=build_key_callback("reset_hwid", client_id, key_name)))
+        builder.row(
+            InlineKeyboardButton(text=HWID_BUTTON, callback_data=build_key_callback("reset_hwid", client_id, key_name))
+        )
 
     if qrcode_enabled:
         builder.row(InlineKeyboardButton(text=QR, callback_data=build_key_callback("show_qr", client_id, key_name)))
 
     if delete_key_enabled:
-        builder.row(InlineKeyboardButton(text=DELETE, callback_data=build_key_callback("delete_key", client_id, key_name)))
+        builder.row(
+            InlineKeyboardButton(text=DELETE, callback_data=build_key_callback("delete_key", client_id, key_name))
+        )
 
     if country_selection_enabled:
         builder.row(
-            InlineKeyboardButton(text=CHANGE_LOCATION, callback_data=build_key_callback("change_location", client_id, key_name))
+            InlineKeyboardButton(
+                text=CHANGE_LOCATION, callback_data=build_key_callback("change_location", client_id, key_name)
+            )
         )
 
     builder.row(InlineKeyboardButton(text=MAIN_MENU, callback_data="profile"))

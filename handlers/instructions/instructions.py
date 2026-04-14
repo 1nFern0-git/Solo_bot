@@ -32,6 +32,7 @@ from handlers.buttons import (
     SUPPORT,
     TV_CONTINUE,
 )
+from handlers.keys.utils import build_key_callback, key_owned_by_user, resolve_key
 from handlers.texts import (
     CHOOSE_DEVICE_TEXT,
     CONNECT_TV_TEXT,
@@ -42,7 +43,6 @@ from handlers.texts import (
     ROUTER_MESSAGE,
     SUBSCRIPTION_DETAILS_TEXT,
 )
-from handlers.keys.utils import build_key_callback, key_owned_by_user, resolve_key
 from handlers.utils import edit_or_send_message, is_full_remnawave_cluster
 from hooks.processors import process_remnawave_webapp_override
 
@@ -95,9 +95,21 @@ async def process_connect_pc(callback_query: CallbackQuery, session: Any):
         return
 
     builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text=PC_PC, callback_data=build_key_callback("windows_menu", record.get("client_id"), key_name)))
-    builder.row(InlineKeyboardButton(text=PC_MACOS, callback_data=build_key_callback("macos_menu", record.get("client_id"), key_name)))
-    builder.row(InlineKeyboardButton(text=BACK, callback_data=build_key_callback("connect_device", record.get("client_id"), key_name)))
+    builder.row(
+        InlineKeyboardButton(
+            text=PC_PC, callback_data=build_key_callback("windows_menu", record.get("client_id"), key_name)
+        )
+    )
+    builder.row(
+        InlineKeyboardButton(
+            text=PC_MACOS, callback_data=build_key_callback("macos_menu", record.get("client_id"), key_name)
+        )
+    )
+    builder.row(
+        InlineKeyboardButton(
+            text=BACK, callback_data=build_key_callback("connect_device", record.get("client_id"), key_name)
+        )
+    )
 
     await edit_or_send_message(
         target_message=callback_query.message,
@@ -136,7 +148,11 @@ async def process_windows_menu(callback_query: CallbackQuery, session: Any):
 
     builder.row(InlineKeyboardButton(text=CONNECT_WINDOWS_BUTTON, url=windows_url))
     builder.row(InlineKeyboardButton(text=SUPPORT, url=SUPPORT_CHAT_URL))
-    builder.row(InlineKeyboardButton(text=BACK, callback_data=build_key_callback("connect_pc", record.get("client_id"), key_name)))
+    builder.row(
+        InlineKeyboardButton(
+            text=BACK, callback_data=build_key_callback("connect_pc", record.get("client_id"), key_name)
+        )
+    )
 
     await edit_or_send_message(
         target_message=callback_query.message,
@@ -175,7 +191,11 @@ async def process_macos_menu(callback_query: CallbackQuery, session: Any):
 
     builder.row(InlineKeyboardButton(text=CONNECT_MACOS_BUTTON, url=macos_url))
     builder.row(InlineKeyboardButton(text=SUPPORT, url=SUPPORT_CHAT_URL))
-    builder.row(InlineKeyboardButton(text=BACK, callback_data=build_key_callback("connect_pc", record.get("client_id"), key_name)))
+    builder.row(
+        InlineKeyboardButton(
+            text=BACK, callback_data=build_key_callback("connect_pc", record.get("client_id"), key_name)
+        )
+    )
 
     await edit_or_send_message(
         target_message=callback_query.message,
@@ -231,7 +251,11 @@ async def process_connect_tv(callback_query: CallbackQuery, session: Any):
     )
 
     builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text=TV_CONTINUE, callback_data=build_key_callback("continue_tv", record.get("client_id"), key_name)))
+    builder.row(
+        InlineKeyboardButton(
+            text=TV_CONTINUE, callback_data=build_key_callback("continue_tv", record.get("client_id"), key_name)
+        )
+    )
     builder.row(InlineKeyboardButton(text=BACK, callback_data=back_callback))
     builder.row(InlineKeyboardButton(text=MAIN_MENU, callback_data="profile"))
 
@@ -259,7 +283,11 @@ async def process_continue_tv(callback_query: CallbackQuery, session: Any):
     message_text = SUBSCRIPTION_DETAILS_TEXT.format(subscription_link=key_link)
 
     builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text=BACK, callback_data=build_key_callback("connect_tv", record.get("client_id"), key_name)))
+    builder.row(
+        InlineKeyboardButton(
+            text=BACK, callback_data=build_key_callback("connect_tv", record.get("client_id"), key_name)
+        )
+    )
     builder.row(InlineKeyboardButton(text=MAIN_MENU, callback_data="profile"))
 
     await edit_or_send_message(
@@ -294,7 +322,9 @@ async def process_connect_router(callback_query: CallbackQuery, session: Any):
     message_text = ROUTER_MESSAGE.format(subscription_link=key_link)
 
     builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text=BACK, callback_data=build_key_callback("view_key", record.get("client_id"), key_name)))
+    builder.row(
+        InlineKeyboardButton(text=BACK, callback_data=build_key_callback("view_key", record.get("client_id"), key_name))
+    )
 
     await edit_or_send_message(
         target_message=callback_query.message,

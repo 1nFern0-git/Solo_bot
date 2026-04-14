@@ -7,8 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import DISCOUNT_ACTIVE_HOURS
 from core.bootstrap import NOTIFICATIONS_CONFIG
-from database.models import BlockedUser, Key, Notification, User
 from database.access.resolution import resolve_user_optional
+from database.models import BlockedUser, Key, Notification, User
 from logger import logger
 
 
@@ -93,17 +93,15 @@ async def bulk_add_notifications(session: AsyncSession, items: list[tuple[int, s
     total = 0
     for i in range(0, len(mapped), _BULK_ADD_NOTIFICATIONS_BATCH_SIZE):
         batch = mapped[i : i + _BULK_ADD_NOTIFICATIONS_BATCH_SIZE]
-        ins = insert(Notification).values(
-            [
-                {
-                    "user_id": uid,
-                    "tg_id": tg_by_uid.get(uid),
-                    "notification_type": ntype,
-                    "last_notification_time": now,
-                }
-                for uid, ntype in batch
-            ]
-        )
+        ins = insert(Notification).values([
+            {
+                "user_id": uid,
+                "tg_id": tg_by_uid.get(uid),
+                "notification_type": ntype,
+                "last_notification_time": now,
+            }
+            for uid, ntype in batch
+        ])
         stmt = ins.on_conflict_do_update(
             index_elements=[Notification.user_id, Notification.notification_type],
             set_={
@@ -130,15 +128,15 @@ async def bulk_delete_notifications(session: AsyncSession, items: list[tuple[int
     total = 0
     for i in range(0, len(mapped), _BULK_ADD_NOTIFICATIONS_BATCH_SIZE):
         batch = mapped[i : i + _BULK_ADD_NOTIFICATIONS_BATCH_SIZE]
-        stmt = delete(Notification).where(
-            tuple_(Notification.user_id, Notification.notification_type).in_(batch)
-        )
+        stmt = delete(Notification).where(tuple_(Notification.user_id, Notification.notification_type).in_(batch))
         await session.execute(stmt)
         total += len(batch)
     logger.debug(f"🗑 Bulk: удалено {total} уведомлений")
 
 
-async def check_notification_time(session: AsyncSession, legacy_user_ref: int, notification_type: str, hours: int = 12) -> bool:
+async def check_notification_time(
+    session: AsyncSession, legacy_user_ref: int, notification_type: str, hours: int = 12
+) -> bool:
     u = await resolve_user_optional(session, legacy_user_ref)
     if u is None:
         return True
@@ -170,8 +168,7 @@ async def check_notification_time_bulk(
     can_notify = set()
     found = set()
     for batch in (
-        items[i : i + _NOTIFICATION_TIME_BATCH_SIZE]
-        for i in range(0, len(items), _NOTIFICATION_TIME_BATCH_SIZE)
+        items[i : i + _NOTIFICATION_TIME_BATCH_SIZE] for i in range(0, len(items), _NOTIFICATION_TIME_BATCH_SIZE)
     ):
         id_map = await _map_legacy_refs_to_user_ids(session, [p[0] for p in batch])
         mapped_batch = [(id_map[r], n) for r, n in batch if r in id_map]
@@ -255,9 +252,7 @@ _HOT_LEAD_NOTIFICATION_TYPES = (
 )
 
 
-async def get_hot_lead_notification_flags(
-    session: AsyncSession, tg_ids: list[int]
-) -> dict[int, set[str]]:
+async def get_hot_lead_notification_flags(session: AsyncSession, tg_ids: list[int]) -> dict[int, set[str]]:
     """
     Один запрос: для каждого tg_id возвращает множество типов уведомлений hot_lead_*,
     которые у него уже есть. Используется в notify_hot_leads для устранения N+1.
@@ -336,15 +331,12 @@ async def check_notifications_bulk(
     now = _utc_now()
 
     if notification_type == "inactive_trial":
-        stmt_inactive = (
-            select(User.id)
-            .where(
-                and_(
-                    User.trial.in_([0, -1]),
-                    User.tg_id.isnot(None),
-                    ~User.id.in_(select(BlockedUser.user_id)),
-                    ~User.id.in_(select(Key.user_id.distinct())),
-                )
+        stmt_inactive = select(User.id).where(
+            and_(
+                User.trial.in_([0, -1]),
+                User.tg_id.isnot(None),
+                ~User.id.in_(select(BlockedUser.user_id)),
+                ~User.id.in_(select(Key.user_id.distinct())),
             )
         )
         result_inactive = await session.execute(stmt_inactive)
@@ -559,4 +551,3 @@ async def check_notifications_bulk(
 
     logger.info(f"Найдено {len(users)} пользователей, готовых к уведомлению типа {notification_type}")
     return users
-

@@ -1,4 +1,5 @@
 import unittest
+
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -131,9 +132,7 @@ class CouponsLegacyResolutionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_check_coupon_usage_matches_by_billing_or_tg(self):
         user = SimpleNamespace(id=41, tg_id=4141)
-        session = SimpleNamespace(
-            execute=AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: object()))
-        )
+        session = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: object())))
 
         with patch("database.coupons.resolve_user_optional", new=AsyncMock(return_value=user)):
             used = await check_coupon_usage(session, coupon_id=5, legacy_user_ref=4141)

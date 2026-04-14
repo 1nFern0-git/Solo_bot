@@ -25,6 +25,7 @@ def _get_email_template(key: str, default: str) -> str:
     """Читает шаблон из WEB_CONFIG (настраиваемый админом), fallback на default."""
     try:
         from core.settings.web_config import WEB_CONFIG
+
         val = WEB_CONFIG.get(key)
         return str(val).strip() if val else default
     except Exception:
@@ -61,7 +62,9 @@ async def send_login_code_email(to_addr: str, code: str) -> None:
         raise RuntimeError("smtp_not_configured")
     from_addr = EMAIL_FROM or EMAIL_SMTP_USER
     project = PROJECT_NAME
-    subject = _render(_get_email_template("EMAIL_LOGIN_SUBJECT", "{project}: код для входа"), project=project, code=code)
+    subject = _render(
+        _get_email_template("EMAIL_LOGIN_SUBJECT", "{project}: код для входа"), project=project, code=code
+    )
     body = _render(_get_email_template("EMAIL_LOGIN_BODY", "Код для входа: {code}"), project=project, code=code)
     msg = EmailMessage()
     msg["Subject"] = subject
@@ -99,8 +102,12 @@ async def send_email_verify_code_email(to_addr: str, code: str) -> None:
         raise RuntimeError("smtp_not_configured")
     from_addr = EMAIL_FROM or EMAIL_SMTP_USER
     project = PROJECT_NAME
-    subject = _render(_get_email_template("EMAIL_VERIFY_SUBJECT", "{project}: подтверждение email"), project=project, code=code)
-    body = _render(_get_email_template("EMAIL_VERIFY_BODY", "Код подтверждения email: {code}"), project=project, code=code)
+    subject = _render(
+        _get_email_template("EMAIL_VERIFY_SUBJECT", "{project}: подтверждение email"), project=project, code=code
+    )
+    body = _render(
+        _get_email_template("EMAIL_VERIFY_BODY", "Код подтверждения email: {code}"), project=project, code=code
+    )
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = f"{project} <{from_addr}>"
@@ -118,7 +125,9 @@ async def send_email_link_code_email(to_addr: str, code: str) -> None:
         raise RuntimeError("smtp_not_configured")
     from_addr = EMAIL_FROM or EMAIL_SMTP_USER
     project = PROJECT_NAME
-    subject = _render(_get_email_template("EMAIL_LINK_SUBJECT", "{project}: подтверждение привязки email"), project=project, code=code)
+    subject = _render(
+        _get_email_template("EMAIL_LINK_SUBJECT", "{project}: подтверждение привязки email"), project=project, code=code
+    )
     body = _render(_get_email_template("EMAIL_LINK_BODY", "Код для привязки email: {code}"), project=project, code=code)
     msg = EmailMessage()
     msg["Subject"] = subject

@@ -35,9 +35,10 @@ async def create_key_on_cluster(
     current_traffic_limit_gb: int = None,
     selected_price_rub: int = None,
 ):
-    from services.clusters import ALLOWED_GROUP_CODES, check_server_key_limit
     from panels._3xui import ClientConfig, add_client, get_xui_instance
     from panels.remnawave import RemnawaveAPI, get_vless_link_for_remnawave_by_username
+    from services.clusters import ALLOWED_GROUP_CODES, check_server_key_limit
+
     try:
         servers = await get_servers(session)
         cluster = servers.get(cluster_id)
@@ -291,7 +292,14 @@ async def create_key_on_cluster(
             await mark_trial_started_if_eligible(session, tg_id)
             try:
                 from database.web_notifications import notify_web
-                await notify_web(session, tg_id=tg_id, type="key_created", template_vars={"email": email}, data={"email": email, "client_id": client_id})
+
+                await notify_web(
+                    session,
+                    tg_id=tg_id,
+                    type="key_created",
+                    template_vars={"email": email},
+                    data={"email": email, "client_id": client_id},
+                )
             except Exception as e:
                 logger.warning("[KeyCreate] Ошибка web-уведомления о создании ключа tg_id={}: {}", tg_id, e)
 
@@ -314,6 +322,7 @@ async def create_client_on_server(
     device_limit_value: int = 0,
 ):
     from panels._3xui import ClientConfig, add_client, get_xui_instance
+
     logger.debug(
         f"{PANEL_XUI} [Client] Вход в create_client_on_server: "
         f"сервер={server_info.get('server_name')}, план={plan}, is_trial={is_trial}"

@@ -51,9 +51,7 @@ async def cleanup_expired_gifts_job() -> None:
     async with async_session_maker() as session:
         try:
             result = await session.execute(
-                sa_update(Gift)
-                .where(Gift.expiry_time < datetime.utcnow(), Gift.is_used == False)
-                .values(is_used=True)
+                sa_update(Gift).where(Gift.expiry_time < datetime.utcnow(), Gift.is_used is False).values(is_used=True)
             )
             count = result.rowcount
             await session.commit()

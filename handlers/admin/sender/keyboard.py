@@ -153,7 +153,9 @@ def build_scheduled_broadcast_detail_kb(item, page: int = 0) -> InlineKeyboardMa
         builder.row(
             InlineKeyboardButton(
                 text="👥 Аудитория",
-                callback_data=ScheduledBroadcastCallback(action="edit_audience", broadcast_id=item.id, page=page).pack(),
+                callback_data=ScheduledBroadcastCallback(
+                    action="edit_audience", broadcast_id=item.id, page=page
+                ).pack(),
             ),
             InlineKeyboardButton(
                 text="⚡ Отправить сейчас",

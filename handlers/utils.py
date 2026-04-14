@@ -25,8 +25,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bot import bot
 from config import ADMIN_ID
 from database import get_servers
-from database.models import Key, Notification, Server
 from database.access.resolution import resolve_user_optional
+from database.models import Key, Notification, Server
 from hooks.processors import process_cluster_balancer
 from logger import logger
 
@@ -47,7 +47,9 @@ def _is_message_not_modified(exc: BaseException) -> bool:
     return isinstance(exc, TelegramBadRequest) and _MESSAGE_NOT_MODIFIED in str(exc).lower()
 
 
-async def safe_answer_callback(callback_query: CallbackQuery, text: str | None = None, show_alert: bool = False, **kwargs) -> None:
+async def safe_answer_callback(
+    callback_query: CallbackQuery, text: str | None = None, show_alert: bool = False, **kwargs
+) -> None:
     """
     Вызывает callback_query.answer(), не поднимая исключение при устаревшем/уже отвеченном callback.
     Использовать в хендлерах после долгой обработки или при наплыве пользователей.
@@ -92,6 +94,7 @@ async def generate_random_email(
 async def get_least_loaded_cluster(session: AsyncSession) -> str:
     """Делегирует в services.clusters.select_cluster()."""
     from services.clusters import select_cluster
+
     result = await select_cluster(session)
     return result.cluster_name
 
@@ -363,7 +366,6 @@ async def edit_or_send_message(
         except Exception as e:
             if _is_message_not_modified(e):
                 return
-            pass
     try:
         await target_message.edit_text(
             text=text,
@@ -395,6 +397,7 @@ def convert_to_bytes(value: float, unit: str) -> int:
 
 async def is_full_remnawave_cluster(cluster_id: str, session: AsyncSession) -> bool:
     from services.clusters import is_full_remnawave_cluster as _svc
+
     return await _svc(cluster_id, session)
 
 

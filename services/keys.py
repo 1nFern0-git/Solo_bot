@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+
 from dataclasses import dataclass, field
 from datetime import datetime
 from math import ceil
@@ -28,6 +29,7 @@ from database.users import get_trial
 from logger import logger
 
 from .errors import NotFoundError, ValidationError
+
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -147,11 +149,14 @@ async def calculate_renewal_pricing(
     sel_trf_int = int(selected_traffic) if selected_traffic is not None else None
 
     from services.tariffs import calculate_config_price as calc_price_buy
-    total_price_rub = int(calc_price_buy(
-        tariff=tariff,
-        selected_device_limit=sel_dev_int,
-        selected_traffic_gb=sel_trf_int,
-    ))
+
+    total_price_rub = int(
+        calc_price_buy(
+            tariff=tariff,
+            selected_device_limit=sel_dev_int,
+            selected_traffic_gb=sel_trf_int,
+        )
+    )
     if total_price_rub <= 0:
         raise ValidationError("Некорректная стоимость продления")
 
@@ -163,6 +168,7 @@ async def calculate_renewal_pricing(
     )
 
     from services.tariffs.tariff_display import GB, get_effective_limits_for_key
+
     _, traffic_bytes = await get_effective_limits_for_key(
         session=session,
         tariff_id=int(tariff_id),
@@ -219,11 +225,14 @@ async def execute_renewal(
         raise NotFoundError(f"Ключ {client_id} не найден в БД")
 
     final_device, final_traffic = _resolve_effective_limits(
-        tariff, selected_device_limit, selected_traffic_limit,
+        tariff,
+        selected_device_limit,
+        selected_traffic_limit,
     )
 
-    from services.tariffs.tariff_display import GB, get_effective_limits_for_key
     from services.operations import renew_key_in_cluster
+    from services.tariffs.tariff_display import GB, get_effective_limits_for_key
+
     if tariff.get("configurable"):
         sel_trf = int(final_traffic) if final_traffic is not None else None
         sel_dev = int(final_device) if final_device is not None else None

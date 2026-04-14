@@ -16,6 +16,7 @@ from database.users import get_balance, update_balance
 
 from .errors import LimitExceededError, NotFoundError, ValidationError
 
+
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -61,7 +62,7 @@ async def resolve_percent_coupon(
 class CouponApplyResult:
     __slots__ = ("coupon_code", "amount", "balance")
 
-    def __init__(self, coupon_code: str, amount: int, balance: float):
+    def __init__(self, coupon_code: str, amount: int, balance: float) -> None:
         self.coupon_code = coupon_code
         self.amount = amount
         self.balance = balance

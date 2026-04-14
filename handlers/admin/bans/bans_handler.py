@@ -13,8 +13,8 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import delete_user_data
-from database.models import BlockedUser, Key, ManualBan, User
 from database.access.resolution import resolve_user_optional
+from database.models import BlockedUser, Key, ManualBan, User
 from database.users import add_user
 from filters.admin import IsAdminFilter
 from logger import logger
@@ -115,7 +115,9 @@ async def handle_bans_export(callback_query: CallbackQuery, session: AsyncSessio
 async def handle_bans_delete_banned(callback_query: CallbackQuery, session: AsyncSession):
     kb = build_blocked_users_kb()
     try:
-        stmt = select(BlockedUser.user_id).outerjoin(Key, BlockedUser.user_id == Key.user_id).where(Key.user_id.is_(None))
+        stmt = (
+            select(BlockedUser.user_id).outerjoin(Key, BlockedUser.user_id == Key.user_id).where(Key.user_id.is_(None))
+        )
         result = await session.execute(stmt)
         blocked_ids = [row[0] for row in result.all()]
 
@@ -377,16 +379,14 @@ async def handle_preemptive_ids_input(message: Message, state: FSMContext, sessi
             u = await resolve_user_optional(session, raw_tg)
         if u is None:
             continue
-        rows.append(
-            {
-                "user_id": u.id,
-                "tg_id": u.tg_id,
-                "reason": "shadow",
-                "banned_by": message.from_user.id,
-                "until": None,
-                "banned_at": now,
-            }
-        )
+        rows.append({
+            "user_id": u.id,
+            "tg_id": u.tg_id,
+            "reason": "shadow",
+            "banned_by": message.from_user.id,
+            "until": None,
+            "banned_at": now,
+        })
         if u.tg_id is not None:
             cache_tg_ids.append(u.tg_id)
 

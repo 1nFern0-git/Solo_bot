@@ -10,6 +10,7 @@ from api.v2.schemas.identities import (
 )
 from database import identities as idb
 
+
 router = APIRouter(tags=["Identities"])
 
 

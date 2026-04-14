@@ -1,4 +1,5 @@
 import unittest
+
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -51,7 +52,9 @@ class ScheduledBroadcastResolutionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_list_scheduled_broadcasts_filters_by_created_by_tg(self):
         rows = [SimpleNamespace(id="a"), SimpleNamespace(id="b")]
-        session = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: rows))))
+        session = SimpleNamespace(
+            execute=AsyncMock(return_value=SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: rows)))
+        )
 
         result = await list_scheduled_broadcasts(
             session=session,

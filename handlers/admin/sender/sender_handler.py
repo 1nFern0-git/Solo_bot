@@ -56,11 +56,7 @@ def _broadcast_progress_text(completed: int, total: int, sent: int, failed: int)
         pct = min(100, int(100 * completed / total))
         bar_filled = min(10, int(10 * completed / total))
     bar = "█" * bar_filled + "░" * (10 - bar_filled)
-    return (
-        f"📤 <b>Рассылка...</b>\n\n"
-        f"[{bar}] <b>{pct}%</b> ({completed}/{total})\n"
-        f"✅ {sent}   ❌ {failed}"
-    )
+    return f"📤 <b>Рассылка...</b>\n\n[{bar}] <b>{pct}%</b> ({completed}/{total})\n✅ {sent}   ❌ {failed}"
 
 
 def _compose_message_text() -> str:
@@ -122,20 +118,18 @@ def _scheduled_broadcast_text(item) -> str:
         lines.extend(["", f"⚠️ <b>Ошибка:</b> {_truncate_text(item.error_text, 250)}"])
     if item.stats_json:
         stats = item.stats_json.get("stats") or {}
-        lines.extend(
-            [
-                "",
-                f"✅ <b>Доставлено:</b> {stats.get('success_count', 0)}",
-                f"❌ <b>Не доставлено:</b> {stats.get('failed_count', 0)}",
-            ]
-        )
+        lines.extend([
+            "",
+            f"✅ <b>Доставлено:</b> {stats.get('success_count', 0)}",
+            f"❌ <b>Не доставлено:</b> {stats.get('failed_count', 0)}",
+        ])
     return "\n".join(lines)
 
 
 def _scheduled_broadcasts_list_text(items: list, page: int) -> str:
     if not items:
         return "🗓 <b>Запланированных рассылок пока нет.</b>"
-    lines = [f"🗓 <b>Запланированные рассылки</b>\n", f"Страница: <b>{page + 1}</b>\n"]
+    lines = ["🗓 <b>Запланированные рассылки</b>\n", f"Страница: <b>{page + 1}</b>\n"]
     for item in items:
         target = item.send_to if not item.cluster_name else f"{item.send_to}/{item.cluster_name}"
         lines.append(
@@ -148,7 +142,9 @@ def _scheduled_broadcasts_list_text(items: list, page: int) -> str:
 def _broadcast_result_text(recipients: int, stats: dict) -> str:
     duration_minutes = int(stats["total_duration"] // 60)
     duration_seconds = int(stats["total_duration"] % 60)
-    duration_str = f"{duration_minutes} мин {duration_seconds} сек" if duration_minutes > 0 else f"{duration_seconds} сек"
+    duration_str = (
+        f"{duration_minutes} мин {duration_seconds} сек" if duration_minutes > 0 else f"{duration_seconds} сек"
+    )
     return (
         f"📤 <b>Рассылка завершена!</b>\n\n"
         f"👥 <b>Количество получателей:</b> {recipients}\n"
