@@ -1,3 +1,9 @@
+import asyncio
+import os
+import re
+import time
+
+import aiohttp
 from fastapi import APIRouter
 
 from config import (
@@ -159,3 +165,108 @@ async def site_config():
             "cashback_percent": cashback_percent,
         },
     }
+
+
+_UPDATE_CHECK_CACHE: dict[str, object] = {"fetched_at": 0.0, "data": None}
+_UPDATE_CHECK_LOCK = asyncio.Lock()
+_UPDATE_CHECK_TTL_SEC = 3600
+_SEMVER_RE = re.compile(
+    r"^v?(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)(?:-(?P<pre>[0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$"
+)
+
+
+def _parse_semver(tag: str) -> tuple[int, int, int, int, tuple[tuple[int, int | str], ...]] | None:
+    """Returns a tuple comparable per semver spec.
+
+    Release > prerelease (second-to-last slot: 1 for release, 0 for prerelease).
+    Last slot — tuple of prerelease identifiers; numeric ids compare numerically,
+    alphanumeric ids compare lexically, numeric < alphanumeric.
+    """
+    match = _SEMVER_RE.match(tag.strip())
+    if not match:
+        return None
+    major = int(match.group("major"))
+    minor = int(match.group("minor"))
+    patch = int(match.group("patch"))
+    pre_raw = match.group("pre")
+    if not pre_raw:
+        return (major, minor, patch, 1, ())
+    identifiers: list[tuple[int, int | str]] = []
+    for part in pre_raw.split("."):
+        if part.isdigit():
+            identifiers.append((0, int(part)))
+        else:
+            identifiers.append((1, part))
+    return (major, minor, patch, 0, tuple(identifiers))
+
+
+async def _fetch_ghcr_latest_tag(image: str) -> str | None:
+    """Анонимно тянем список тегов публичного GHCR-пакета и возвращаем максимальный семвер."""
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+        token_url = f"https://ghcr.io/token?scope=repository:{image}:pull"
+        async with session.get(token_url) as token_resp:
+            if token_resp.status != 200:
+                return None
+            token_data = await token_resp.json()
+            token = str(token_data.get("token") or "").strip()
+            if not token:
+                return None
+        headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+        tags_url = f"https://ghcr.io/v2/{image}/tags/list"
+        async with session.get(tags_url, headers=headers) as tags_resp:
+            if tags_resp.status != 200:
+                return None
+            payload = await tags_resp.json()
+    tags = payload.get("tags") or []
+    versions: list[tuple[tuple[int, int, int], str]] = []
+    for raw in tags:
+        parsed = _parse_semver(str(raw))
+        if parsed is not None:
+            versions.append((parsed, str(raw)))
+    if not versions:
+        return None
+    versions.sort(key=lambda item: item[0], reverse=True)
+    return versions[0][1]
+
+
+@router.get("/api/meta/update-check", include_in_schema=True)
+async def update_check():
+    """Сравнивает текущую версию Solo-brick с последним тегом публичного GHCR-образа."""
+    current = (os.environ.get("APP_VERSION") or "").strip()
+    image = (os.environ.get("GHCR_IMAGE") or "").strip()
+    now = time.time()
+
+    cached = _UPDATE_CHECK_CACHE.get("data")
+    fetched_at = float(_UPDATE_CHECK_CACHE.get("fetched_at") or 0.0)
+    if cached is not None and now - fetched_at < _UPDATE_CHECK_TTL_SEC:
+        return cached
+
+    latest: str | None = None
+    if image:
+        async with _UPDATE_CHECK_LOCK:
+            fetched_at = float(_UPDATE_CHECK_CACHE.get("fetched_at") or 0.0)
+            cached = _UPDATE_CHECK_CACHE.get("data")
+            if cached is not None and now - fetched_at < _UPDATE_CHECK_TTL_SEC:
+                return cached
+            try:
+                latest = await _fetch_ghcr_latest_tag(image)
+            except Exception:
+                latest = None
+
+    has_update = False
+    if current and latest:
+        cur = _parse_semver(current)
+        nxt = _parse_semver(latest)
+        if cur and nxt:
+            has_update = nxt > cur
+
+    response = {
+        "current": current or None,
+        "latest": latest,
+        "hasUpdate": has_update,
+        "image": image or None,
+        "checkedAt": int(now),
+    }
+    _UPDATE_CHECK_CACHE["data"] = response
+    _UPDATE_CHECK_CACHE["fetched_at"] = now
+    return response

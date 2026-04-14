@@ -191,6 +191,7 @@ TEMP_DIR = os.path.expanduser("~/.solobot_tmp")
 PROJECT_DIR = os.path.abspath(os.path.dirname(__file__))
 IS_ROOT_DIR = PROJECT_DIR == "/root"
 GITHUB_REPO = "https://github.com/Vladless/Solo_bot"
+GHCR_IMAGE = os.environ.get("GHCR_IMAGE", "vladless/solo-brick").strip() or "vladless/solo-brick"
 DEFAULT_SERVICE_NAME = "bot.service"
 VENV_PYTHON = os.path.join(PROJECT_DIR, "venv", "bin", "python")
 
@@ -1103,8 +1104,6 @@ def update_from_release():
 WEB_IMAGE = "ghcr.io/vladless/solo-brick:latest"
 WEB_CONTAINER_NAME = "solo-brick"
 WEB_DIR = os.path.join(os.path.expanduser("~"), "solo-brick")
-WEB_REMOTE_ARCHIVE = "https://github.com/Vladless/Solo_bot/archive/refs/heads/dev.tar.gz"
-WEB_REMOTE_SUBDIR = "web-app"
 
 
 def _find_local_web_source() -> str | None:
@@ -1161,48 +1160,6 @@ def _copy_local_web_source(src: str, dst: str) -> bool:
     return os.path.isfile(os.path.join(dst, "package.json"))
 
 
-def _download_web_from_github(dst: str) -> bool:
-    import urllib.request
-    import tarfile
-    import tempfile
-
-    subprocess.run(["rm", "-rf", dst], check=False)
-    os.makedirs(dst, exist_ok=True)
-
-    tmp_path = ""
-    try:
-        with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
-            tmp_path = tmp.name
-        urllib.request.urlretrieve(WEB_REMOTE_ARCHIVE, tmp_path)
-
-        with tarfile.open(tmp_path, "r:gz") as tar:
-            prefix_marker = f"/{WEB_REMOTE_SUBDIR}/"
-            extracted = 0
-            for member in tar.getmembers():
-                idx = member.name.find(prefix_marker)
-                if idx == -1:
-                    continue
-                relative = member.name[idx + len(prefix_marker):]
-                if not relative:
-                    continue
-                member.name = relative
-                tar.extract(member, dst)
-                extracted += 1
-            if extracted == 0:
-                return False
-    except Exception as e:
-        console.print(f"[red]❌ Ошибка загрузки архива: {e}[/red]")
-        return False
-    finally:
-        if tmp_path and os.path.exists(tmp_path):
-            try:
-                os.unlink(tmp_path)
-            except Exception:
-                pass
-
-    return os.path.isfile(os.path.join(dst, "package.json"))
-
-
 def _prepare_web_sources(dst: str) -> bool:
     local = _find_local_web_source()
     if local:
@@ -1210,14 +1167,10 @@ def _prepare_web_sources(dst: str) -> bool:
         if _copy_local_web_source(local, dst):
             console.print("[green]✓ Локальные исходники скопированы[/green]")
             return True
-        console.print("[yellow]Не удалось скопировать локальные исходники. Пробую загрузку из GitHub.[/yellow]")
+        console.print("[yellow]Не удалось скопировать локальные исходники.[/yellow]")
 
-    console.print("[cyan]Загрузка web-app из публичного репозитория Vladless/Solo_bot (dev)...[/cyan]")
-    if _download_web_from_github(dst):
-        console.print("[green]✓ Исходники загружены из публичного репозитория[/green]")
-        return True
-
-    console.print("[red]❌ Не удалось получить исходники web-app[/red]")
+    console.print("[red]❌ Локальные исходники web-app не найдены и не удалось использовать.[/red]")
+    console.print("[yellow]Проверьте, что пакет ghcr.io/vladless/solo-brick публичен, либо что рядом с CLI лежит каталог web-app.[/yellow]")
     return False
 
 
@@ -1383,6 +1336,7 @@ def install_website():
         console.print("[yellow]Эта функция недоступна в текущей версии. Обновите бота.[/yellow]")
         return
 
+    show_website_version_banner()
     console.print(
         Panel(
             "[white]CLI установит Docker, скачает готовый образ сайта, настроит nginx и SSL.\n"
@@ -1599,6 +1553,7 @@ def manage_website():
     if not _check_feature("web"):
         console.print("[yellow]Эта функция недоступна в текущей версии. Обновите бота.[/yellow]")
         return
+    show_website_version_banner()
     if not os.path.exists(os.path.join(WEB_DIR, "docker-compose.yml")):
         console.print("[yellow]Сайт не установлен.[/yellow]")
         if safe_confirm("[green]Установить сейчас?[/green]", default=True):
@@ -1633,6 +1588,9 @@ def manage_website():
         console.print("[yellow]Сайт остановлен[/yellow]")
     elif choice == "5":
         src_dir = os.path.join(WEB_DIR, "src")
+        show_website_version_banner()
+        if not safe_confirm("[green]Продолжить обновление?[/green]", default=True):
+            return
         console.print("[cyan]Обновление образа...[/cyan]")
         if not _ensure_web_image(src_dir, force_pull=True):
             return
@@ -1670,8 +1628,110 @@ def show_update_menu():
         update_from_release()
 
 
+_SEMVER_CLI_RE = re.compile(
+    r"^v?(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)(?:-(?P<pre>[0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$"
+)
+
+
+def _parse_solo_brick_semver(tag: str):
+    match = _SEMVER_CLI_RE.match(tag.strip())
+    if not match:
+        return None
+    major = int(match.group("major"))
+    minor = int(match.group("minor"))
+    patch = int(match.group("patch"))
+    pre_raw = match.group("pre")
+    if not pre_raw:
+        return (major, minor, patch, 1, ())
+    ids = []
+    for part in pre_raw.split("."):
+        if part.isdigit():
+            ids.append((0, int(part)))
+        else:
+            ids.append((1, part))
+    return (major, minor, patch, 0, tuple(ids))
+
+
+def read_installed_solo_brick_version() -> str | None:
+    """Читает установленную версию сайта из лейбла скачанного докер-образа.
+
+    На клиентской машине исходников нет — единственный источник истины это
+    лейбл `org.opencontainers.image.version`, который CI проставляет при сборке.
+    """
+    for image_ref in (f"ghcr.io/{GHCR_IMAGE}:latest", f"ghcr.io/{GHCR_IMAGE}"):
+        try:
+            result = subprocess.run(
+                [
+                    "docker",
+                    "image",
+                    "inspect",
+                    "--format",
+                    "{{index .Config.Labels \"org.opencontainers.image.version\"}}",
+                    image_ref,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            label = (result.stdout or "").strip()
+            if result.returncode == 0 and label and label != "<no value>":
+                return label
+        except Exception:
+            continue
+    return None
+
+
+def fetch_latest_ghcr_tag(image: str) -> str | None:
+    try:
+        token_resp = http_get(f"https://ghcr.io/token?scope=repository:{image}:pull", timeout=8)
+        if token_resp.status_code != 200:
+            return None
+        token = str(token_resp.json().get("token") or "").strip()
+        if not token:
+            return None
+        req = Request(
+            f"https://ghcr.io/v2/{image}/tags/list",
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+        )
+        with urlopen(req, timeout=10) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+        tags = payload.get("tags") or []
+        versions = []
+        for raw in tags:
+            parsed = _parse_solo_brick_semver(str(raw))
+            if parsed is not None:
+                versions.append((parsed, str(raw)))
+        if not versions:
+            return None
+        versions.sort(key=lambda item: item[0], reverse=True)
+        return versions[0][1]
+    except Exception:
+        return None
+
+
+def show_website_version_banner():
+    """Короткий баннер с установленной и доступной версией сайта."""
+    installed = read_installed_solo_brick_version()
+    with console.status("[cyan]Проверка версии Solo-brick...[/cyan]"):
+        latest = fetch_latest_ghcr_tag(GHCR_IMAGE)
+    installed_str = installed if installed else "не определено"
+    latest_str = latest if latest else "недоступно"
+    tag = ""
+    if installed and latest:
+        cur = _parse_solo_brick_semver(installed)
+        nxt = _parse_solo_brick_semver(latest)
+        if cur and nxt and nxt > cur:
+            tag = "  [bold yellow]⚡ Доступно обновление[/bold yellow]"
+        elif cur and nxt:
+            tag = "  [green]✅ Актуально[/green]"
+    console.print(
+        f"[dim]Solo-brick:[/dim] установлено [bold]{installed_str}[/bold] · "
+        f"доступно [bold]{latest_str}[/bold]{tag}"
+    )
+
+
 def show_menu():
-    table = Table(title="Solobot CLI v0.5.3", title_style="bold magenta", header_style="bold blue")
+    table = Table(title="Solobot CLI v0.5.4", title_style="bold magenta", header_style="bold blue")
     table.add_column("№", justify="center", style="cyan", no_wrap=True)
     table.add_column("Операция", style="white")
     table.add_row("1", "Запустить бота (systemd)")

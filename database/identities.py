@@ -82,6 +82,179 @@ async def get_identity_by_tg_id(session: AsyncSession, tg_id: int) -> Identity |
     return result.scalar_one_or_none()
 
 
+async def get_identity_by_google_sub(session: AsyncSession, google_sub: str) -> Identity | None:
+    """Возвращает идентичность по Google `sub` (стабильный ID пользователя от Google)."""
+    if not google_sub:
+        return None
+    result = await session.execute(select(Identity).where(Identity.google_sub == google_sub))
+    return result.scalar_one_or_none()
+
+
+async def get_or_create_identity_for_google(
+    session: AsyncSession,
+    google_sub: str,
+    email: str | None = None,
+) -> Identity:
+    """Для Google `sub` возвращает существующую идентичность или создаёт новую.
+
+    Логика мёрджа:
+    1. Если identity с этим google_sub уже есть — возвращаем её.
+    2. Если нет, но есть identity с таким же email (верифицированный или нет) — подхватываем её, пишем google_sub, ставим email_verified=True.
+    3. Иначе создаём новую identity с google_sub + email.
+    """
+    identity = await get_identity_by_google_sub(session, google_sub)
+    if identity:
+        if email and not identity.email:
+            email_clean = email.strip().lower()
+            if email_clean and not await get_identity_by_email(session, email_clean):
+                identity.email = email_clean
+                identity.email_verified = True
+                await session.flush()
+        return identity
+
+    if email:
+        email_clean = email.strip().lower()
+        existing_by_email = await get_identity_by_email(session, email_clean)
+        if existing_by_email and existing_by_email.google_sub is None:
+            existing_by_email.google_sub = google_sub
+            existing_by_email.email_verified = True
+            await session.flush()
+            await session.refresh(existing_by_email)
+            return existing_by_email
+
+    identity = Identity(
+        google_sub=google_sub,
+        email=(email.strip().lower() if email else None),
+        email_verified=bool(email),
+    )
+    session.add(identity)
+    await session.flush()
+    await session.refresh(identity)
+    return identity
+
+
+async def attach_google(
+    session: AsyncSession,
+    identity_id: str,
+    google_sub: str,
+) -> Identity | None:
+    """Привязывает Google-аккаунт к существующей identity.
+
+    Возвращает None, если этот google_sub уже привязан к другой identity.
+    """
+    identity = await get_identity_by_id(session, identity_id)
+    if not identity:
+        return None
+    if identity.google_sub == google_sub:
+        return identity
+    existing = await get_identity_by_google_sub(session, google_sub)
+    if existing and existing.id != identity_id:
+        return None
+    identity.google_sub = google_sub
+    await session.flush()
+    await session.refresh(identity)
+    return identity
+
+
+async def detach_google(session: AsyncSession, identity_id: str) -> Identity | None:
+    """Отвязывает Google от identity. Запрещено если это единственный канал."""
+    identity = await get_identity_by_id(session, identity_id)
+    if not identity:
+        return None
+    if identity.google_sub is None:
+        return identity
+    if identity.email is None and identity.tg_id is None:
+        return None
+    identity.google_sub = None
+    await session.flush()
+    await session.refresh(identity)
+    return identity
+
+
+async def get_identity_by_yandex_sub(session: AsyncSession, yandex_sub: str) -> Identity | None:
+    """Возвращает идентичность по Яндекс ID (поле `id` из https://login.yandex.ru/info)."""
+    if not yandex_sub:
+        return None
+    result = await session.execute(select(Identity).where(Identity.yandex_sub == yandex_sub))
+    return result.scalar_one_or_none()
+
+
+async def get_or_create_identity_for_yandex(
+    session: AsyncSession,
+    yandex_sub: str,
+    email: str | None = None,
+) -> Identity:
+    """Для Яндекс `id` возвращает существующую идентичность или создаёт новую.
+
+    Мёрджится с existing identity по email, если тот свободен. Email от Яндекса
+    считается верифицированным (Яндекс не отдаёт default_email без подтверждения).
+    """
+    identity = await get_identity_by_yandex_sub(session, yandex_sub)
+    if identity:
+        if email and not identity.email:
+            email_clean = email.strip().lower()
+            if email_clean and not await get_identity_by_email(session, email_clean):
+                identity.email = email_clean
+                identity.email_verified = True
+                await session.flush()
+        return identity
+
+    if email:
+        email_clean = email.strip().lower()
+        existing_by_email = await get_identity_by_email(session, email_clean)
+        if existing_by_email and existing_by_email.yandex_sub is None:
+            existing_by_email.yandex_sub = yandex_sub
+            existing_by_email.email_verified = True
+            await session.flush()
+            await session.refresh(existing_by_email)
+            return existing_by_email
+
+    identity = Identity(
+        yandex_sub=yandex_sub,
+        email=(email.strip().lower() if email else None),
+        email_verified=bool(email),
+    )
+    session.add(identity)
+    await session.flush()
+    await session.refresh(identity)
+    return identity
+
+
+async def attach_yandex(
+    session: AsyncSession,
+    identity_id: str,
+    yandex_sub: str,
+) -> Identity | None:
+    """Привязывает Яндекс-аккаунт к existing identity. None если yandex_sub занят чужой identity."""
+    identity = await get_identity_by_id(session, identity_id)
+    if not identity:
+        return None
+    if identity.yandex_sub == yandex_sub:
+        return identity
+    existing = await get_identity_by_yandex_sub(session, yandex_sub)
+    if existing and existing.id != identity_id:
+        return None
+    identity.yandex_sub = yandex_sub
+    await session.flush()
+    await session.refresh(identity)
+    return identity
+
+
+async def detach_yandex(session: AsyncSession, identity_id: str) -> Identity | None:
+    """Отвязывает Яндекс от identity. Запрещено если это единственный канал."""
+    identity = await get_identity_by_id(session, identity_id)
+    if not identity:
+        return None
+    if identity.yandex_sub is None:
+        return identity
+    if identity.email is None and identity.tg_id is None and identity.google_sub is None:
+        return None
+    identity.yandex_sub = None
+    await session.flush()
+    await session.refresh(identity)
+    return identity
+
+
 async def get_identity_by_token_hash(session: AsyncSession, token_hash: str) -> Identity | None:
     """Возвращает идентичность по хешу API-токена."""
     result = await session.execute(select(Identity).where(Identity.api_token_hash == token_hash))

@@ -67,6 +67,12 @@ static/web_uploads/
 .license_state
 Solo_backup/
 
+# Node / Next.js artifacts (root — web-app has its own)
+node_modules/
+.next/
+.vite/
+.claude/
+
 .cursor/hooks.json
 .cursor/hooks/after-agent-response.cjs
 .cursor/hooks/before-submit-prompt.cjs

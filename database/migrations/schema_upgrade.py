@@ -1201,6 +1201,30 @@ async def _migration_v19_keys_tg_id_nullable(conn: AsyncConnection) -> None:
     await _exec_ignore(conn, 'CREATE INDEX IF NOT EXISTS ix_keys_tg_id ON "keys" (tg_id)')
 
 
+async def _migration_v20_add_identity_google_sub(conn: AsyncConnection) -> None:
+    logger.info("[schema_upgrade] v20: identities.google_sub")
+    if not await _table_exists(conn, "identities"):
+        return
+    if not await _column_exists(conn, "identities", "google_sub"):
+        await _exec_ignore(conn, 'ALTER TABLE identities ADD COLUMN google_sub VARCHAR(64)')
+    await _exec_ignore(
+        conn,
+        'CREATE UNIQUE INDEX IF NOT EXISTS ix_identities_google_sub ON identities (google_sub) WHERE google_sub IS NOT NULL',
+    )
+
+
+async def _migration_v21_add_identity_yandex_sub(conn: AsyncConnection) -> None:
+    logger.info("[schema_upgrade] v21: identities.yandex_sub")
+    if not await _table_exists(conn, "identities"):
+        return
+    if not await _column_exists(conn, "identities", "yandex_sub"):
+        await _exec_ignore(conn, 'ALTER TABLE identities ADD COLUMN yandex_sub VARCHAR(64)')
+    await _exec_ignore(
+        conn,
+        'CREATE UNIQUE INDEX IF NOT EXISTS ix_identities_yandex_sub ON identities (yandex_sub) WHERE yandex_sub IS NOT NULL',
+    )
+
+
 _MIGRATIONS = [
     (1, "Добавление users.id", _migration_v1_add_users_id),
     (2, "Добавление user_id колонок", _migration_v2_add_user_id_columns),
@@ -1221,6 +1245,8 @@ _MIGRATIONS = [
     (17, "Таблица flow analytics events", _migration_v16b_web_flow_events),
     (18, "Таблица web_error_reports", _migration_v18_web_error_reports),
     (19, "keys.tg_id nullable, PK на (user_id, client_id)", _migration_v19_keys_tg_id_nullable),
+    (20, "identities.google_sub", _migration_v20_add_identity_google_sub),
+    (21, "identities.yandex_sub", _migration_v21_add_identity_yandex_sub),
 ]
 
 
