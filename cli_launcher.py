@@ -1125,6 +1125,25 @@ def _save_web_tag(tag: str) -> None:
         pass
 
 
+def _generate_vapid_keys() -> tuple[str, str] | None:
+    """VAPID keypair (P-256). Returns (public_b64url, private_b64url) или None."""
+    try:
+        import base64
+
+        from cryptography.hazmat.primitives.asymmetric import ec
+    except Exception:
+        return None
+    priv = ec.generate_private_key(ec.SECP256R1())
+    priv_bytes = priv.private_numbers().private_value.to_bytes(32, "big")
+    pub_numbers = priv.public_key().public_numbers()
+    pub_bytes = b"\x04" + pub_numbers.x.to_bytes(32, "big") + pub_numbers.y.to_bytes(32, "big")
+
+    def _b64url(b: bytes) -> str:
+        return base64.urlsafe_b64encode(b).rstrip(b"=").decode("ascii")
+
+    return _b64url(pub_bytes), _b64url(priv_bytes)
+
+
 def _ask_web_tag(default: str = WEB_TAG_DEFAULT) -> str:
     console.print(
         "\n[bold]Канал обновлений:[/bold]\n"
@@ -1537,9 +1556,41 @@ def install_website():
     web_port = safe_prompt("[cyan]Порт сайта[/cyan]", default="3000")
 
     console.print(
-        "\n[dim]Для push-уведомлений на сайте (колокольчик).\nГенерируется командой: npx web-push generate-vapid-keys\nЕсли не нужны — пропустите.[/dim]"
+        "\n[dim]Для push-уведомлений на сайте (колокольчик).\nМожно сгенерировать ключи прямо сейчас (приватный ключ печатается — сохраните его).\nЕсли push не нужны — пропустите.[/dim]"
     )
-    vapid_key = safe_prompt("[cyan]VAPID Public Key[/cyan] (Enter — пропустить)", default="")
+    vapid_key = ""
+    vapid_action = safe_prompt(
+        "[cyan]VAPID ключи[/cyan]: [1] сгенерировать  [2] ввести публичный ключ вручную  [3] пропустить",
+        choices=["1", "2", "3"],
+        default="1",
+        show_choices=False,
+    )
+    if vapid_action == "1":
+        pair = _generate_vapid_keys()
+        if pair is None:
+            console.print("[yellow]Не удалось сгенерировать (нет cryptography). Введите вручную или пропустите.[/yellow]")
+            vapid_key = safe_prompt("[cyan]VAPID Public Key[/cyan] (Enter — пропустить)", default="")
+        else:
+            vapid_pub, vapid_priv = pair
+            vapid_key = vapid_pub
+            console.print(
+                Panel(
+                    f"[bold]VAPID_PUBLIC_KEY[/bold]  = {vapid_pub}\n"
+                    f"[bold]VAPID_PRIVATE_KEY[/bold] = {vapid_priv}\n"
+                    f"[bold]VAPID_CLAIMS_EMAIL[/bold] = mailto:admin@{domain}\n\n"
+                    "[yellow]Публичный ключ CLI пропишет в web .env автоматически.\n"
+                    "Приватный ключ и email добавьте в config.py бота (VAPID_PRIVATE_KEY, VAPID_CLAIMS_EMAIL)\n"
+                    "и перезапустите бота — иначе push слать будет нечем.[/yellow]",
+                    border_style="yellow",
+                    title="[bold yellow]VAPID keypair — сохраните приватный ключ[/bold yellow]",
+                    padding=(1, 2),
+                )
+            )
+            if not safe_confirm("[cyan]Сохранили приватный ключ?[/cyan]", default=True):
+                console.print("[yellow]Повторите установку после сохранения ключа.[/yellow]")
+                return
+    elif vapid_action == "2":
+        vapid_key = safe_prompt("[cyan]VAPID Public Key[/cyan]", default="")
 
     console.print(
         "\n[dim]Cloudflare Turnstile защищает формы логина от ботов.\nПолучите ключ на dash.cloudflare.com → Turnstile.\nЕсли не нужно — пропустите, формы будут работать без CAPTCHA.[/dim]"
