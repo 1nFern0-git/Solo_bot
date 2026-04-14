@@ -5,7 +5,7 @@ from typing import Any
 from pydantic import BaseModel, Field, model_validator
 
 
-_MAX_BLOCK_DATA_SIZE = 256 * 1024
+_MAX_BLOCK_DATA_SIZE = 4 * 1024 * 1024
 
 
 class WebBlockBase(BaseModel):
