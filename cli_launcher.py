@@ -1686,6 +1686,10 @@ services:
     env_file:
       - .env
     restart: unless-stopped
+    # На Linux `host.docker.internal` не резолвится без этого mapping'а.
+    # Нужно чтобы web-app (в контейнере) мог достучаться до бота на хосте по API_URL.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
@@ -1806,8 +1810,8 @@ def manage_website():
         console.print("[cyan]Обновление образа...[/cyan]")
         if not _ensure_web_image(src_dir, web_tag, force_pull=True):
             return
+        compose_path = os.path.join(WEB_DIR, "docker-compose.yml")
         if web_tag != current_tag:
-            compose_path = os.path.join(WEB_DIR, "docker-compose.yml")
             try:
                 with open(compose_path) as f:
                     compose = f.read()
@@ -1820,6 +1824,26 @@ def manage_website():
                     f.write(compose)
             except Exception as e:
                 console.print(f"[yellow]Не удалось обновить docker-compose.yml: {e}[/yellow]")
+        # Миграция: добавляем extra_hosts для host.docker.internal если его нет.
+        # На Linux host.docker.internal по умолчанию не резолвится — web-app не достучится до бота.
+        try:
+            with open(compose_path) as f:
+                compose = f.read()
+            if "host.docker.internal:host-gateway" not in compose:
+                # Вставляем блок extra_hosts сразу после строки `restart: unless-stopped`.
+                patched = compose.replace(
+                    "    restart: unless-stopped\n",
+                    "    restart: unless-stopped\n"
+                    "    extra_hosts:\n"
+                    "      - \"host.docker.internal:host-gateway\"\n",
+                    1,
+                )
+                if patched != compose:
+                    with open(compose_path, "w") as f:
+                        f.write(patched)
+                    console.print("[dim]docker-compose.yml: добавлен extra_hosts: host.docker.internal → host-gateway[/dim]")
+        except Exception as e:
+            console.print(f"[yellow]Не удалось пропатчить extra_hosts в docker-compose.yml: {e}[/yellow]")
         _save_web_tag(web_tag)
         subprocess.run(["docker", "compose", "up", "-d", "--force-recreate"], cwd=WEB_DIR)
         console.print(f"[green]✅ Обновлено до канала {web_tag}[/green]")
