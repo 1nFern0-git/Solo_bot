@@ -1093,9 +1093,52 @@ def update_from_release():
         console.print(f"[red]❌ Ошибка при обновлении: {e}[/red]")
 
 
-WEB_IMAGE = "ghcr.io/vladless/solo-brick:latest"
+WEB_IMAGE_REPO = "ghcr.io/vladless/solo-brick"
 WEB_CONTAINER_NAME = "solo-brick"
 WEB_DIR = os.path.join(os.path.expanduser("~"), "solo-brick")
+WEB_TAG_FILE = os.path.join(WEB_DIR, ".image-tag")
+WEB_TAG_DEFAULT = "latest"
+WEB_TAG_CHOICES = ("latest", "dev")
+
+
+def _web_image(tag: str) -> str:
+    return f"{WEB_IMAGE_REPO}:{tag or WEB_TAG_DEFAULT}"
+
+
+def _get_saved_web_tag() -> str:
+    try:
+        with open(WEB_TAG_FILE) as f:
+            tag = f.read().strip()
+        if tag in WEB_TAG_CHOICES:
+            return tag
+    except Exception:
+        pass
+    return WEB_TAG_DEFAULT
+
+
+def _save_web_tag(tag: str) -> None:
+    try:
+        os.makedirs(WEB_DIR, exist_ok=True)
+        with open(WEB_TAG_FILE, "w") as f:
+            f.write(tag)
+    except Exception:
+        pass
+
+
+def _ask_web_tag(default: str = WEB_TAG_DEFAULT) -> str:
+    console.print(
+        "\n[bold]Канал обновлений:[/bold]\n"
+        "  [cyan]1[/cyan] — [green]latest[/green]  стабильный (из ветки main)\n"
+        "  [cyan]2[/cyan] — [yellow]dev[/yellow]     тестовый (последний коммит dev)"
+    )
+    default_choice = "2" if default == "dev" else "1"
+    choice = safe_prompt(
+        "[bold blue]Выберите канал[/bold blue]",
+        choices=["1", "2"],
+        default=default_choice,
+        show_choices=False,
+    )
+    return "dev" if choice == "2" else "latest"
 
 
 def _find_local_web_source() -> str | None:
@@ -1177,16 +1220,17 @@ def _prepare_web_sources(dst: str) -> bool:
     return False
 
 
-def _pull_web_image() -> bool:
-    console.print(f"[cyan]Загрузка готового образа: {WEB_IMAGE}[/cyan]")
+def _pull_web_image(tag: str) -> bool:
+    image = _web_image(tag)
+    console.print(f"[cyan]Загрузка готового образа: {image}[/cyan]")
     result = subprocess.run(
-        ["docker", "pull", WEB_IMAGE],
+        ["docker", "pull", image],
         check=False,
     )
     return result.returncode == 0
 
 
-def _build_web_image(src_dir: str) -> bool:
+def _build_web_image(src_dir: str, tag: str) -> bool:
     if not os.path.isfile(os.path.join(src_dir, "package.json")):
         if not _prepare_web_sources(src_dir):
             return False
@@ -1195,7 +1239,7 @@ def _build_web_image(src_dir: str) -> bool:
         return False
     console.print("[cyan]Сборка Docker-образа (несколько минут)...[/cyan]")
     result = subprocess.run(
-        ["docker", "build", "-t", WEB_IMAGE, "."],
+        ["docker", "build", "-t", _web_image(tag), "."],
         cwd=src_dir,
         check=False,
     )
@@ -1205,13 +1249,13 @@ def _build_web_image(src_dir: str) -> bool:
     return True
 
 
-def _ensure_web_image(src_dir: str, force_pull: bool = False) -> bool:
-    if _pull_web_image():
-        console.print(f"[green]✓ Образ {WEB_IMAGE} получен из GHCR[/green]")
+def _ensure_web_image(src_dir: str, tag: str, force_pull: bool = False) -> bool:
+    if _pull_web_image(tag):
+        console.print(f"[green]✓ Образ {_web_image(tag)} получен из GHCR[/green]")
         return True
 
     console.print("[yellow]Не удалось скачать образ из GHCR. Пробую локальную сборку.[/yellow]")
-    return _build_web_image(src_dir)
+    return _build_web_image(src_dir, tag)
 
 
 def _check_feature(name: str) -> bool:
@@ -1476,12 +1520,15 @@ def install_website():
             smtp_password = safe_prompt("[cyan]SMTP Password[/cyan]", default="")
         smtp_from = safe_prompt("[cyan]Email From[/cyan]", default=smtp_user)
 
+    web_tag = _ask_web_tag(default=_get_saved_web_tag())
+
     setup_ssl = safe_confirm("[cyan]Установить SSL (Let's Encrypt)?[/cyan]", default=True)
 
     site_url = f"https://{domain}" if setup_ssl else f"http://{domain}"
 
     console.print(f"\n  Домен:   [green]{domain}[/green]")
     console.print(f"  Backend: [green]{api_url}[/green]")
+    console.print(f"  Канал:   [green]{web_tag}[/green]")
     console.print(f"  SSL:     [green]{'Да' if setup_ssl else 'Нет'}[/green]")
 
     if not safe_confirm("\n[yellow]Всё верно?[/yellow]", default=True):
@@ -1523,8 +1570,9 @@ def install_website():
             f.write(f"EMAIL_FROM={smtp_from}\n")
 
     src_dir = os.path.join(WEB_DIR, "src")
-    if not _ensure_web_image(src_dir):
+    if not _ensure_web_image(src_dir, web_tag):
         return
+    _save_web_tag(web_tag)
 
     compose_path = os.path.join(WEB_DIR, "docker-compose.yml")
     with open(compose_path, "w") as f:
@@ -1532,7 +1580,7 @@ def install_website():
 
 services:
   web:
-    image: {WEB_IMAGE}
+    image: {_web_image(web_tag)}
     container_name: {WEB_CONTAINER_NAME}
     ports:
       - "127.0.0.1:{web_port}:3000"
@@ -1627,13 +1675,31 @@ def manage_website():
     elif choice == "5":
         src_dir = os.path.join(WEB_DIR, "src")
         show_website_version_banner()
+        current_tag = _get_saved_web_tag()
+        console.print(f"[dim]Текущий канал: [green]{current_tag}[/green][/dim]")
+        web_tag = _ask_web_tag(default=current_tag)
         if not safe_confirm("[green]Продолжить обновление?[/green]", default=True):
             return
         console.print("[cyan]Обновление образа...[/cyan]")
-        if not _ensure_web_image(src_dir, force_pull=True):
+        if not _ensure_web_image(src_dir, web_tag, force_pull=True):
             return
+        if web_tag != current_tag:
+            compose_path = os.path.join(WEB_DIR, "docker-compose.yml")
+            try:
+                with open(compose_path) as f:
+                    compose = f.read()
+                compose = compose.replace(
+                    f"image: {_web_image(current_tag)}",
+                    f"image: {_web_image(web_tag)}",
+                    1,
+                )
+                with open(compose_path, "w") as f:
+                    f.write(compose)
+            except Exception as e:
+                console.print(f"[yellow]Не удалось обновить docker-compose.yml: {e}[/yellow]")
+        _save_web_tag(web_tag)
         subprocess.run(["docker", "compose", "up", "-d", "--force-recreate"], cwd=WEB_DIR)
-        console.print("[green]✅ Обновлено[/green]")
+        console.print(f"[green]✅ Обновлено до канала {web_tag}[/green]")
     elif choice == "6":
         env_path = os.path.join(WEB_DIR, ".env")
         editor = os.environ.get("EDITOR", "nano")
@@ -1764,7 +1830,7 @@ def show_website_version_banner():
 
 
 def show_menu():
-    table = Table(title="Solobot CLI v0.5.4", title_style="bold magenta", header_style="bold blue")
+    table = Table(title="Solobot CLI v0.5.5", title_style="bold magenta", header_style="bold blue")
     table.add_column("№", justify="center", style="cyan", no_wrap=True)
     table.add_column("Операция", style="white")
     table.add_row("1", "Запустить бота (systemd)")
