@@ -1444,39 +1444,35 @@ def install_website():
 
     console.print("\n[bold][2/5] Настройки[/bold]\n")
 
-    console.print("[dim]Домен, по которому будет открываться сайт.")
-    console.print("DNS (A-запись) должна уже указывать на IP этого сервера.[/dim]")
+    console.print("[dim]Домен, по которому будет открываться сайт.\nDNS (A-запись) должна уже указывать на IP этого сервера.[/dim]")
     domain = safe_prompt("[cyan]Домен сайта[/cyan] (например vpn.example.com)")
     if not domain or not domain.strip():
         console.print("[red]Домен обязателен.[/red]")
         return
     domain = domain.strip()
 
-    console.print("\n[dim]Адрес API вашего бота (FastAPI).")
-    console.print("Если бот на этом же сервере — оставьте по умолчанию.")
-    console.print("Если на другом — укажите полный адрес, например http://123.45.67.89:8000[/dim]")
-    api_url = safe_prompt("[cyan]Адрес backend API[/cyan]", default="http://localhost:8000")
+    try:
+        from config import API_PORT as _BOT_API_PORT
+        _bot_api_port = int(_BOT_API_PORT)
+    except Exception:
+        _bot_api_port = 3004
+    _api_default = f"http://localhost:{_bot_api_port}"
+    console.print(f"\n[dim]Адрес API вашего бота (FastAPI).\nЕсли бот на этом же сервере — оставьте по умолчанию.\nЕсли на другом — укажите полный адрес, например http://123.45.67.89:{_bot_api_port}[/dim]")
+    api_url = safe_prompt("[cyan]Адрес backend API[/cyan]", default=_api_default)
 
-    console.print("\n[dim]Внутренний порт, на котором запустится сайт.")
-    console.print("Nginx проксирует на него запросы. Менять нужно только если порт занят.[/dim]")
+    console.print("\n[dim]Внутренний порт, на котором запустится сайт.\nNginx проксирует на него запросы. Менять нужно только если порт занят.[/dim]")
     web_port = safe_prompt("[cyan]Порт сайта[/cyan]", default="3000")
 
-    console.print("\n[dim]Для push-уведомлений на сайте (колокольчик).")
-    console.print("Генерируется командой: npx web-push generate-vapid-keys")
-    console.print("Если не нужны — пропустите.[/dim]")
+    console.print("\n[dim]Для push-уведомлений на сайте (колокольчик).\nГенерируется командой: npx web-push generate-vapid-keys\nЕсли не нужны — пропустите.[/dim]")
     vapid_key = safe_prompt("[cyan]VAPID Public Key[/cyan] (Enter — пропустить)", default="")
 
-    console.print("\n[dim]Cloudflare Turnstile защищает формы логина от ботов.")
-    console.print("Получите ключ на dash.cloudflare.com → Turnstile.")
-    console.print("Если не нужно — пропустите, формы будут работать без CAPTCHA.[/dim]")
+    console.print("\n[dim]Cloudflare Turnstile защищает формы логина от ботов.\nПолучите ключ на dash.cloudflare.com → Turnstile.\nЕсли не нужно — пропустите, формы будут работать без CAPTCHA.[/dim]")
     turnstile_key = safe_prompt("[cyan]Turnstile Site Key[/cyan] (Enter — пропустить)", default="")
 
-    console.print("\n[dim]Username Telegram-бота (без @) для кнопки «Войти через Telegram» на сайте.")
-    console.print("Если не нужно — пропустите.[/dim]")
+    console.print("\n[dim]Username Telegram-бота (без @) для кнопки «Войти через Telegram» на сайте.\nЕсли не нужно — пропустите.[/dim]")
     tg_bot_username = safe_prompt("[cyan]Telegram Bot Username[/cyan] (Enter — пропустить)", default="")
 
-    console.print("\n[dim]Для отправки email-кодов (логин, подтверждение, сброс пароля).")
-    console.print("Если не нужно — пропустите, регистрация по email+паролю будет работать без этого.[/dim]")
+    console.print("\n[dim]Для отправки email-кодов (логин, подтверждение, сброс пароля).\nЕсли не нужно — пропустите, регистрация по email+паролю будет работать без этого.[/dim]")
     smtp_host = safe_prompt("[cyan]SMTP Host[/cyan] (Enter — пропустить)", default="")
     smtp_user = ""
     smtp_password = ""
