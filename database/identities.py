@@ -688,10 +688,15 @@ async def detach_telegram(session: AsyncSession, identity_id: str) -> Identity |
 
 async def get_or_create_identity_for_tg(session: AsyncSession, tg_id: int) -> Identity:
     """Для tg_id возвращает существующую идентичность или создаёт новую и привязывает User."""
+    is_admin = (await session.execute(select(Admin).where(Admin.tg_id == tg_id))).scalar_one_or_none() is not None
     identity = await get_identity_by_tg_id(session, tg_id)
     if identity:
+        if is_admin and not identity.is_admin:
+            identity.is_admin = True
+            await session.flush()
+            await session.refresh(identity)
         return identity
-    identity = Identity(tg_id=tg_id)
+    identity = Identity(tg_id=tg_id, is_admin=is_admin)
     session.add(identity)
     await session.flush()
     await session.execute(User.__table__.update().where(User.tg_id == tg_id).values(identity_id=identity.id))
