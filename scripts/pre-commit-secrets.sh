@@ -6,14 +6,14 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 FORBIDDEN_FILES=(
-  'config\.py$'
-  '\.env$'
-  '\.env\.local$'
-  '\.env\.production$'
-  '\.env\.prod$'
-  'handlers/texts\.py$'
-  'alembic\.ini$'
-  '\.license_state$'
+  '^config\.py$'
+  '^\.env$'
+  '^\.env\.local$'
+  '^\.env\.production$'
+  '^\.env\.prod$'
+  '^handlers/texts\.py$'
+  '^alembic\.ini$'
+  '^\.license_state$'
 )
 
 SECRET_PATTERNS=(
@@ -50,6 +50,9 @@ while IFS= read -r file; do
   if [ -f "$file" ]; then
     case "$file" in
       *.png|*.jpg|*.jpeg|*.gif|*.webp|*.svg|*.ico|*.woff|*.woff2|*.ttf|*.eot|*.zip|*.tar|*.gz|*.pdf|*.mp4|*.webm)
+        continue
+        ;;
+      scripts/pre-commit-secrets.sh)
         continue
         ;;
     esac

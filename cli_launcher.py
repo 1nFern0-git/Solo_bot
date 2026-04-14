@@ -1480,10 +1480,10 @@ def install_website():
     console.print(
         Panel(
             "[bold cyan]Вариант A:[/bold cyan] Бот и сайт на одном сервере\n"
-            "  → Адрес API: http://localhost:8000 (по умолчанию)\n\n"
+            "  → API вызывается локально внутри сервера\n\n"
             "[bold cyan]Вариант B:[/bold cyan] Сайт на отдельном сервере\n"
-            "  → Адрес API: http://IP-бота:8000 (укажите IP сервера с ботом)\n"
-            "  → На сервере бота должен быть открыт порт 8000",
+            "  → API вызывается по домену (например api.example.com)\n"
+            "  → На сервере бота должен быть nginx+SSL перед API и открыт порт 443",
             border_style="dim",
             title="[dim]Варианты размещения[/dim]",
             padding=(1, 2),
@@ -1544,11 +1544,54 @@ def install_website():
         _bot_api_port = int(_BOT_API_PORT)
     except Exception:
         _bot_api_port = 3004
-    _api_default = f"http://localhost:{_bot_api_port}"
-    console.print(
-        f"\n[dim]Адрес API вашего бота (FastAPI).\nЕсли бот на этом же сервере — оставьте по умолчанию.\nЕсли на другом — укажите полный адрес, например http://123.45.67.89:{_bot_api_port}[/dim]"
+
+    console.print("\n[dim]Где запущен бот?[/dim]")
+    bot_location = safe_prompt(
+        "[cyan]Размещение бота[/cyan]: [1] на этом же сервере  [2] на другом сервере",
+        choices=["1", "2"],
+        default="1",
+        show_choices=False,
     )
-    api_url = safe_prompt("[cyan]Адрес backend API[/cyan]", default=_api_default)
+    api_domain = ""
+    if bot_location == "1":
+        api_url = f"http://host.docker.internal:{_bot_api_port}"
+        console.print(
+            Panel(
+                f"[white]API: [bold]{api_url}[/bold] (через docker host-gateway)[/white]\n\n"
+                f"[dim]Требования к боту на этом сервере:[/dim]\n"
+                f"  • Бот запущен на хосте и слушает [bold]0.0.0.0:{_bot_api_port}[/bold]\n"
+                f"  • В config.py: [bold]API_HOST=\"0.0.0.0\"[/bold], [bold]API_PORT={_bot_api_port}[/bold]",
+                border_style="dim",
+                title="[dim]Размещение: один сервер[/dim]",
+                padding=(1, 2),
+            )
+        )
+    else:
+        console.print(
+            "\n[dim]Домен, по которому web-контейнер будет ходить на API бота.\nНа сервере бота должен стоять nginx+SSL перед портом API.[/dim]"
+        )
+        api_domain = safe_prompt("[cyan]Домен API бота[/cyan] (например api.example.com)")
+        if not api_domain or not api_domain.strip():
+            console.print("[red]Домен API обязателен.[/red]")
+            return
+        api_domain = api_domain.strip().replace("https://", "").replace("http://", "").strip("/")
+        api_url = f"https://{api_domain}"
+        console.print(
+            Panel(
+                f"[white]API: [bold]{api_url}[/bold][/white]\n\n"
+                f"[yellow]На сервере бота настройте:[/yellow]\n"
+                f"  • nginx: [bold]https://{api_domain}[/bold] → [bold]http://127.0.0.1:{_bot_api_port}[/bold]\n"
+                f"  • SSL сертификат (certbot --nginx -d {api_domain})\n"
+                f"  • config.py: [bold]API_HOST=\"0.0.0.0\"[/bold], [bold]API_PORT={_bot_api_port}[/bold]\n"
+                f"  • Опционально firewall: порт {_bot_api_port} открыт только с IP web-сервера",
+                border_style="yellow",
+                title="[bold yellow]Размещение: разные серверы[/bold yellow]",
+                padding=(1, 2),
+            )
+        )
+        if not safe_confirm("[cyan]Всё настроено на сервере бота?[/cyan]", default=True):
+            console.print("[yellow]Настройте сервер бота и повторите установку.[/yellow]")
+            return
 
     console.print(
         "\n[dim]Внутренний порт, на котором запустится сайт.\nNginx проксирует на него запросы. Менять нужно только если порт занят.[/dim]"
@@ -1686,8 +1729,6 @@ services:
     env_file:
       - .env
     restart: unless-stopped
-    # На Linux `host.docker.internal` не резолвится без этого mapping'а.
-    # Нужно чтобы web-app (в контейнере) мог достучаться до бота на хосте по API_URL.
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
@@ -1744,9 +1785,16 @@ services:
     if not smtp_host:
         smtp_hint = "\n\n[yellow]⚠ SMTP не настроен — вход по email-коду и сброс пароля не будут работать.\n  Настройте позже через: меню → Управление сайтом → Изменить настройки[/yellow]"
 
+    bot_note = (
+        f"\n\n[yellow]⚠ На сервере бота установите в [bold]config.py[/bold]:[/yellow]\n"
+        f"  SITE_URL = \"{site_url}\"\n"
+        f"[dim]  (используется для TG WebApp-кнопок и gift-ссылок)[/dim]\n"
+        f"[dim]  После правки перезапустите бота.[/dim]"
+    )
+
     console.print(
         Panel(
-            f"[bold green]Сайт доступен: {site_url}[/bold green]{smtp_hint}\n\n"
+            f"[bold green]Сайт доступен: {site_url}[/bold green]{smtp_hint}{bot_note}\n\n"
             f"[white]Управление:[/white]\n"
             f"  cd {WEB_DIR}\n"
             f"  docker compose logs -f       [dim]— логи[/dim]\n"
@@ -1824,13 +1872,10 @@ def manage_website():
                     f.write(compose)
             except Exception as e:
                 console.print(f"[yellow]Не удалось обновить docker-compose.yml: {e}[/yellow]")
-        # Миграция: добавляем extra_hosts для host.docker.internal если его нет.
-        # На Linux host.docker.internal по умолчанию не резолвится — web-app не достучится до бота.
         try:
             with open(compose_path) as f:
                 compose = f.read()
             if "host.docker.internal:host-gateway" not in compose:
-                # Вставляем блок extra_hosts сразу после строки `restart: unless-stopped`.
                 patched = compose.replace(
                     "    restart: unless-stopped\n",
                     "    restart: unless-stopped\n"
@@ -1977,7 +2022,7 @@ def show_website_version_banner():
 
 
 def show_menu():
-    table = Table(title="Solobot CLI v0.5.6", title_style="bold magenta", header_style="bold blue")
+    table = Table(title="Solobot CLI v0.5.7", title_style="bold magenta", header_style="bold blue")
     table.add_column("№", justify="center", style="cyan", no_wrap=True)
     table.add_column("Операция", style="white")
     table.add_row("1", "Запустить бота (systemd)")
