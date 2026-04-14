@@ -1313,11 +1313,9 @@ def _ensure_nginx():
         return False
 
 
-def _setup_nginx(domain, web_port=3000):
-    """Настраивает nginx reverse proxy."""
-    conf = f"""server {{
-    listen 80;
-    server_name {domain};
+def _web_nginx_snippet(domain: str, web_port: int) -> str:
+    """Locations для веб-приложения — можно вставить в существующий server-блок."""
+    return f"""    # --- Solo web-app ({domain}) ---
     client_max_body_size 100m;
 
     location /_next/static/ {{
@@ -1342,6 +1340,57 @@ def _setup_nginx(domain, web_port=3000):
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_read_timeout 90s;
     }}
+    # --- /Solo web-app ---"""
+
+
+def _print_manual_nginx_hint(domain: str, web_port: int) -> None:
+    snippet = _web_nginx_snippet(domain, web_port)
+    console.print(
+        Panel(
+            "[white]CLI не трогал ваш nginx. Вставьте блоки ниже в существующий\n"
+            f"[cyan]server {{ ... server_name {domain}; ... }}[/cyan] (HTTPS-блок),\n"
+            "рядом с другими [cyan]location[/cyan] бота, и перезагрузите nginx:\n"
+            "[dim]sudo nginx -t && sudo systemctl reload nginx[/dim]",
+            border_style="yellow",
+            title="[bold yellow]Ручная настройка nginx[/bold yellow]",
+            padding=(1, 2),
+        )
+    )
+    console.print(f"\n[dim]---8<--- snippet ---8<---[/dim]\n{snippet}\n[dim]---8<--- end ---8<---[/dim]\n")
+
+
+def _nginx_domain_conflict(domain: str) -> str | None:
+    """Возвращает путь конфига, в котором уже объявлен server_name = domain."""
+    sites_dir = "/etc/nginx/sites-enabled"
+    if not os.path.isdir(sites_dir):
+        return None
+    try:
+        for entry in os.listdir(sites_dir):
+            path = os.path.join(sites_dir, entry)
+            try:
+                real = os.path.realpath(path)
+                with open(real) as f:
+                    text = f.read()
+            except Exception:
+                continue
+            for line in text.splitlines():
+                stripped = line.strip()
+                if not stripped.startswith("server_name"):
+                    continue
+                names = stripped.rstrip(";").split()[1:]
+                if domain in names:
+                    return real
+    except Exception:
+        return None
+    return None
+
+
+def _setup_nginx(domain, web_port=3000):
+    """Настраивает отдельный nginx server-блок для веб-приложения."""
+    conf = f"""server {{
+    listen 80;
+    server_name {domain};
+{_web_nginx_snippet(domain, web_port)}
 }}"""
     conf_path = f"/etc/nginx/sites-available/solo-{domain}"
     enabled_path = f"/etc/nginx/sites-enabled/solo-{domain}"
@@ -1350,7 +1399,6 @@ def _setup_nginx(domain, web_port=3000):
             f.write(conf)
         subprocess.run(["sudo", "cp", "/tmp/_solo_nginx.conf", conf_path], check=True)
         subprocess.run(["sudo", "ln", "-sf", conf_path, enabled_path], check=True)
-        subprocess.run(["sudo", "rm", "-f", "/etc/nginx/sites-enabled/default"], check=False)
         subprocess.run(["sudo", "nginx", "-t"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         subprocess.run(["sudo", "systemctl", "reload", "nginx"], check=True)
         return True
@@ -1602,11 +1650,35 @@ services:
     console.print(f"[green]✅ Контейнер запущен на порту {web_port}[/green]")
 
     console.print("\n[bold][4/5] Nginx[/bold]")
-    if _ensure_nginx():
-        _setup_nginx(domain, int(web_port))
-        console.print(f"[green]✅ nginx настроен для {domain}[/green]")
+    nginx_configured = False
+    conflict_path = _nginx_domain_conflict(domain)
+    if conflict_path:
+        console.print(
+            f"[yellow]⚠ На домене [bold]{domain}[/bold] уже есть nginx-конфиг:[/yellow] {conflict_path}\n"
+            "[yellow]Автонастройка создала бы второй server-блок — это может конфликтовать с ботом.[/yellow]"
+        )
+        do_auto = safe_confirm(
+            "[cyan]Всё равно создать отдельный server-блок?[/cyan] (Нет — покажу snippet для ручной вставки)",
+            default=False,
+        )
+    else:
+        do_auto = safe_confirm("[cyan]Настроить nginx автоматически?[/cyan]", default=True)
+
+    if do_auto:
+        if _ensure_nginx() and _setup_nginx(domain, int(web_port)):
+            console.print(f"[green]✅ nginx настроен для {domain}[/green]")
+            nginx_configured = True
+        else:
+            console.print("[yellow]Авто-настройка не удалась, покажу snippet.[/yellow]")
+            _print_manual_nginx_hint(domain, int(web_port))
+    else:
+        _print_manual_nginx_hint(domain, int(web_port))
 
     console.print("\n[bold][5/5] SSL[/bold]")
+    if setup_ssl and not nginx_configured:
+        console.print("[yellow]SSL пропущен: автоконфигурация certbot --nginx требует автонастройки nginx.[/yellow]")
+        console.print("[dim]После ручной правки nginx запустите: sudo certbot --nginx -d " + domain + "[/dim]")
+        setup_ssl = False
     if setup_ssl:
         if _setup_ssl(domain):
             console.print("[green]✅ SSL сертификат установлен[/green]")
@@ -1830,7 +1902,7 @@ def show_website_version_banner():
 
 
 def show_menu():
-    table = Table(title="Solobot CLI v0.5.5", title_style="bold magenta", header_style="bold blue")
+    table = Table(title="Solobot CLI v0.5.6", title_style="bold magenta", header_style="bold blue")
     table.add_column("№", justify="center", style="cyan", no_wrap=True)
     table.add_column("Операция", style="white")
     table.add_row("1", "Запустить бота (systemd)")
