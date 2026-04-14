@@ -1125,6 +1125,20 @@ def _save_web_tag(tag: str) -> None:
         pass
 
 
+def _ensure_web_logs_dir() -> None:
+    logs_dir = os.path.join(WEB_DIR, "logs")
+    try:
+        os.makedirs(logs_dir, exist_ok=True)
+        os.chown(logs_dir, 1001, 1001)
+    except PermissionError:
+        try:
+            subprocess.run(["sudo", "chown", "-R", "1001:1001", logs_dir], check=False)
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
 def _generate_vapid_keys() -> tuple[str, str] | None:
     """VAPID keypair (P-256). Returns (public_b64url, private_b64url) или None."""
     try:
@@ -1741,6 +1755,7 @@ services:
       - ./logs:/app/logs
 """)
 
+    _ensure_web_logs_dir()
     console.print("[cyan]Запуск контейнера...[/cyan]")
     subprocess.run(["docker", "compose", "up", "-d"], cwd=WEB_DIR, check=True)
     console.print(f"[green]✅ Контейнер запущен на порту {web_port}[/green]")
@@ -1890,6 +1905,7 @@ def manage_website():
         except Exception as e:
             console.print(f"[yellow]Не удалось пропатчить extra_hosts в docker-compose.yml: {e}[/yellow]")
         _save_web_tag(web_tag)
+        _ensure_web_logs_dir()
         subprocess.run(["docker", "compose", "up", "-d", "--force-recreate"], cwd=WEB_DIR)
         console.print(f"[green]✅ Обновлено до канала {web_tag}[/green]")
     elif choice == "6":
@@ -2022,7 +2038,7 @@ def show_website_version_banner():
 
 
 def show_menu():
-    table = Table(title="Solobot CLI v0.5.7", title_style="bold magenta", header_style="bold blue")
+    table = Table(title="Solobot CLI v0.5.8", title_style="bold magenta", header_style="bold blue")
     table.add_column("№", justify="center", style="cyan", no_wrap=True)
     table.add_column("Операция", style="white")
     table.add_row("1", "Запустить бота (systemd)")
