@@ -204,6 +204,51 @@ async def invalidate_remnawave_profile(
         await invalidate_remnawave_profile_cache(client_id=client_id)
 
 
+async def fetch_all_remnawave_traffic(
+    session: AsyncSession,
+    needed_uuids: set[str] | None = None,
+) -> dict[str, int]:
+    """Bulk-запрос: возвращает {uuid: usedTrafficBytes} для всех (или нужных) юзеров Remnawave."""
+    servers = await get_servers(session)
+    api_url = None
+    for cluster in servers.values():
+        for srv in cluster:
+            if srv.get("panel_type") == "remnawave":
+                api_url = srv.get("api_url")
+                break
+        if api_url:
+            break
+
+    if not api_url:
+        logger.warning("[Bulk Traffic] Нет доступных Remnawave-серверов")
+        return {}
+
+    api = RemnawaveAPI(api_url)
+    try:
+        all_users = await api.get_all_users_time(
+            username=REMNAWAVE_LOGIN,
+            password=REMNAWAVE_PASSWORD,
+        )
+    finally:
+        await api.aclose()
+
+    if not all_users:
+        return {}
+
+    result: dict[str, int] = {}
+    for user in all_users:
+        uuid = user.get("uuid")
+        if not uuid:
+            continue
+        if needed_uuids and uuid not in needed_uuids:
+            continue
+        traffic = user.get("userTraffic") or {}
+        result[uuid] = traffic.get("usedTrafficBytes", 0)
+
+    logger.info(f"[Bulk Traffic] Получено {len(result)} профилей трафика из {len(all_users)} юзеров Remnawave")
+    return result
+
+
 async def with_remnawave_api(
     session: AsyncSession,
     server_ref: str,

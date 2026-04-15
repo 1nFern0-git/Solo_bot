@@ -2,7 +2,7 @@ import asyncio
 import os
 import time
 
-from collections import deque
+from collections import OrderedDict, deque
 from datetime import datetime
 
 import aiofiles
@@ -24,6 +24,40 @@ from services.tariffs.tariff_display import get_key_tariff_display
 
 
 moscow_tz = pytz.timezone("Europe/Moscow")
+
+_photo_cache: OrderedDict[str, str] = OrderedDict()
+_photo_cache_lock = asyncio.Lock()
+_PHOTO_CACHE_MAX = 64
+
+
+async def _get_cached_file_id(photo_path: str) -> str | None:
+    async with _photo_cache_lock:
+        fid = _photo_cache.get(photo_path)
+        if fid:
+            _photo_cache.move_to_end(photo_path)
+        return fid
+
+
+async def _set_cached_file_id(photo_path: str, file_id: str) -> None:
+    async with _photo_cache_lock:
+        if photo_path not in _photo_cache:
+            _photo_cache[photo_path] = file_id
+            if len(_photo_cache) > _PHOTO_CACHE_MAX:
+                _photo_cache.popitem(last=False)
+
+
+_SUPPORTED_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".gif")
+
+
+def _find_photo_file(photo_path: str) -> str | None:
+    if os.path.isfile(photo_path):
+        return photo_path
+    base_name = os.path.splitext(photo_path)[0]
+    for ext in _SUPPORTED_EXTENSIONS:
+        candidate = base_name + ext
+        if os.path.isfile(candidate):
+            return candidate
+    return None
 
 
 class NotificationRateLimiter:
@@ -80,15 +114,25 @@ class FastNotificationSender:
 
             if msg.photo:
                 photo_path = os.path.join("img", msg.photo)
-                if os.path.isfile(photo_path):
-                    async with aiofiles.open(photo_path, "rb") as f:
-                        image_data = await f.read()
-                    buffered_photo = BufferedInputFile(image_data, filename=msg.photo)
+                cached_id = await _get_cached_file_id(photo_path)
+
+                if cached_id:
                     await self.bot.send_photo(
-                        chat_id=msg.tg_id, photo=buffered_photo, caption=msg.text, reply_markup=msg.keyboard
+                        chat_id=msg.tg_id, photo=cached_id, caption=msg.text, reply_markup=msg.keyboard
                     )
                 else:
-                    await self.bot.send_message(chat_id=msg.tg_id, text=msg.text, reply_markup=msg.keyboard)
+                    actual_path = _find_photo_file(photo_path)
+                    if actual_path:
+                        async with aiofiles.open(actual_path, "rb") as f:
+                            image_data = await f.read()
+                        buffered_photo = BufferedInputFile(image_data, filename=os.path.basename(actual_path))
+                        result = await self.bot.send_photo(
+                            chat_id=msg.tg_id, photo=buffered_photo, caption=msg.text, reply_markup=msg.keyboard
+                        )
+                        if result and hasattr(result, "photo") and result.photo:
+                            await _set_cached_file_id(photo_path, result.photo[-1].file_id)
+                    else:
+                        await self.bot.send_message(chat_id=msg.tg_id, text=msg.text, reply_markup=msg.keyboard)
             else:
                 await self.bot.send_message(chat_id=msg.tg_id, text=msg.text, reply_markup=msg.keyboard)
             return True
@@ -259,8 +303,13 @@ async def send_notification(
         return await _send_text_notification(bot, tg_id, caption, keyboard)
 
     photo_path = os.path.join("img", image_filename)
-    if os.path.isfile(photo_path):
-        return await _send_photo_notification(bot, tg_id, photo_path, image_filename, caption, keyboard)
+    cached_id = await _get_cached_file_id(photo_path)
+    if cached_id:
+        return await _send_photo_notification(bot, tg_id, photo_path, image_filename, caption, keyboard, cached_id)
+
+    actual_path = _find_photo_file(photo_path)
+    if actual_path:
+        return await _send_photo_notification(bot, tg_id, actual_path, image_filename, caption, keyboard)
     else:
         logger.warning(f"Файл с изображением не найден: {photo_path}")
         return await _send_text_notification(bot, tg_id, caption, keyboard)
@@ -274,12 +323,20 @@ async def _send_photo_notification(
     image_filename: str,
     caption: str,
     keyboard: InlineKeyboardMarkup | None = None,
+    cached_file_id: str | None = None,
 ) -> bool:
     try:
+        if cached_file_id:
+            await bot.send_photo(tg_id, cached_file_id, caption=caption, reply_markup=keyboard)
+            return True
         async with aiofiles.open(photo_path, "rb") as image_file:
             image_data = await image_file.read()
         buffered_photo = BufferedInputFile(image_data, filename=image_filename)
-        await bot.send_photo(tg_id, buffered_photo, caption=caption, reply_markup=keyboard)
+        result = await bot.send_photo(tg_id, buffered_photo, caption=caption, reply_markup=keyboard)
+        if result and hasattr(result, "photo") and result.photo:
+            await _set_cached_file_id(
+                os.path.join("img", image_filename), result.photo[-1].file_id
+            )
         return True
     except (TelegramForbiddenError, TelegramBadRequest):
         return False

@@ -22,6 +22,7 @@ from database.models import Key, User
 from database.tariffs import get_tariffs
 from handlers.buttons import CONNECT_DEVICE, MAIN_MENU, SUPPORT, TRIAL_BONUS
 from handlers.keys.utils import build_key_callback
+from panels.remnawave_runtime import fetch_all_remnawave_traffic
 from handlers.notifications.notify_utils import send_messages_with_limit
 from handlers.texts import (
     TRIAL_INACTIVE_BONUS_MSG,
@@ -153,50 +154,53 @@ async def notify_users_no_traffic(bot: Bot, session: AsyncSession, current_time:
     remnawave_webapp_enabled = bool(MODES_CONFIG.get("REMNAWAVE_WEBAPP_ENABLED", REMNAWAVE_WEBAPP))
     open_in_browser = bool(MODES_CONFIG.get("REMNAWAVE_WEBAPP_OPEN_IN_BROWSER", REMNAWAVE_WEBAPP_OPEN_IN_BROWSER))
 
+    candidate_keys = []
+    for key in keys:
+        if key.tariff_id not in trial_tariff_ids:
+            continue
+        if key.created_at is None or key.notified:
+            continue
+        created_at_dt = pytz.utc.localize(datetime.fromtimestamp(key.created_at / 1000)).astimezone(moscow_tz)
+        if current_dt < created_at_dt + timedelta(hours=inactive_traffic_hours):
+            continue
+        if key.expiry_time:
+            expiry_dt = pytz.utc.localize(datetime.fromtimestamp(key.expiry_time / 1000)).astimezone(moscow_tz)
+            if current_dt > expiry_dt:
+                continue
+        candidate_keys.append(key)
+
+    if not candidate_keys:
+        logger.info("Нет кандидатов для проверки нулевого трафика.")
+        return
+
+    needed_uuids = {key.client_id for key in candidate_keys if key.client_id}
+    logger.info(f"[Zero Traffic] Кандидатов: {len(candidate_keys)}, уникальных UUID: {len(needed_uuids)}")
+
+    try:
+        traffic_map = await fetch_all_remnawave_traffic(session, needed_uuids=needed_uuids)
+    except Exception as error:
+        logger.error(f"[Zero Traffic] Ошибка bulk-получения трафика: {error}")
+        return
+
     messages = []
     keys_to_mark_notified = []
 
-    for key in keys:
+    for key in candidate_keys:
         tg_id = key.tg_id
         email = key.email
-        created_at = key.created_at
         client_id = key.client_id
-        expiry_time = key.expiry_time
-        notified = key.notified
-        tariff_id = key.tariff_id
-
-        if tariff_id not in trial_tariff_ids:
-            continue
-
-        if created_at is None or notified:
-            continue
-
-        created_at_dt = pytz.utc.localize(datetime.fromtimestamp(created_at / 1000)).astimezone(moscow_tz)
-        if current_dt < created_at_dt + timedelta(hours=inactive_traffic_hours):
-            continue
-
-        if expiry_time:
-            expiry_dt = pytz.utc.localize(datetime.fromtimestamp(expiry_time / 1000)).astimezone(moscow_tz)
-            if current_dt > expiry_dt:
-                continue
 
         keys_to_mark_notified.append(client_id)
 
-        try:
-            traffic_data = await get_user_traffic(session, tg_id, email)
-        except Exception as error:
-            logger.error(f"Ошибка получения трафика для {email}: {error}")
+        used_bytes = traffic_map.get(client_id)
+        if used_bytes is None:
+            logger.warning(f"[Zero Traffic] UUID {client_id} ({email}) не найден в bulk-данных, пропуск")
             continue
 
-        if traffic_data.get("status") != "success":
-            logger.warning(f"Ошибка при получении трафика для {email}: {traffic_data.get('message')}")
+        if used_bytes > 0:
             continue
 
-        total_traffic = sum(
-            value if isinstance(value, int | float) else 0 for value in traffic_data.get("traffic", {}).values()
-        )
-
-        if total_traffic == 0:
+        if used_bytes == 0:
             logger.info(f"У пользователя {tg_id} ({email}) 0 ГБ трафика. Отправляем уведомление.")
             builder = InlineKeyboardBuilder()
 

@@ -7,7 +7,7 @@ from typing import Any, Optional
 import pytz
 
 from aiogram import Bot, Router
-from sqlalchemy import select, text, update
+from sqlalchemy import exists, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from config import (
@@ -44,6 +44,7 @@ from database import (
     update_key_tariff,
 )
 from database.models import Key, Tariff, User
+from database.models.users import BlockedUser, ManualBan
 from database.tariffs import (
     check_tariff_exists,
     get_tariff_by_id,
@@ -112,7 +113,14 @@ async def preload_notification_data(session: AsyncSession) -> dict[str, Any]:
         )
         .outerjoin(Tariff, Key.tariff_id == Tariff.id)
         .outerjoin(User, Key.user_id == User.id)
-        .where(Key.is_frozen.is_(False))
+        .where(
+            Key.is_frozen.is_(False),
+            ~exists().where(BlockedUser.tg_id == Key.tg_id),
+            ~exists().where(
+                ManualBan.tg_id == Key.tg_id,
+                or_(ManualBan.until.is_(None), ManualBan.until > datetime.utcnow()),
+            ),
+        )
     )
 
     result = await session.execute(stmt)
@@ -589,10 +597,43 @@ async def notify_expiring_keys(
     await asyncio.sleep(1)
 
 
+async def _get_blocked_expired_keys(session: AsyncSession, current_time: int) -> list:
+    """Получает истекшие ключи заблокированных/забаненных пользователей."""
+    stmt = (
+        select(Key)
+        .where(
+            Key.is_frozen.is_(False),
+            Key.expiry_time.isnot(None),
+            Key.expiry_time < current_time,
+            or_(
+                exists().where(BlockedUser.tg_id == Key.tg_id),
+                exists().where(
+                    ManualBan.tg_id == Key.tg_id,
+                    or_(ManualBan.until.is_(None), ManualBan.until > datetime.utcnow()),
+                ),
+            ),
+        )
+    )
+    result = await session.execute(stmt)
+    return list(result.scalars().all())
+
+
 async def handle_expired_keys(ctx: NotificationContext, keys: list):
     logger.info("Начало обработки истекших ключей.")
 
     expired_keys = [key for key in keys if key.expiry_time and key.expiry_time < ctx.current_time]
+
+    try:
+        blocked_expired = await _get_blocked_expired_keys(ctx.session, ctx.current_time)
+        if blocked_expired:
+            logger.info(f"Дополнительно найдено {len(blocked_expired)} истекших ключей заблокированных пользователей.")
+            existing_ids = {key.client_id for key in expired_keys}
+            for bk in blocked_expired:
+                if bk.client_id not in existing_ids:
+                    expired_keys.append(bk)
+    except Exception as error:
+        logger.error(f"Ошибка получения ключей заблокированных пользователей: {error}")
+
     logger.info(f"Найдено {len(expired_keys)} истекших ключей.")
 
     tg_ids = [key.tg_id for key in expired_keys]

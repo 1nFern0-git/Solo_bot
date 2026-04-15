@@ -510,7 +510,7 @@ async def handle_sync_cluster(
             tariffs_cache = {t.id: dict(t.__dict__) for t in tariffs_list}
 
         if only_remnawave:
-            batch_size = 50
+            batch_size = 250
             total_keys = len(keys_to_sync)
             processed_count = 0
 

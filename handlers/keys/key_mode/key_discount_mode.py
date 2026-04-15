@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
@@ -46,7 +46,9 @@ async def handle_discount_entry(callback: CallbackQuery, session: AsyncSession):
 
     discount_active_hours = int(NOTIFICATIONS_CONFIG.get("DISCOUNT_ACTIVE_HOURS", DISCOUNT_ACTIVE_HOURS))
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
+    if last_time.tzinfo is None:
+        last_time = last_time.replace(tzinfo=timezone.utc)
     if now - last_time > timedelta(hours=discount_active_hours):
         await callback.message.edit_text("⏳ Срок действия скидки истёк.")
         return
@@ -133,7 +135,9 @@ async def handle_ultra_discount(callback: CallbackQuery, session: AsyncSession):
 
     discount_active_hours = int(NOTIFICATIONS_CONFIG.get("DISCOUNT_ACTIVE_HOURS", DISCOUNT_ACTIVE_HOURS))
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
+    if last_time.tzinfo is None:
+        last_time = last_time.replace(tzinfo=timezone.utc)
     if now - last_time > timedelta(hours=discount_active_hours):
         await callback.message.edit_text("⏳ Срок действия финальной скидки истёк.")
         return

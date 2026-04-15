@@ -834,7 +834,7 @@ async def handle_addons_confirm(callback: CallbackQuery, state: FSMContext, sess
         server_id = record["server_id"]
 
         selected_traffic_gb_for_effective = (
-            int(selected_traffic_gb) if selected_traffic_gb is not None and has_traffic_option else 0
+            int(selected_traffic_gb) if selected_traffic_gb is not None and has_traffic_option else None
         )
 
         current_subgroup = None
