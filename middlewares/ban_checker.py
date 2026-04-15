@@ -1,10 +1,11 @@
 from collections.abc import Awaitable, Callable
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
+
+import pytz
 
 from aiogram import BaseMiddleware
 from aiogram.types import CallbackQuery, Message, TelegramObject, Update
-from pytz import timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,7 +17,7 @@ from database.models import ManualBan, User
 from logger import logger
 
 
-TZ = timezone("Europe/Moscow")
+TZ = pytz.timezone("Europe/Moscow")
 _BAN_CACHE_TTL = BAN_CACHE_TTL_SEC
 
 
@@ -34,7 +35,7 @@ class BanCheckerMiddleware(BaseMiddleware):
             .join(User, ManualBan.user_id == User.id)
             .where(
                 User.tg_id == tg_id,
-                (ManualBan.until.is_(None)) | (ManualBan.until > datetime.utcnow()),
+                (ManualBan.until.is_(None)) | (ManualBan.until > datetime.now(timezone.utc)),
             )
             .limit(1)
         )
@@ -87,7 +88,7 @@ class BanCheckerMiddleware(BaseMiddleware):
                         until_parsed = datetime.fromisoformat(until_raw)
                     except ValueError:
                         until_parsed = None
-                if until_parsed is not None and until_parsed < datetime.utcnow():
+                if until_parsed is not None and until_parsed < datetime.now(timezone.utc):
                     ban_info = None
                     await cache_delete(cache_key("ban_status", tg_id))
                 else:

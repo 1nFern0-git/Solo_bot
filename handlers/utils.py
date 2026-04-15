@@ -4,7 +4,7 @@ import re
 import secrets
 import string
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import aiofiles
 
@@ -456,7 +456,9 @@ def get_username(user) -> str:
 
 def format_discount_time_left(last_time: datetime, discount_hours: int) -> str:
     expires_at = last_time + timedelta(hours=discount_hours)
-    current_time = datetime.utcnow()
+    current_time = datetime.now(timezone.utc)
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
     time_left = expires_at - current_time
 
     if time_left.total_seconds() <= 0:

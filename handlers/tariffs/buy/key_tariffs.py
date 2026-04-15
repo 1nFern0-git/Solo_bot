@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from math import ceil
 from typing import Any
 
@@ -606,7 +606,9 @@ async def start_user_tariff_configurator(
         "config_tariff_id": tariff["id"],
         "tariff_config": cfg_for_state,
     }
-    if renew_mode != "renew":
+    if renew_mode == "renew":
+        update_payload["renew_tariff_id"] = tariff["id"]
+    else:
         update_payload["config_selected_device_limit"] = None
         update_payload["config_selected_traffic_gb"] = None
 
@@ -784,7 +786,7 @@ async def select_tariff_plan(callback_query: CallbackQuery, session: Any, state:
 
     discount_info = await check_hot_lead_discount(session, tg_id)
     if tariff.get("group_code") in ["discounts", "discounts_max"]:
-        if not discount_info.get("available") or datetime.utcnow() >= discount_info["expires_at"]:
+        if not discount_info.get("available") or datetime.now(timezone.utc) >= discount_info["expires_at"]:
             builder = InlineKeyboardBuilder()
             builder.row(InlineKeyboardButton(text=MAIN_MENU, callback_data="profile"))
             await edit_or_send_message(
@@ -819,6 +821,8 @@ async def select_tariff_plan(callback_query: CallbackQuery, session: Any, state:
             f"tg_id={tg_id} tariff_id={tariff_id} result={validity_result}"
         )
         return
+
+    await state.update_data(renew_mode=None)
 
     if tariff.get("configurable"):
         logger.info(f"[TARIFF_CFG] select_tariff_plan configurable: tg_id={tg_id} tariff_id={tariff_id}")

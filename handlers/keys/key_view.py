@@ -3,7 +3,7 @@ import html
 import os
 import re
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pytz
 
@@ -328,8 +328,8 @@ async def build_key_view_payload(session: AsyncSession, tg_id: int, key_ref_or_e
 
     expiry_time = record["expiry_time"]
     server_name = record["server_id"]
-    expiry_date = datetime.utcfromtimestamp(expiry_time / 1000)
-    now = datetime.utcnow()
+    expiry_date = datetime.fromtimestamp(expiry_time / 1000, tz=timezone.utc)
+    now = datetime.now(timezone.utc)
     time_left = expiry_date - now
 
     if time_left.total_seconds() <= 0:

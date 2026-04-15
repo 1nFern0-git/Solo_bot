@@ -1,7 +1,7 @@
 import asyncio
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 import pytz
@@ -118,7 +118,7 @@ async def preload_notification_data(session: AsyncSession) -> dict[str, Any]:
             ~exists().where(BlockedUser.tg_id == Key.tg_id),
             ~exists().where(
                 ManualBan.tg_id == Key.tg_id,
-                or_(ManualBan.until.is_(None), ManualBan.until > datetime.utcnow()),
+                or_(ManualBan.until.is_(None), ManualBan.until > datetime.now(timezone.utc)),
             ),
         )
     )
@@ -391,8 +391,8 @@ async def try_auto_renew(ctx: NotificationContext, key) -> tuple[bool, dict | No
 
     new_expiry_time = (
         current_expiry
-        if current_expiry > datetime.utcnow().timestamp() * 1000
-        else datetime.utcnow().timestamp() * 1000
+        if current_expiry > datetime.now(timezone.utc).timestamp() * 1000
+        else datetime.now(timezone.utc).timestamp() * 1000
     ) + duration_days * 24 * 60 * 60 * 1000
 
     logger.info(
@@ -609,7 +609,7 @@ async def _get_blocked_expired_keys(session: AsyncSession, current_time: int) ->
                 exists().where(BlockedUser.tg_id == Key.tg_id),
                 exists().where(
                     ManualBan.tg_id == Key.tg_id,
-                    or_(ManualBan.until.is_(None), ManualBan.until > datetime.utcnow()),
+                    or_(ManualBan.until.is_(None), ManualBan.until > datetime.now(timezone.utc)),
                 ),
             ),
         )

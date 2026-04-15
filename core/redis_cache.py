@@ -49,6 +49,10 @@ async def _get_redis() -> Any | None:
             encoding="utf-8",
             decode_responses=True,
             max_connections=64,
+            health_check_interval=30,
+            socket_connect_timeout=5,
+            socket_timeout=5,
+            retry_on_timeout=True,
         )
         await client.ping()
         _REDIS_CLIENTS[client_key] = client

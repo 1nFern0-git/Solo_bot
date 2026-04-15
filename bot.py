@@ -23,7 +23,15 @@ bot = Bot(token=API_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTM
 
 RedisStorage = import_module("aiogram.fsm.storage.redis").RedisStorage
 redis_from_url = import_module("redis.asyncio").from_url
-redis = redis_from_url(REDIS_URL, encoding="utf-8", decode_responses=True)
+redis = redis_from_url(
+    REDIS_URL,
+    encoding="utf-8",
+    decode_responses=True,
+    health_check_interval=30,
+    socket_connect_timeout=5,
+    socket_timeout=5,
+    retry_on_timeout=True,
+)
 storage = RedisStorage(redis=redis)
 
 dp = Dispatcher(bot=bot, storage=storage)

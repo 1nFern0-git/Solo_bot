@@ -1,7 +1,7 @@
 import json
 import re
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import and_, distinct, exists, func, not_, select
@@ -15,12 +15,12 @@ from logger import logger
 def _not_banned(user_id_col):
     return ~exists().where(BlockedUser.user_id == user_id_col) & ~exists().where(
         ManualBan.user_id == user_id_col,
-        (ManualBan.until.is_(None)) | (ManualBan.until > datetime.utcnow()),
+        (ManualBan.until.is_(None)) | (ManualBan.until > datetime.now(timezone.utc)),
     )
 
 
 async def get_recipients(session: AsyncSession, send_to: str, cluster_name: str | None = None) -> tuple[list[int], int]:
-    now_ms = int(datetime.utcnow().timestamp() * 1000)
+    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
 
     query = None
 
@@ -54,7 +54,7 @@ async def get_recipients(session: AsyncSession, send_to: str, cluster_name: str 
                 ~exists().where(BlockedUser.user_id == unsub_base.c.uid),
                 ~exists().where(
                     ManualBan.user_id == unsub_base.c.uid,
-                    (ManualBan.until.is_(None)) | (ManualBan.until > datetime.utcnow()),
+                    (ManualBan.until.is_(None)) | (ManualBan.until > datetime.now(timezone.utc)),
                 ),
             )
         )

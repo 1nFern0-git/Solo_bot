@@ -1,5 +1,5 @@
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from math import ceil
 from typing import Any
 
@@ -99,7 +99,7 @@ async def process_callback_renew_key(callback_query: CallbackQuery, state: FSMCo
 
         expiry_utc = datetime.utcfromtimestamp(expiry_time / 1000).replace(tzinfo=pytz.UTC)
         available_from_utc = expiry_utc - timedelta(days=RENEW_BUTTON_BEFORE_DAYS)
-        now_utc = datetime.utcnow().replace(tzinfo=pytz.UTC)
+        now_utc = datetime.now(timezone.utc)
 
         if now_utc < available_from_utc:
             dt_msk = available_from_utc.astimezone(moscow_tz).strftime("%d.%m.%Y %H:%M")
@@ -434,7 +434,7 @@ async def process_callback_renew_plan(callback_query: CallbackQuery, state: FSMC
 
         discount_info = await check_hot_lead_discount(session, tg_id)
         if tariff.get("group_code") in ["discounts", "discounts_max"]:
-            if not discount_info.get("available") or datetime.utcnow() >= discount_info["expires_at"]:
+            if not discount_info.get("available") or datetime.now(timezone.utc) >= discount_info["expires_at"]:
                 builder = InlineKeyboardBuilder()
                 builder.row(InlineKeyboardButton(text=MAIN_MENU, callback_data="profile"))
                 await callback_query.message.answer(
@@ -455,7 +455,7 @@ async def process_callback_renew_plan(callback_query: CallbackQuery, state: FSMC
         email = record["email"]
         expiry_time_raw = record["expiry_time"]
         expiry_time = normalize_expiry_ms(expiry_time_raw)
-        current_time = int(datetime.utcnow().timestamp() * 1000)
+        current_time = int(datetime.now(timezone.utc).timestamp() * 1000)
 
         if expiry_time <= current_time:
             new_expiry_time = int(current_time + timedelta(days=duration_days).total_seconds() * 1000)
@@ -596,12 +596,11 @@ async def handle_renew_config_confirm(callback_query: CallbackQuery, state: FSMC
 
         client_id = data.get("renew_client_id")
         email = data.get("renew_key_name")
-        new_expiry_time = data.get("renew_new_expiry_time")
         tariff_id = data.get("renew_tariff_id")
         selected_devices = data.get("config_selected_device_limit")
         selected_traffic_gb = data.get("config_selected_traffic_gb")
 
-        if not client_id or not email or not new_expiry_time or not tariff_id:
+        if not client_id or not email or not tariff_id:
             await callback_query.message.answer("❌ Данные для продления не найдены.")
             return
 
@@ -611,6 +610,18 @@ async def handle_renew_config_confirm(callback_query: CallbackQuery, state: FSMC
         if not tariff or not tariff.get("configurable"):
             await callback_query.message.answer("❌ Тариф не найден или не поддерживает настройку.")
             return
+
+        duration_days = int(tariff.get("duration_days") or 30)
+        record = await get_key_details(session, email)
+        if not record:
+            await callback_query.message.answer("❌ Подписка не найдена.")
+            return
+        expiry_time = normalize_expiry_ms(record.get("expiry_time"))
+        current_time = int(datetime.now(timezone.utc).timestamp() * 1000)
+        if expiry_time <= current_time:
+            new_expiry_time = int(current_time + timedelta(days=duration_days).total_seconds() * 1000)
+        else:
+            new_expiry_time = int(expiry_time + timedelta(days=duration_days).total_seconds() * 1000)
 
         final_price = calculate_config_price(
             tariff=tariff,

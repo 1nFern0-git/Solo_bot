@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 from pytz import timezone
@@ -98,7 +98,7 @@ async def redeem_gift(
     if wu is None:
         raise NotFoundError("Пользователь не найден")
 
-    if gift_info.expiry_time and gift_info.expiry_time < datetime.utcnow():
+    if gift_info.expiry_time and gift_info.expiry_time < datetime.now(timezone.utc):
         raise ValidationError("Срок действия подарка истёк")
 
     if gift_info.sender_user_id == wu.id:
@@ -209,7 +209,7 @@ async def create_gift(
     await update_balance(session, sender_user_ref, -price_to_charge)
 
     duration_days = int(tariff["duration_days"] or 0)
-    expiry_time = datetime.utcnow() + timedelta(days=duration_days)
+    expiry_time = datetime.now(timezone.utc) + timedelta(days=duration_days)
     gift_id = uuid.uuid4().hex
     gift_link = get_gift_link(sender_user_ref, gift_id)
     site_gift_link = get_site_gift_link(gift_id)
