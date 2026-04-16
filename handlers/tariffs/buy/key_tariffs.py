@@ -822,7 +822,9 @@ async def select_tariff_plan(callback_query: CallbackQuery, session: Any, state:
         )
         return
 
-    await state.update_data(renew_mode=None)
+    data = await state.get_data()
+    if data.get("renew_mode") != "renew":
+        await state.update_data(renew_mode=None)
 
     if tariff.get("configurable"):
         logger.info(f"[TARIFF_CFG] select_tariff_plan configurable: tg_id={tg_id} tariff_id={tariff_id}")
