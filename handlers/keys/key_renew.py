@@ -596,7 +596,7 @@ async def handle_renew_config_confirm(callback_query: CallbackQuery, state: FSMC
 
         client_id = data.get("renew_client_id")
         email = data.get("renew_key_name")
-        tariff_id = data.get("renew_tariff_id")
+        tariff_id = int(callback_query.data.split("|")[1])
         selected_devices = data.get("config_selected_device_limit")
         selected_traffic_gb = data.get("config_selected_traffic_gb")
 
