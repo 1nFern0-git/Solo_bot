@@ -4,7 +4,7 @@ from logger import logger
 
 
 async def notifications_loop(bot, sessionmaker) -> None:
-    from handlers.notifications.general_notifications import periodic_notifications
+    from handlers.notifications.engine import periodic_notifications
 
     await periodic_notifications(bot, sessionmaker=sessionmaker)
 

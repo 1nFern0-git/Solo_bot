@@ -1,33 +1,34 @@
+from __future__ import annotations
+
 import asyncio
 import os
 import time
 
 from collections import OrderedDict, deque
-from datetime import datetime
 
 import aiofiles
-import pytz
 
 from aiogram import Bot
-from aiogram.exceptions import (
-    TelegramBadRequest,
-    TelegramForbiddenError,
-    TelegramRetryAfter,
-)
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter
 from aiogram.types import BufferedInputFile, InlineKeyboardMarkup
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from database import async_session_maker, create_blocked_user
+from datetime import datetime
+
+import pytz
+
+from database import async_session_maker
+from database.bans import save_blocked_user_ids
 from handlers.utils import format_hours, format_minutes, get_russian_month
 from logger import logger
 from services.tariffs.tariff_display import get_key_tariff_display
 
-
 moscow_tz = pytz.timezone("Europe/Moscow")
+
 
 _photo_cache: OrderedDict[str, str] = OrderedDict()
 _photo_cache_lock = asyncio.Lock()
 _PHOTO_CACHE_MAX = 64
+_SUPPORTED_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".gif")
 
 
 async def _get_cached_file_id(photo_path: str) -> str | None:
@@ -46,9 +47,6 @@ async def _set_cached_file_id(photo_path: str, file_id: str) -> None:
                 _photo_cache.popitem(last=False)
 
 
-_SUPPORTED_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".gif")
-
-
 def _find_photo_file(photo_path: str) -> str | None:
     if os.path.isfile(photo_path):
         return photo_path
@@ -64,106 +62,181 @@ class NotificationRateLimiter:
     def __init__(self, max_rate: int = 35, window: float = 1.0) -> None:
         self.max_rate = max_rate
         self.window = window
-        self.send_times = deque()
+        self.send_times: deque = deque()
         self.lock = asyncio.Lock()
-
-    def _clean_old_timestamps(self, current_time: float):
-        cutoff_time = current_time - self.window
-        while self.send_times and self.send_times[0] <= cutoff_time:
-            self.send_times.popleft()
 
     async def acquire(self):
         async with self.lock:
             while True:
                 now = time.time()
-                self._clean_old_timestamps(now)
+                cutoff = now - self.window
+                while self.send_times and self.send_times[0] <= cutoff:
+                    self.send_times.popleft()
                 if len(self.send_times) < self.max_rate:
                     self.send_times.append(now)
                     return
-                oldest_timestamp = self.send_times[0]
-                time_to_wait = (oldest_timestamp + self.window) - now
+                time_to_wait = (self.send_times[0] + self.window) - now
                 if time_to_wait > 0:
                     await asyncio.sleep(time_to_wait + 0.001)
 
 
-class NotificationMessage:
-    def __init__(self, tg_id: int, text: str, photo: str | None = None, keyboard=None) -> None:
-        self.tg_id = tg_id
-        self.text = text
-        self.photo = photo
-        self.keyboard = keyboard
-        self.retry_after = None
-        self.attempts = 0
+def rate_limited_send(func):
+    async def wrapper(*args, **kwargs):
+        while True:
+            try:
+                return await func(*args, **kwargs)
+            except TelegramRetryAfter as e:
+                await asyncio.sleep(int(e.retry_after) + 1)
+            except TelegramForbiddenError:
+                return False
+            except TelegramBadRequest:
+                return False
+            except Exception as e:
+                tg_id = kwargs.get("tg_id") or (args[1] if len(args) > 1 else "?")
+                logger.error(f"Ошибка отправки пользователю {tg_id}: {e}")
+                return False
+    return wrapper
+
+
+async def send_notification(
+    bot: Bot,
+    tg_id: int,
+    image_filename: str | None,
+    caption: str,
+    keyboard: InlineKeyboardMarkup | None = None,
+) -> bool:
+    if image_filename is None:
+        return await _send_text(bot, tg_id, caption, keyboard)
+
+    photo_path = os.path.join("img", image_filename)
+    cached_id = await _get_cached_file_id(photo_path)
+    if cached_id:
+        return await _send_photo(bot, tg_id, photo_path, image_filename, caption, keyboard, cached_id)
+
+    actual_path = _find_photo_file(photo_path)
+    if actual_path:
+        return await _send_photo(bot, tg_id, actual_path, image_filename, caption, keyboard)
+    else:
+        logger.warning(f"Файл изображения не найден: {photo_path}")
+        return await _send_text(bot, tg_id, caption, keyboard)
+
+
+@rate_limited_send
+async def _send_photo(
+    bot: Bot,
+    tg_id: int,
+    photo_path: str,
+    image_filename: str,
+    caption: str,
+    keyboard: InlineKeyboardMarkup | None = None,
+    cached_file_id: str | None = None,
+) -> bool:
+    try:
+        if cached_file_id:
+            await bot.send_photo(tg_id, cached_file_id, caption=caption, reply_markup=keyboard)
+            return True
+        async with aiofiles.open(photo_path, "rb") as f:
+            image_data = await f.read()
+        buffered = BufferedInputFile(image_data, filename=image_filename)
+        result = await bot.send_photo(tg_id, buffered, caption=caption, reply_markup=keyboard)
+        if result and hasattr(result, "photo") and result.photo:
+            await _set_cached_file_id(os.path.join("img", image_filename), result.photo[-1].file_id)
+        return True
+    except (TelegramForbiddenError, TelegramBadRequest):
+        return False
+    except Exception as e:
+        logger.error(f"Ошибка отправки фото пользователю {tg_id}: {e}")
+        return await _send_text(bot, tg_id, caption, keyboard)
+
+
+@rate_limited_send
+async def _send_text(
+    bot: Bot,
+    tg_id: int,
+    caption: str,
+    keyboard: InlineKeyboardMarkup | None = None,
+) -> bool:
+    try:
+        await bot.send_message(tg_id, caption, reply_markup=keyboard)
+        return True
+    except (TelegramForbiddenError, TelegramBadRequest):
+        return False
+    except Exception as e:
+        logger.error(f"Ошибка отправки текста пользователю {tg_id}: {e}")
+        return False
 
 
 class FastNotificationSender:
-    def __init__(self, bot: Bot, session: AsyncSession | None, messages_per_second: int = 35) -> None:
+    def __init__(self, bot: Bot, messages_per_second: int = 35) -> None:
         self.bot = bot
-        self.session = session
         self.rate_limiter = NotificationRateLimiter(max_rate=messages_per_second)
-        self.blocked_users = set()
-        self.queue = asyncio.Queue()
-        self.delayed_queue = asyncio.Queue()
-        self.results = []
+        self.blocked_users: set[int] = set()
+        self.queue: asyncio.Queue = asyncio.Queue()
+        self.delayed_queue: asyncio.Queue = asyncio.Queue()
+        self.results: list[bool] = []
         self.total_sent = 0
         self.is_running = False
 
-    async def _send_single_message(self, msg: NotificationMessage) -> bool:
+    async def _send_one(self, msg: dict) -> bool:
+        tg_id = msg["tg_id"]
         try:
             await self.rate_limiter.acquire()
 
-            if msg.photo:
-                photo_path = os.path.join("img", msg.photo)
+            if msg.get("photo"):
+                photo_path = os.path.join("img", msg["photo"])
                 cached_id = await _get_cached_file_id(photo_path)
 
                 if cached_id:
                     await self.bot.send_photo(
-                        chat_id=msg.tg_id, photo=cached_id, caption=msg.text, reply_markup=msg.keyboard
+                        chat_id=tg_id, photo=cached_id,
+                        caption=msg["text"], reply_markup=msg.get("keyboard"),
                     )
                 else:
                     actual_path = _find_photo_file(photo_path)
                     if actual_path:
                         async with aiofiles.open(actual_path, "rb") as f:
                             image_data = await f.read()
-                        buffered_photo = BufferedInputFile(image_data, filename=os.path.basename(actual_path))
+                        buffered = BufferedInputFile(image_data, filename=os.path.basename(actual_path))
                         result = await self.bot.send_photo(
-                            chat_id=msg.tg_id, photo=buffered_photo, caption=msg.text, reply_markup=msg.keyboard
+                            chat_id=tg_id, photo=buffered,
+                            caption=msg["text"], reply_markup=msg.get("keyboard"),
                         )
                         if result and hasattr(result, "photo") and result.photo:
                             await _set_cached_file_id(photo_path, result.photo[-1].file_id)
                     else:
-                        await self.bot.send_message(chat_id=msg.tg_id, text=msg.text, reply_markup=msg.keyboard)
+                        await self.bot.send_message(
+                            chat_id=tg_id, text=msg["text"], reply_markup=msg.get("keyboard"),
+                        )
             else:
-                await self.bot.send_message(chat_id=msg.tg_id, text=msg.text, reply_markup=msg.keyboard)
+                await self.bot.send_message(
+                    chat_id=tg_id, text=msg["text"], reply_markup=msg.get("keyboard"),
+                )
             return True
 
         except TelegramRetryAfter as e:
-            msg.retry_after = e.retry_after
-            msg.attempts += 1
+            msg["_retry_after"] = e.retry_after
+            msg["_attempts"] = msg.get("_attempts", 0) + 1
             await self.delayed_queue.put(msg)
             return False
-
         except TelegramForbiddenError:
-            self.blocked_users.add(msg.tg_id)
+            self.blocked_users.add(tg_id)
             return False
-
         except TelegramBadRequest as e:
             if "chat not found" in str(e).lower():
-                self.blocked_users.add(msg.tg_id)
+                self.blocked_users.add(tg_id)
             return False
-
         except Exception:
             return False
 
-    async def _process_delayed_messages(self):
+    async def _process_delayed(self):
         while self.is_running:
             try:
                 if not self.delayed_queue.empty():
                     msg = await asyncio.wait_for(self.delayed_queue.get(), timeout=0.1)
-                    if msg.retry_after:
-                        await asyncio.sleep(msg.retry_after)
-                        msg.retry_after = None
-                    if msg.attempts < 3:
+                    if msg.get("_retry_after"):
+                        await asyncio.sleep(msg["_retry_after"])
+                        msg["_retry_after"] = None
+                    if msg.get("_attempts", 0) < 3:
                         await self.queue.put(msg)
                     else:
                         self.results.append(False)
@@ -178,11 +251,11 @@ class FastNotificationSender:
         while self.is_running:
             try:
                 msg = await asyncio.wait_for(self.queue.get(), timeout=0.1)
-                success = await self._send_single_message(msg)
+                success = await self._send_one(msg)
                 if success:
                     self.total_sent += 1
                     self.results.append(True)
-                elif msg.attempts == 0:
+                elif msg.get("_attempts", 0) == 0:
                     self.results.append(False)
                 self.queue.task_done()
             except TimeoutError:
@@ -194,14 +267,12 @@ class FastNotificationSender:
         if not self.blocked_users:
             return
         try:
-            from database.bans import save_blocked_user_ids
-
             async with async_session_maker() as session:
                 await save_blocked_user_ids(session, list(self.blocked_users))
                 await session.commit()
-            logger.info(f"📝 Добавлено до {len(self.blocked_users)} пользователей в blocked_users")
+            logger.info(f"Добавлено до {len(self.blocked_users)} пользователей в blocked_users")
         except Exception as e:
-            logger.error(f"❌ Ошибка при сохранении заблокированных пользователей: {e}")
+            logger.error(f"Ошибка сохранения заблокированных: {e}")
 
     async def send_all(self, messages: list[dict], workers: int = 15) -> list[bool]:
         if not messages:
@@ -211,38 +282,29 @@ class FastNotificationSender:
         self.results = []
         self.total_sent = 0
         self.blocked_users = set()
-        start_time = time.time()
+        start = time.time()
 
-        for msg_data in messages:
-            msg = NotificationMessage(
-                tg_id=msg_data["tg_id"],
-                text=msg_data["text"],
-                photo=msg_data.get("photo"),
-                keyboard=msg_data.get("keyboard"),
-            )
+        for msg in messages:
             await self.queue.put(msg)
 
         worker_tasks = [asyncio.create_task(self._worker()) for _ in range(workers)]
-        delayed_task = asyncio.create_task(self._process_delayed_messages())
+        delayed_task = asyncio.create_task(self._process_delayed())
 
         await self.queue.join()
-
         await asyncio.sleep(0.5)
         while not self.delayed_queue.empty():
             await asyncio.sleep(0.5)
 
         self.is_running = False
-
         for task in worker_tasks:
             task.cancel()
         delayed_task.cancel()
-
         await asyncio.gather(*worker_tasks, delayed_task, return_exceptions=True)
         await self._save_blocked_users()
 
-        duration = time.time() - start_time
+        duration = time.time() - start
         speed = self.total_sent / duration if duration > 0 else 0
-        logger.info(f"📨 Уведомления: {self.total_sent}/{len(messages)} за {duration:.1f}s ({speed:.1f} msg/s)")
+        logger.info(f"Уведомления: {self.total_sent}/{len(messages)} за {duration:.1f}s ({speed:.1f} msg/s)")
 
         return self.results
 
@@ -250,120 +312,13 @@ class FastNotificationSender:
 async def send_messages_with_limit(
     bot: Bot,
     messages: list[dict],
-    session: AsyncSession = None,
-    source_file: str = None,
     messages_per_second: int = 35,
-):
-    sender = FastNotificationSender(bot, session, messages_per_second)
+) -> list[bool]:
+    sender = FastNotificationSender(bot, messages_per_second)
     return await sender.send_all(messages)
 
 
-async def try_add_blocked_user(tg_id: int, session: AsyncSession, source_file: str | None):
-    if source_file == "special_notifications" and session:
-        try:
-            await create_blocked_user(session, tg_id)
-            logger.info(f"Пользователь {tg_id} добавлен в blocked_users.")
-        except Exception as e:
-            logger.warning(f"Не удалось добавить {tg_id} в blocked_users: {e}")
-
-
-def rate_limited_send(func):
-    async def wrapper(*args, **kwargs):
-        while True:
-            try:
-                return await func(*args, **kwargs)
-            except TelegramRetryAfter as e:
-                retry_in = int(e.retry_after) + 1
-                logger.warning(f"⚠️ Flood control: повтор через {retry_in} сек.")
-                await asyncio.sleep(retry_in)
-            except TelegramForbiddenError:
-                tg_id = kwargs.get("tg_id") or args[1]
-                logger.warning(f"🚫 Бот заблокирован пользователем {tg_id}.")
-                return False
-            except TelegramBadRequest:
-                tg_id = kwargs.get("tg_id") or args[1]
-                logger.warning(f"🚫 Чат не найден для пользователя {tg_id}.")
-                return False
-            except Exception as e:
-                tg_id = kwargs.get("tg_id") or args[1]
-                logger.error(f"❌ Ошибка отправки сообщения пользователю {tg_id}: {e}")
-                return False
-
-    return wrapper
-
-
-async def send_notification(
-    bot: Bot,
-    tg_id: int,
-    image_filename: str | None,
-    caption: str,
-    keyboard: InlineKeyboardMarkup | None = None,
-) -> bool:
-    if image_filename is None:
-        return await _send_text_notification(bot, tg_id, caption, keyboard)
-
-    photo_path = os.path.join("img", image_filename)
-    cached_id = await _get_cached_file_id(photo_path)
-    if cached_id:
-        return await _send_photo_notification(bot, tg_id, photo_path, image_filename, caption, keyboard, cached_id)
-
-    actual_path = _find_photo_file(photo_path)
-    if actual_path:
-        return await _send_photo_notification(bot, tg_id, actual_path, image_filename, caption, keyboard)
-    else:
-        logger.warning(f"Файл с изображением не найден: {photo_path}")
-        return await _send_text_notification(bot, tg_id, caption, keyboard)
-
-
-@rate_limited_send
-async def _send_photo_notification(
-    bot: Bot,
-    tg_id: int,
-    photo_path: str,
-    image_filename: str,
-    caption: str,
-    keyboard: InlineKeyboardMarkup | None = None,
-    cached_file_id: str | None = None,
-) -> bool:
-    try:
-        if cached_file_id:
-            await bot.send_photo(tg_id, cached_file_id, caption=caption, reply_markup=keyboard)
-            return True
-        async with aiofiles.open(photo_path, "rb") as image_file:
-            image_data = await image_file.read()
-        buffered_photo = BufferedInputFile(image_data, filename=image_filename)
-        result = await bot.send_photo(tg_id, buffered_photo, caption=caption, reply_markup=keyboard)
-        if result and hasattr(result, "photo") and result.photo:
-            await _set_cached_file_id(
-                os.path.join("img", image_filename), result.photo[-1].file_id
-            )
-        return True
-    except (TelegramForbiddenError, TelegramBadRequest):
-        return False
-    except Exception as e:
-        logger.error(f"Ошибка отправки фото для пользователя {tg_id}: {e}")
-        return await _send_text_notification(bot, tg_id, caption, keyboard)
-
-
-@rate_limited_send
-async def _send_text_notification(
-    bot: Bot,
-    tg_id: int,
-    caption: str,
-    keyboard: InlineKeyboardMarkup | None = None,
-) -> bool:
-    try:
-        await bot.send_message(tg_id, caption, reply_markup=keyboard)
-        return True
-    except (TelegramForbiddenError, TelegramBadRequest):
-        return False
-    except Exception as e:
-        logger.error(f"Неизвестная ошибка при отправке сообщения для пользователя {tg_id}: {e}")
-        return False
-
-
-async def prepare_key_expiry_data(key, session: AsyncSession, current_time: int) -> dict:
-    """Готовит данные об истечении подписки для уведомлений."""
+async def prepare_key_expiry_data(key, session, current_time: int) -> dict:
     if isinstance(key, dict):
         expiry_timestamp = key.get("expiry_time")
         email = key.get("email") or ""
@@ -419,7 +374,7 @@ async def prepare_key_expiry_data(key, session: AsyncSession, current_time: int)
         if name:
             tariff_name = name
     except Exception as error:
-        logger.warning(f"[NOTIFY] Ошибка при получении тарифных лимитов для {email}: {error}")
+        logger.warning(f"[NOTIFY] Ошибка тарифных лимитов для {email}: {error}")
 
     traffic_text = "безлимит" if traffic_limit_gb == 0 else f"{traffic_limit_gb} ГБ"
     devices_text = "безлимит" if device_limit == 0 else str(device_limit)

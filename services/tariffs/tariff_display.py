@@ -102,17 +102,17 @@ async def resolve_price_to_charge(session: AsyncSession, state_data: dict[str, A
         traffic_target_gb = base_traffic_gb
 
     try:
-        device_step_rub = int(cfg.get("device_step_rub") or 0)
+        device_step_rub = int(tariff.get("device_step_rub") or 0)
     except (TypeError, ValueError):
         device_step_rub = 0
 
     try:
-        traffic_step_rub = int(cfg.get("traffic_step_rub") or 0)
+        traffic_step_rub = int(tariff.get("traffic_step_rub") or 0)
     except (TypeError, ValueError):
         traffic_step_rub = 0
 
-    device_overrides = cfg.get("device_overrides") or {}
-    traffic_overrides = cfg.get("traffic_overrides") or {}
+    device_overrides = tariff.get("device_overrides") or {}
+    traffic_overrides = tariff.get("traffic_overrides") or {}
 
     device_add_rub = 0
     if device_target > base_device_limit:

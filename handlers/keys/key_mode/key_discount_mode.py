@@ -14,7 +14,7 @@ from database.access.resolution import resolve_user_optional
 from database.models import Notification
 from handlers.buttons import MAIN_MENU, RENEW_KEY_NOTIFICATION
 from handlers.keys.utils import build_key_callback
-from handlers.notifications.notify_kb import build_tariffs_keyboard
+from handlers.notifications.keyboards import build_tariffs_keyboard
 from handlers.tariffs.buy.key_tariffs import select_tariff_plan
 from handlers.texts import DISCOUNT_TARIFF, DISCOUNT_TARIFF_MAX
 from handlers.utils import format_discount_time_left, get_least_loaded_cluster

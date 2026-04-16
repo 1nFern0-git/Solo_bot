@@ -10,13 +10,12 @@ from logger import (
     PANEL_XUI,
 )
 from panels._3xui import delete_client, get_xui_instance
+from panels.remnawave import RemnawaveAPI
 
 from .utils import unique_by_api_url
 
 
 async def delete_key_from_cluster(cluster_id: str, email: str, client_id: str, session: AsyncSession):
-    from panels.remnawave import RemnawaveAPI
-
     try:
         servers = await get_servers(session)
         cluster = servers.get(cluster_id)
