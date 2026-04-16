@@ -271,7 +271,7 @@ async def back_to_currency(callback_query: CallbackQuery, state: FSMContext, ses
 
 @router.callback_query(F.data == "back_to_pay")
 async def back_to_pay(callback_query: CallbackQuery, state: FSMContext, session: AsyncSession):
-    return await balance_handler(callback_query, session)
+    return await balance_handler(callback_query, state, session)
 
 
 @router.callback_query(F.data == "pay_tribute")

@@ -55,6 +55,40 @@ def backup_thread_loop(stop_event, _bot, _sessionmaker) -> None:
         loop.close()
 
 
+async def blocked_drain_loop(_bot, sessionmaker) -> None:
+    from core.cache_config import BLOCKED_DRAIN_BATCH, BLOCKED_DRAIN_INTERVAL_SEC, BLOCKED_EVENTS_REDIS_KEY
+    from core.redis_cache import cache_lpop_batch
+    from database.bans import remove_blocked_user_ids, save_blocked_user_ids
+
+    while True:
+        try:
+            events = await cache_lpop_batch(BLOCKED_EVENTS_REDIS_KEY, BLOCKED_DRAIN_BATCH)
+            if events:
+                final: dict[int, str] = {}
+                for ev in events:
+                    tg_id = ev.get("tg_id")
+                    action = ev.get("action")
+                    if tg_id and action:
+                        final[int(tg_id)] = action
+
+                to_add = [tid for tid, act in final.items() if act == "block"]
+                to_remove = [tid for tid, act in final.items() if act == "unblock"]
+
+                if to_add or to_remove:
+                    async with sessionmaker() as session:
+                        if to_add:
+                            await save_blocked_user_ids(session, to_add)
+                        if to_remove:
+                            await remove_blocked_user_ids(session, to_remove)
+                        await session.commit()
+                    logger.info(
+                        "[BlockedDrain] add={}, remove={}", len(to_add), len(to_remove)
+                    )
+        except Exception as e:
+            logger.error("[BlockedDrain] Ошибка: {}", e)
+        await asyncio.sleep(BLOCKED_DRAIN_INTERVAL_SEC)
+
+
 async def server_checks_loop(_bot, sessionmaker) -> None:
     from config import PING_TIME
     from servers import check_servers

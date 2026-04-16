@@ -15,6 +15,7 @@ from core.tasks.cron_tasks import (
 from core.tasks.loop_tasks import (
     backup_loop,
     backup_thread_loop,
+    blocked_drain_loop,
     notifications_loop,
     scheduled_broadcasts_loop_task,
     server_checks_loop,
@@ -50,6 +51,8 @@ def register_periodic_tasks() -> None:
         process_budget -= 1
     else:
         periodic_task_manager.register_thread_loop_task("backup", backup_thread_loop)
+
+    periodic_task_manager.register_loop_task("blocked_drain", blocked_drain_loop)
 
     if process_budget > 0:
         periodic_task_manager.register_process_loop_task("server_checks", server_checks_loop)

@@ -14,15 +14,20 @@ from aiogram.types import BufferedInputFile
 from config import (
     ADMIN_ID,
     BACKUP_CAPTION,
-    BACKUP_CHANNEL_ID,
-    BACKUP_CHANNEL_THREAD_ID,
     BACKUP_CREATE_ARCHIVE,
+    BACKUP_DESTINATION,
     BACKUP_INCLUDE_CONFIG,
     BACKUP_INCLUDE_DB,
     BACKUP_INCLUDE_IMG,
     BACKUP_INCLUDE_TEXTS,
     BACKUP_OTHER_BOT_TOKEN,
-    BACKUP_SEND_MODE,
+    BACKUP_S3_ACCESS_KEY,
+    BACKUP_S3_BUCKET,
+    BACKUP_S3_ENDPOINT,
+    BACKUP_S3_KEEP,
+    BACKUP_S3_PATH,
+    BACKUP_S3_REGION,
+    BACKUP_S3_SECRET_KEY,
     BACK_DIR,
     DB_NAME,
     DB_PASSWORD,
@@ -35,6 +40,21 @@ from logger import logger
 
 
 DOCKER_POSTGRES_CONTAINER = "solobot-postgres"
+
+
+def _s3_configured() -> bool:
+    return bool(BACKUP_S3_ENDPOINT and BACKUP_S3_ACCESS_KEY and BACKUP_S3_SECRET_KEY and BACKUP_S3_BUCKET)
+
+
+def _parse_destination() -> tuple[str | None, int | None]:
+    """Парсит BACKUP_DESTINATION в (chat_id, thread_id)."""
+    raw = BACKUP_DESTINATION.strip()
+    if not raw:
+        return None, None
+    parts = raw.split(":", 1)
+    chat_id = parts[0]
+    thread_id = int(parts[1]) if len(parts) > 1 and parts[1].strip() else None
+    return chat_id, thread_id
 
 
 def _find_docker_postgres_container() -> str | None:
@@ -90,11 +110,8 @@ def _create_database_backup_via_docker(filename: Path, container: str) -> None:
 
 async def backup_database(bot_instance: Bot | None = None) -> Exception | None:
     """
-    Создает резервную копию базы данных (или полный архив) и отправляет его администраторам.
-    Блокирующие операции (pg_dump и т.д.) выполняются в пуле процессов, не блокируя event loop и используя другие ядра CPU.
-
-    Returns:
-        Optional[Exception]: Исключение в случае ошибки или None при успешном выполнении
+    Создает резервную копию и отправляет в S3 или Telegram.
+    Блокирующие операции выполняются в пуле потоков/процессов.
     """
     from core.executor import run_io
 
@@ -112,9 +129,15 @@ async def backup_database(bot_instance: Bot | None = None) -> Exception | None:
 
     logger.info("[Backup] Файл создан: {}", backup_file_path)
     try:
-        await _send_backup_to_admins(backup_file_path, bot_instance=bot_instance)
-        exception = await run_io(_cleanup_old_backups)
+        if _s3_configured():
+            s3_err = await run_io(_upload_to_s3, backup_file_path)
+            if s3_err:
+                logger.error("[Backup] Ошибка S3: {}", s3_err)
+                return s3_err
+        else:
+            await _send_backup_telegram(backup_file_path, bot_instance=bot_instance)
 
+        exception = await run_io(_cleanup_old_backups)
         if exception:
             logger.error("[Backup] Ошибка при очистке старых: {}", exception)
             return exception
@@ -126,12 +149,6 @@ async def backup_database(bot_instance: Bot | None = None) -> Exception | None:
 
 
 def _create_database_backup() -> tuple[str | None, Exception | None]:
-    """
-    Создает резервную копию базы данных PostgreSQL.
-
-    Returns:
-        Tuple[Optional[str], Optional[Exception]]: Путь к файлу бэкапа и исключение (если произошла ошибка)
-    """
     date_formatted = datetime.now().strftime("%Y-%m-%d-%H%M%S")
     pid_suffix = os.getpid()
 
@@ -183,12 +200,6 @@ def _create_database_backup() -> tuple[str | None, Exception | None]:
 
 
 def _create_backup_archive() -> tuple[str | None, Exception | None]:
-    """
-    Создает архив (.tar.gz) с выбранными компонентами бекапа.
-
-    Returns:
-        Tuple[Optional[str], Optional[Exception]]: Путь к файлу архива и исключение (если произошла ошибка)
-    """
     date_formatted = datetime.now().strftime("%Y-%m-%d-%H%M%S")
     pid_suffix = os.getpid()
     backup_dir = Path(BACK_DIR)
@@ -252,12 +263,6 @@ def _create_backup_archive() -> tuple[str | None, Exception | None]:
 
 
 def _cleanup_old_backups() -> Exception | None:
-    """
-    Удаляет бэкапы старше 3 дней (как .sql, так и .tar.gz файлы).
-
-    Returns:
-        Optional[Exception]: Исключение в случае ошибки или None при успешном выполнении
-    """
     try:
         backup_dir = Path(BACK_DIR)
         if not backup_dir.exists():
@@ -286,94 +291,102 @@ def _cleanup_old_backups() -> Exception | None:
         return e
 
 
-async def create_backup_and_send_to_admins(client) -> None:
-    """
-    Создает бэкап и отправляет администраторам через переданный клиент.
+def _create_s3_client():
+    import boto3
 
-    Args:
-        client: Клиент для работы с базой данных
-    """
+    return boto3.client(
+        "s3",
+        endpoint_url=BACKUP_S3_ENDPOINT,
+        aws_access_key_id=BACKUP_S3_ACCESS_KEY,
+        aws_secret_access_key=BACKUP_S3_SECRET_KEY,
+        region_name=BACKUP_S3_REGION or "us-east-1",
+    )
+
+
+def _upload_to_s3(backup_file_path: str) -> Exception | None:
+    """Загружает бекап в S3 и чистит старые (синхронно, вызывается через run_io)."""
+    try:
+        s3 = _create_s3_client()
+        prefix = BACKUP_S3_PATH.strip("/")
+        object_key = f"{prefix}/{os.path.basename(backup_file_path)}"
+
+        s3.upload_file(backup_file_path, BACKUP_S3_BUCKET, object_key)
+        logger.info("[Backup S3] Загружен: {}", object_key)
+
+        _cleanup_s3_backups(s3, prefix)
+        return None
+    except Exception as e:
+        logger.error("[Backup S3] Ошибка: {}", e)
+        return e
+
+
+def _cleanup_s3_backups(s3, prefix: str) -> None:
+    """Удаляет старые бекапы в S3, оставляя BACKUP_S3_KEEP последних."""
+    if BACKUP_S3_KEEP <= 0:
+        return
+
+    all_objects = []
+    paginator = s3.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=BACKUP_S3_BUCKET, Prefix=f"{prefix}/"):
+        all_objects.extend(page.get("Contents", []))
+
+    all_objects.sort(key=lambda x: x["LastModified"])
+
+    if len(all_objects) <= BACKUP_S3_KEEP:
+        return
+
+    to_delete = all_objects[: -BACKUP_S3_KEEP]
+    for i in range(0, len(to_delete), 1000):
+        batch = [{"Key": obj["Key"]} for obj in to_delete[i : i + 1000]]
+        s3.delete_objects(Bucket=BACKUP_S3_BUCKET, Delete={"Objects": batch, "Quiet": True})
+
+    logger.info("[Backup S3] Удалено старых бекапов: {}", len(to_delete))
+
+
+async def create_backup_and_send_to_admins(client) -> None:
     await client.login()
     await client.database.export()
 
 
-async def _send_backup_to_admins(backup_file_path: str, bot_instance: Bot | None = None) -> None:
-    """
-    Отправляет файл бэкапа всем администраторам через Telegram.
-
-    Args:
-        backup_file_path: Путь к файлу бэкапа
-
-    Raises:
-        Exception: При ошибке отправки файла
-    """
+async def _send_backup_telegram(backup_file_path: str, bot_instance: Bot | None = None) -> None:
     if not backup_file_path or not os.path.exists(backup_file_path):
         raise FileNotFoundError(f"Файл бэкапа не найден: {backup_file_path}")
 
     active_bot = bot_instance
-    if active_bot is None:
+    own_session = False
+
+    if BACKUP_OTHER_BOT_TOKEN:
+        active_bot = Bot(token=BACKUP_OTHER_BOT_TOKEN)
+        own_session = True
+    elif active_bot is None:
         from bot import bot as active_bot
 
-    async def send_default():
-        for admin_id in ADMIN_ID:
-            try:
-                await active_bot.send_document(chat_id=admin_id, document=backup_input_file)
-                logger.info("[Backup] Отправлено админу: {}", admin_id)
-            except Exception as e:
-                logger.error("[Backup] Не отправлено админу {}: {}", admin_id, e)
-
     try:
-        async with aiofiles.open(backup_file_path, "rb") as backup_file:
-            backup_data = await backup_file.read()
-            filename = os.path.basename(backup_file_path)
-            backup_input_file = BufferedInputFile(file=backup_data, filename=filename)
+        async with aiofiles.open(backup_file_path, "rb") as f:
+            backup_data = await f.read()
+        filename = os.path.basename(backup_file_path)
+        backup_input_file = BufferedInputFile(file=backup_data, filename=filename)
 
-            if BACKUP_SEND_MODE == "default":
-                await send_default()
-                logger.info("[Backup] Отправлено всем админам")
+        chat_id, thread_id = _parse_destination()
 
-            elif BACKUP_SEND_MODE == "channel":
-                channel_id = BACKUP_CHANNEL_ID.strip()
-                thread_id = BACKUP_CHANNEL_THREAD_ID.strip()
-                if not channel_id:
-                    logger.error("[Backup] BACKUP_CHANNEL_ID не задан, fallback на default")
-                    await send_default()
-                    return
-                send_kwargs = {"chat_id": channel_id, "document": backup_input_file}
-                if thread_id:
-                    send_kwargs["message_thread_id"] = int(thread_id)
-                if BACKUP_CAPTION:
-                    send_kwargs["caption"] = BACKUP_CAPTION
+        if chat_id:
+            send_kwargs: dict = {"chat_id": chat_id, "document": backup_input_file}
+            if thread_id:
+                send_kwargs["message_thread_id"] = thread_id
+            if BACKUP_CAPTION:
+                send_kwargs["caption"] = BACKUP_CAPTION
+            await active_bot.send_document(**send_kwargs)
+            logger.info("[Backup] Отправлено в {}{}", chat_id, f" (тред {thread_id})" if thread_id else "")
+        else:
+            for admin_id in ADMIN_ID:
                 try:
+                    send_kwargs = {"chat_id": admin_id, "document": backup_input_file}
+                    if BACKUP_CAPTION:
+                        send_kwargs["caption"] = BACKUP_CAPTION
                     await active_bot.send_document(**send_kwargs)
-                    logger.info("[Backup] Отправлено в канал: {} (топик: {})", channel_id, thread_id)
+                    logger.info("[Backup] Отправлено админу: {}", admin_id)
                 except Exception as e:
-                    logger.error("[Backup] Не отправлено в канал {}: {}, fallback", channel_id, e)
-                    await send_default()
-
-            elif BACKUP_SEND_MODE == "bot":
-                if not BACKUP_OTHER_BOT_TOKEN:
-                    logger.error("[Backup] BACKUP_OTHER_BOT_TOKEN не задан, fallback")
-                    await send_default()
-                    return
-                other_bot = Bot(token=BACKUP_OTHER_BOT_TOKEN)
-                try:
-                    for admin_id in ADMIN_ID:
-                        try:
-                            send_kwargs = {"chat_id": admin_id, "document": backup_input_file}
-                            if BACKUP_CAPTION:
-                                send_kwargs["caption"] = BACKUP_CAPTION
-                            await other_bot.send_document(**send_kwargs)
-                            logger.info("[Backup] Отправлено через другого бота админу: {}", admin_id)
-                        except Exception as e:
-                            logger.error("[Backup] Не отправлено админу {} через другого бота: {}", admin_id, e)
-                    await other_bot.session.close()
-                except Exception as e:
-                    logger.error("[Backup] Ошибка через другого бота: {}, fallback", e)
-                    await send_default()
-            else:
-                logger.error("[Backup] Неизвестный BACKUP_SEND_MODE: {}, fallback", BACKUP_SEND_MODE)
-                await send_default()
-    except Exception as e:
-        logger.error("[Backup] Ошибка при отправке: {}", e)
-        raise
+                    logger.error("[Backup] Не отправлено админу {}: {}", admin_id, e)
+    finally:
+        if own_session:
+            await active_bot.session.close()

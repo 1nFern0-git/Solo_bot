@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -37,3 +37,17 @@ async def save_blocked_user_ids(session: AsyncSession, tg_ids: list[int]) -> Non
         await session.execute(stmt)
         total += len(values)
     logger.info(f"📝 Добавлено до {total} пользователей в blocked_users")
+
+
+async def remove_blocked_user_ids(session: AsyncSession, tg_ids: list[int]) -> None:
+    """Удаление списка telegram id из таблицы blocked_users батчами по 500."""
+    if not tg_ids:
+        return
+    batch_size = 500
+    total = 0
+    for i in range(0, len(tg_ids), batch_size):
+        batch = tg_ids[i : i + batch_size]
+        stmt = delete(BlockedUser).where(BlockedUser.tg_id.in_(batch))
+        result = await session.execute(stmt)
+        total += result.rowcount
+    logger.info(f"🗑 Удалено {total} пользователей из blocked_users")
