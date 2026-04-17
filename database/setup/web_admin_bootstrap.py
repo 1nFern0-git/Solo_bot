@@ -1,0 +1,47 @@
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from config import WEB_ADMIN_LOGIN, WEB_ADMIN_PASSWORD
+from database.identities import hash_password
+from database.models import Identity
+from logger import logger
+
+
+async def ensure_web_admin(session: AsyncSession) -> None:
+    """Bootstrap/sync web-admin identity from config (WEB_ADMIN_LOGIN/WEB_ADMIN_PASSWORD).
+
+    Вызов на старте API: если креды заданы в config.py — upsert Identity с bcrypt-хешем.
+    Если пусто — no-op с предупреждением, сайт останется без админа.
+    """
+    login = (WEB_ADMIN_LOGIN or "").strip()
+    password = WEB_ADMIN_PASSWORD or ""
+
+    if not (login and password):
+        result = await session.execute(select(Identity).where(Identity.is_admin.is_(True)))
+        has_admin = result.scalars().first() is not None
+        if not has_admin:
+            logger.warning(
+                "[web-admin] Нет web-админа и WEB_ADMIN_LOGIN/WEB_ADMIN_PASSWORD "
+                "не заданы в config.py. Сайт будет недоступен до создания админа."
+            )
+        return
+
+    email = login.lower()
+    result = await session.execute(select(Identity).where(Identity.email == email))
+    identity = result.scalar_one_or_none()
+    password_hash = hash_password(password)
+    if identity is None:
+        identity = Identity(
+            email=email,
+            password_hash=password_hash,
+            is_admin=True,
+            onboarding_stage="landing",
+        )
+        session.add(identity)
+        logger.info("[web-admin] created admin identity {}", email)
+    else:
+        identity.password_hash = password_hash
+        identity.is_admin = True
+        if identity.onboarding_completed_at is None and not identity.onboarding_stage:
+            identity.onboarding_stage = "landing"
+        logger.info("[web-admin] synced password for {}", email)

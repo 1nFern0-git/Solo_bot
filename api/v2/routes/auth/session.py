@@ -49,6 +49,51 @@ async def logout(
     return {"ok": True}
 
 
+@router.post("/me/onboarding/complete", response_model=IdentityResponse)
+async def onboarding_complete(
+    session: AsyncSession = Depends(get_session),
+    identity=Depends(verify_identity_token),
+):
+    """Отмечает, что админ прошёл/скипнул онбординг-тур."""
+    from datetime import datetime as _dt
+
+    if identity.onboarding_completed_at is None:
+        identity.onboarding_completed_at = _dt.utcnow()
+    return IdentityResponse.model_validate(identity)
+
+
+@router.post("/me/onboarding/reset", response_model=IdentityResponse)
+async def onboarding_reset(
+    session: AsyncSession = Depends(get_session),
+    identity=Depends(verify_identity_token),
+):
+    """Сбрасывает флаг онбординга — туториал запустится снова."""
+    identity.onboarding_completed_at = None
+    identity.onboarding_stage = "landing"
+    return IdentityResponse.model_validate(identity)
+
+
+_ONBOARDING_STAGES = {"landing", "header", "cabinet", "flow", "elements", "done"}
+
+
+@router.post("/me/onboarding/stage", response_model=IdentityResponse)
+async def onboarding_set_stage(
+    body: dict,
+    session: AsyncSession = Depends(get_session),
+    identity=Depends(verify_identity_token),
+):
+    """Переводит админа на указанный этап онбординга."""
+    from datetime import datetime as _dt
+
+    stage = str(body.get("stage") or "").strip()
+    if stage not in _ONBOARDING_STAGES:
+        raise HTTPException(status_code=400, detail="Неизвестный этап онбординга")
+    identity.onboarding_stage = stage
+    if stage == "done" and identity.onboarding_completed_at is None:
+        identity.onboarding_completed_at = _dt.utcnow()
+    return IdentityResponse.model_validate(identity)
+
+
 @router.get("/summary", response_model=AccountSummaryResponse)
 async def auth_summary(
     request: Request,

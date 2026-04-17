@@ -161,10 +161,14 @@ async def verify_identity_token(
     session: AsyncSession = Depends(get_session),
 ):
     """Проверяет токен из HttpOnly cookie `auth_token`; возвращает Identity."""
+    from database.site_state import mark_site_initialized
+
     identity = await _identity_from_cookie(session, request)
     if identity is None:
         raise HTTPException(status_code=401, detail="Unauthorized")
     await bind_identity_actor(request, session, identity)
+    if getattr(identity, "is_admin", False):
+        await mark_site_initialized(session)
     return identity
 
 
@@ -173,12 +177,15 @@ async def verify_identity_admin(
     session: AsyncSession = Depends(get_session),
 ):
     """Проверяет токен из cookie и что identity.is_admin; для админских ручек v2."""
+    from database.site_state import mark_site_initialized
+
     identity = await _identity_from_cookie(session, request)
     if identity is None:
         raise HTTPException(status_code=401, detail="Unauthorized")
     if not identity.is_admin:
         raise HTTPException(status_code=403, detail="Forbidden")
     await bind_identity_actor(request, session, identity)
+    await mark_site_initialized(session)
     return identity
 
 

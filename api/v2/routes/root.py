@@ -5,7 +5,10 @@ import time
 
 import aiohttp
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from api.depends import get_session
 
 from config import (
     BALANCE_BUTTON,
@@ -79,10 +82,21 @@ async def version():
 @router.get("/api/telegram-widget-bot", include_in_schema=True)
 async def telegram_widget_bot():
     """Имя бота и имя проекта для веб-клиента."""
+    bot_username = str(USERNAME_BOT or "").replace("@", "").strip()
+    project_name = (PROJECT_NAME or "Solo").strip() if isinstance(PROJECT_NAME, str) else "Solo"
     return {
-        "bot_username": USERNAME_BOT.replace("@", ""),
-        "project_name": (PROJECT_NAME or "Solo").strip() if isinstance(PROJECT_NAME, str) else "Solo",
+        "bot_username": bot_username,
+        "project_name": project_name,
     }
+
+
+@router.get("/api/site/init-state", include_in_schema=True)
+async def site_init_state(session: AsyncSession = Depends(get_session)):
+    """Прошёл ли сайт первую настройку админом. Используется middleware веб-клиента."""
+    from database.site_state import is_site_initialized
+
+    initialized = await is_site_initialized(session)
+    return {"initialized": bool(initialized)}
 
 
 @router.get("/api/site-config", include_in_schema=True)

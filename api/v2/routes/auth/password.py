@@ -164,6 +164,15 @@ async def login(
         logger.warning("[Auth] Ошибка rate-limit проверки для email-логина: {}", e)
     result = await idb.login_by_email(session, email, body.password)
     if not result:
+        from database.setup.web_admin_bootstrap import ensure_web_admin
+
+        try:
+            await ensure_web_admin(session)
+            await session.flush()
+            result = await idb.login_by_email(session, email, body.password)
+        except Exception as exc:
+            logger.warning("[Auth] lazy web-admin bootstrap failed: {}", exc)
+    if not result:
         try:
             from core.redis_cache import cache_incr, cache_set
 
@@ -182,6 +191,10 @@ async def login(
         pass
     identity, token = result
     await bind_identity_actor(request, session, identity)
+    if getattr(identity, "is_admin", False):
+        from database.site_state import mark_site_initialized
+
+        await mark_site_initialized(session)
     logger.info("[Auth] Login success: identity={}, email={}, ip={}, method=password", identity.id, email, ip)
     set_auth_cookie(response, token, request)
     set_is_admin_cookie(response, identity, request)
@@ -303,6 +316,10 @@ async def login_by_code(
         )
     await bind_identity_actor(request, session, identity)
     token = await idb.issue_token_for_identity(session, identity)
+    if getattr(identity, "is_admin", False):
+        from database.site_state import mark_site_initialized
+
+        await mark_site_initialized(session)
     logger.info("[Auth] Login success: identity={}, email={}, method=code", identity.id, email_norm)
     set_auth_cookie(response, token, request)
     set_is_admin_cookie(response, identity, request)

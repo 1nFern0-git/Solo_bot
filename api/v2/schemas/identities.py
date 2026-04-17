@@ -15,6 +15,8 @@ class IdentityResponse(BaseModel):
     is_admin: bool = False
     email_verified: bool = False
     password_set: bool = False
+    onboarding_completed: bool = False
+    onboarding_stage: str | None = None
     created_at: datetime | None
     updated_at: datetime | None
 

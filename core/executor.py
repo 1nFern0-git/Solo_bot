@@ -22,12 +22,9 @@ def _atexit_shutdown_pools() -> None:
     shutdown_thread_pool()
 
 
-class _IgnoreSIGINTProcess(multiprocessing.Process):
-    """Процесс, игнорирующий SIGINT в воркере, чтобы Ctrl+C не обрывал queue.get() с трейсбеком."""
-
-    def run(self) -> None:
-        signal.signal(signal.SIGINT, signal.SIG_IGN)
-        super().run()
+def _worker_ignore_sigint() -> None:
+    """Initializer воркера: игнорирует SIGINT, чтобы Ctrl+C не обрывал queue.get() с трейсбеком."""
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
 
 
 def get_thread_pool() -> ThreadPoolExecutor:
@@ -62,8 +59,11 @@ def get_process_pool() -> ProcessPoolExecutor:
 
         size = max(1, min(int(PROCESS_POOL_SIZE), multiprocessing.cpu_count() or 4))
         ctx = multiprocessing.get_context("spawn")
-        ctx.Process = _IgnoreSIGINTProcess
-        _process_pool = ProcessPoolExecutor(max_workers=size, mp_context=ctx)
+        _process_pool = ProcessPoolExecutor(
+            max_workers=size,
+            mp_context=ctx,
+            initializer=_worker_ignore_sigint,
+        )
         atexit.register(_atexit_shutdown_pools)
         logger.debug("[Executor] Пул процессов: {} воркеров", size)
     return _process_pool

@@ -36,6 +36,12 @@ def build_settings_web_kb() -> InlineKeyboardBuilder:
             callback_data=AdminPanelCallback(action="settings_web_url").pack(),
         )
     )
+    builder.row(
+        InlineKeyboardButton(
+            text="🔄 Сбросить сайт к исходнику",
+            callback_data=AdminPanelCallback(action="settings_web_reset_ask").pack(),
+        )
+    )
     builder.row(build_admin_back_btn("settings"))
 
     return builder
@@ -100,6 +106,72 @@ async def prompt_web_url(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.message.edit_text(text=text)
     await state.set_state(WebSettingsState.waiting_for_url)
     await callback.answer()
+
+
+@router.callback_query(AdminPanelCallback.filter(F.action == "settings_web_reset_ask"))
+async def ask_reset_site(callback: CallbackQuery) -> None:
+    text = (
+        "<b>⚠️ Сброс сайта к исходнику</b>\n\n"
+        "Действие удалит:\n"
+        "• все страницы, блоки, темы и варианты\n"
+        "• всех веб-пользователей (включая админа сайта)\n"
+        "• флаг «сайт проинициализирован»\n\n"
+        "Биллинг-данные (пользователи бота, ключи, платежи) не трогаются.\n\n"
+        "После сброса админ сайта пересоздаётся из переменных окружения "
+        "<code>WEB_ADMIN_LOGIN</code> / <code>WEB_ADMIN_PASSWORD</code>.\n\n"
+        "<b>Действие необратимо.</b>"
+    )
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(
+            text="❌ Отмена",
+            callback_data=AdminPanelCallback(action="settings_web").pack(),
+        )
+    )
+    builder.row(
+        InlineKeyboardButton(
+            text="⚠️ Да, сбросить сайт",
+            callback_data=AdminPanelCallback(action="settings_web_reset_do").pack(),
+        )
+    )
+    await callback.message.edit_text(text=text, reply_markup=builder.as_markup())
+    await callback.answer()
+
+
+@router.callback_query(AdminPanelCallback.filter(F.action == "settings_web_reset_do"))
+async def do_reset_site(callback: CallbackQuery, session=None) -> None:
+    await callback.answer()
+    await callback.message.edit_text(text="<b>⏳ Сбрасываю сайт...</b>")
+
+    from middlewares.session import release_session_early
+    from services.site_reset import reset_site
+
+    if session is not None:
+        await release_session_early(session)
+
+    try:
+        async with async_session_maker() as s:
+            await reset_site(s)
+            await s.commit()
+    except Exception as exc:
+        from html import escape as html_escape
+
+        safe = html_escape(str(exc))[:2000]
+        await callback.message.edit_text(
+            text=f"<b>❌ Не удалось сбросить сайт</b>\n\n<code>{safe}</code>",
+            reply_markup=build_settings_web_kb().as_markup(),
+        )
+        return
+
+    text = (
+        "<b>✅ Сайт сброшен к исходнику</b>\n\n"
+        "Все веб-страницы, блоки и темы удалены. Админ пересоздан из env.\n"
+        "Откройте сайт и пройдите путь первой установки заново."
+    )
+    await callback.message.edit_text(
+        text=text,
+        reply_markup=build_settings_web_kb().as_markup(),
+    )
 
 
 @router.message(WebSettingsState.waiting_for_url)
