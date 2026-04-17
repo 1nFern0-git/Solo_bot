@@ -219,28 +219,38 @@ def _parse_semver(tag: str) -> tuple[int, int, int, int, tuple[tuple[int, int | 
     return (major, minor, patch, 0, tuple(identifiers))
 
 
-async def _fetch_ghcr_latest_tag(image: str) -> str | None:
-    """Возвращает максимальный semver-тег образа в GHCR."""
+async def _fetch_ghcr_tags(image: str) -> list[str]:
+    """Возвращает все теги образа в GHCR."""
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
         token_url = f"https://ghcr.io/token?scope=repository:{image}:pull"
         async with session.get(token_url) as token_resp:
             if token_resp.status != 200:
-                return None
+                return []
             token_data = await token_resp.json()
             token = str(token_data.get("token") or "").strip()
             if not token:
-                return None
+                return []
         headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
         tags_url = f"https://ghcr.io/v2/{image}/tags/list"
         async with session.get(tags_url, headers=headers) as tags_resp:
             if tags_resp.status != 200:
-                return None
+                return []
             payload = await tags_resp.json()
-    tags = payload.get("tags") or []
-    versions: list[tuple[tuple[int, int, int], str]] = []
+    return payload.get("tags") or []
+
+
+def _is_dev_version(v: str) -> bool:
+    return "-dev" in v or "dev." in v
+
+
+def _latest_for_channel(tags: list[str], dev: bool) -> str | None:
+    versions = []
     for raw in tags:
         parsed = _parse_semver(str(raw))
-        if parsed is not None:
+        if parsed is None:
+            continue
+        is_dev = _is_dev_version(str(raw))
+        if is_dev == dev:
             versions.append((parsed, str(raw)))
     if not versions:
         return None
@@ -249,43 +259,64 @@ async def _fetch_ghcr_latest_tag(image: str) -> str | None:
 
 
 @router.get("/api/meta/update-check", include_in_schema=True)
-async def update_check():
-    """Сравнивает текущую версию Solo-brick с последним доступным релизом."""
-    current = (os.environ.get("APP_VERSION") or "").strip()
+async def update_check(current: str | None = Query(default=None)):
+    """Сравнивает переданную версию с последним тегом в GHCR. Канал (dev/release) определяется по current."""
+    current_v = (current or "").strip()
     image = (os.environ.get("GHCR_IMAGE") or "").strip()
-    now = time.time()
+    if not image:
+        return {"current": current_v or None, "latest": None, "hasUpdate": False}
 
-    cached = _UPDATE_CHECK_CACHE.get("data")
+    now = time.time()
+    is_dev = _is_dev_version(current_v) if current_v else True
+    cache_key = f"data-{'dev' if is_dev else 'release'}"
+
+    cached = _UPDATE_CHECK_CACHE.get(cache_key)
     fetched_at = float(_UPDATE_CHECK_CACHE.get("fetched_at") or 0.0)
     if cached is not None and now - fetched_at < _UPDATE_CHECK_TTL_SEC:
-        return cached
+        cached_resp = dict(cached)
+        cached_resp["current"] = current_v or None
+        if current_v:
+            cur = _parse_semver(current_v)
+            nxt = _parse_semver(str(cached_resp.get("latest") or ""))
+            cached_resp["hasUpdate"] = bool(cur and nxt and nxt > cur)
+        return cached_resp
 
     latest: str | None = None
-    if image:
-        async with _UPDATE_CHECK_LOCK:
-            fetched_at = float(_UPDATE_CHECK_CACHE.get("fetched_at") or 0.0)
-            cached = _UPDATE_CHECK_CACHE.get("data")
-            if cached is not None and now - fetched_at < _UPDATE_CHECK_TTL_SEC:
-                return cached
-            try:
-                latest = await _fetch_ghcr_latest_tag(image)
-            except Exception:
-                latest = None
+    async with _UPDATE_CHECK_LOCK:
+        fetched_at = float(_UPDATE_CHECK_CACHE.get("fetched_at") or 0.0)
+        if now - fetched_at < _UPDATE_CHECK_TTL_SEC:
+            cached = _UPDATE_CHECK_CACHE.get(cache_key)
+            if cached is not None:
+                cached_resp = dict(cached)
+                cached_resp["current"] = current_v or None
+                if current_v:
+                    cur = _parse_semver(current_v)
+                    nxt = _parse_semver(str(cached_resp.get("latest") or ""))
+                    cached_resp["hasUpdate"] = bool(cur and nxt and nxt > cur)
+                return cached_resp
+        try:
+            tags = await _fetch_ghcr_tags(image)
+            latest_dev = _latest_for_channel(tags, dev=True)
+            latest_rel = _latest_for_channel(tags, dev=False)
+            _UPDATE_CHECK_CACHE["data-dev"] = {"latest": latest_dev, "hasUpdate": False, "image": image}
+            _UPDATE_CHECK_CACHE["data-release"] = {"latest": latest_rel, "hasUpdate": False, "image": image}
+            _UPDATE_CHECK_CACHE["fetched_at"] = now
+            latest = latest_dev if is_dev else latest_rel
+        except Exception:
+            latest = None
 
     has_update = False
-    if current and latest:
-        cur = _parse_semver(current)
+    if current_v and latest:
+        cur = _parse_semver(current_v)
         nxt = _parse_semver(latest)
         if cur and nxt:
             has_update = nxt > cur
 
-    response = {
-        "current": current or None,
+    return {
+        "current": current_v or None,
         "latest": latest,
         "hasUpdate": has_update,
         "image": image or None,
+        "channel": "dev" if is_dev else "release",
         "checkedAt": int(now),
     }
-    _UPDATE_CHECK_CACHE["data"] = response
-    _UPDATE_CHECK_CACHE["fetched_at"] = now
-    return response
