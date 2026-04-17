@@ -28,6 +28,18 @@ from utils.telegram_login import verify_telegram_login
 router = APIRouter()
 
 
+def _get_oidc_credentials() -> tuple[str, str]:
+    try:
+        from config import TELEGRAM_CLIENT_ID, TELEGRAM_CLIENT_SECRET
+        cid = str(TELEGRAM_CLIENT_ID).strip()
+        secret = str(TELEGRAM_CLIENT_SECRET).strip()
+        if cid and secret:
+            return cid, secret
+    except ImportError:
+        pass
+    return "", ""
+
+
 class LoginTelegramWebAppRequest(BaseModel):
     init_data: str = PydanticField(..., min_length=1)
 
@@ -82,6 +94,112 @@ async def login_telegram_webapp(
     token = await idb.issue_token_for_identity(session, identity)
     logger.info(
         "[Auth] Login success: identity={}, tg_id={}, ip={}, method=telegram_webapp",
+        identity.id,
+        tg_id,
+        _client_ip(request),
+    )
+    set_auth_cookie(response, token, request)
+    set_is_admin_cookie(response, identity, request)
+    return LoginResponse(identity_id=identity.id)
+
+
+class LoginTelegramOIDCRequest(BaseModel):
+    code: str = PydanticField(..., min_length=1)
+    redirect_uri: str = PydanticField(..., min_length=1)
+    code_verifier: str = PydanticField(default="", description="PKCE code_verifier")
+
+
+@router.post("/login-telegram-oidc", response_model=LoginResponse)
+async def login_telegram_oidc(
+    body: LoginTelegramOIDCRequest,
+    request: Request,
+    response: Response,
+    session: AsyncSession = Depends(get_session),
+):
+    """Вход через Telegram OIDC (authorization code flow). Обменивает code на id_token, верифицирует JWT."""
+    import base64
+
+    import aiohttp
+    import jwt as pyjwt
+
+    client_id, client_secret = _get_oidc_credentials()
+    if not client_id or not client_secret:
+        raise HTTPException(status_code=503, detail="Telegram OIDC не настроен: отсутствуют TELEGRAM_CLIENT_ID / TELEGRAM_CLIENT_SECRET")
+
+    token_data = {
+        "grant_type": "authorization_code",
+        "code": body.code,
+        "redirect_uri": body.redirect_uri,
+    }
+    if body.code_verifier:
+        token_data["code_verifier"] = body.code_verifier
+
+    basic = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
+    headers = {"Authorization": f"Basic {basic}", "Content-Type": "application/x-www-form-urlencoded"}
+
+    async with aiohttp.ClientSession() as http:
+        async with http.post("https://oauth.telegram.org/token", data=token_data, headers=headers) as resp:
+            if resp.status != 200:
+                err_text = await resp.text()
+                logger.warning("[Auth] Telegram OIDC token exchange failed: {} {}", resp.status, err_text[:200])
+                raise HTTPException(status_code=401, detail="Не удалось обменять код авторизации")
+            token_response = await resp.json()
+
+    id_token = token_response.get("id_token")
+    if not id_token:
+        raise HTTPException(status_code=401, detail="Telegram не вернул id_token")
+
+    async with aiohttp.ClientSession() as http:
+        async with http.get("https://oauth.telegram.org/.well-known/jwks.json") as resp:
+            jwks_data = await resp.json()
+
+    try:
+        signing_key = pyjwt.PyJWKClient.__new__(pyjwt.PyJWKClient)
+        from jwt.api_jwk import PyJWKSet
+        jwk_set = PyJWKSet.from_dict(jwks_data)
+        unverified_header = pyjwt.get_unverified_header(id_token)
+        kid = unverified_header.get("kid")
+        key = None
+        for k in jwk_set.keys:
+            if k.key_id == kid:
+                key = k
+                break
+        if not key:
+            raise HTTPException(status_code=401, detail="Ключ подписи не найден в JWKS")
+
+        claims = pyjwt.decode(
+            id_token,
+            key.key,
+            algorithms=["RS256"],
+            audience=client_id,
+            issuer="https://oauth.telegram.org",
+        )
+    except pyjwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="ID токен истёк")
+    except pyjwt.InvalidTokenError as exc:
+        logger.warning("[Auth] Telegram OIDC JWT invalid: {}", exc)
+        raise HTTPException(status_code=401, detail="Невалидный ID токен")
+
+    logger.info("[Auth] Telegram OIDC claims: {}", {k: v for k, v in claims.items() if k not in ("iat", "exp", "iss", "aud")})
+
+    tg_id = claims.get("id") or claims.get("telegram_id")
+    if not tg_id:
+        raise HTTPException(status_code=401, detail="Не удалось определить пользователя из id_token")
+
+    tg_id_int = int(tg_id)
+    if tg_id_int > 2**53:
+        raise HTTPException(status_code=401, detail=f"Некорректный Telegram ID: {tg_id}")
+
+    identity = await idb.get_or_create_identity_for_tg(session, tg_id_int)
+    await bind_identity_actor(request, session, identity)
+    token = await idb.issue_token_for_identity(session, identity)
+
+    if getattr(identity, "is_admin", False):
+        from database.site_state import mark_site_initialized
+        await mark_site_initialized(session)
+
+    logger.info(
+        "[Auth] Login success: identity={}, tg_id={}, ip={}, method=telegram_oidc",
         identity.id,
         tg_id,
         _client_ip(request),

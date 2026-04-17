@@ -84,9 +84,16 @@ async def telegram_widget_bot():
     """Имя бота и имя проекта для веб-клиента."""
     bot_username = str(USERNAME_BOT or "").replace("@", "").strip()
     project_name = (PROJECT_NAME or "Solo").strip() if isinstance(PROJECT_NAME, str) else "Solo"
+    telegram_client_id = ""
+    try:
+        from config import TELEGRAM_CLIENT_ID
+        telegram_client_id = str(TELEGRAM_CLIENT_ID).strip()
+    except ImportError:
+        pass
     return {
         "bot_username": bot_username,
         "project_name": project_name,
+        "telegram_client_id": telegram_client_id,
     }
 
 

@@ -317,7 +317,14 @@ async def get_web_page_variants(
     variant: str | None = Query(default=None),
     session: AsyncSession = Depends(get_session),
 ):
-    current, variants = await _resolve_variant(session, slug, variant)
+    try:
+        current, variants = await _resolve_variant(session, slug, variant)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        from logger import logger
+        logger.warning("[web] variants resolve failed for slug={}: {}", slug, exc)
+        raise HTTPException(status_code=404, detail="Страница или вариант не найдены")
     active = next((item for item in variants if item.is_active), current)
     return WebPageVariantsResponse(
         slug=slug,
