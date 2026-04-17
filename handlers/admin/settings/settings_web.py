@@ -23,7 +23,6 @@ def build_settings_web_kb() -> InlineKeyboardBuilder:
 
     enabled = bool(WEB_CONFIG.get("WEB_ENABLED", False))
     url = str(WEB_CONFIG.get("SITE_URL") or "не указан")
-
     builder.row(
         InlineKeyboardButton(
             text=f"{'✅' if enabled else '❌'} Сайт {'включён' if enabled else 'выключен'}",
@@ -47,20 +46,22 @@ def build_settings_web_kb() -> InlineKeyboardBuilder:
     return builder
 
 
-@router.callback_query(AdminPanelCallback.filter(F.action == "settings_web"))
-async def open_web_settings(callback: CallbackQuery) -> None:
+def _web_settings_text() -> str:
     enabled = bool(WEB_CONFIG.get("WEB_ENABLED", False))
     url = str(WEB_CONFIG.get("SITE_URL") or "не указан")
-
-    text = (
+    return (
         "<b>🌐 Настройки веб-сайта</b>\n\n"
         f"Статус: {'✅ Включён' if enabled else '❌ Выключен'}\n"
         f"URL: <code>{url}</code>\n\n"
         "Сайт может работать на отдельном домене и сервере.\n"
         "При выключении кнопка «Личный кабинет» скрывается из бота."
     )
+
+
+@router.callback_query(AdminPanelCallback.filter(F.action == "settings_web"))
+async def open_web_settings(callback: CallbackQuery) -> None:
     await callback.message.edit_text(
-        text=text,
+        text=_web_settings_text(),
         reply_markup=build_settings_web_kb().as_markup(),
     )
     await callback.answer()
@@ -77,18 +78,8 @@ async def toggle_web_enabled(callback: CallbackQuery) -> None:
 
     status = "✅ Сайт включён" if new_config["WEB_ENABLED"] else "❌ Сайт выключен"
     await callback.answer(status, show_alert=True)
-
-    enabled = new_config["WEB_ENABLED"]
-    url = str(new_config.get("SITE_URL") or "не указан")
-    text = (
-        "<b>🌐 Настройки веб-сайта</b>\n\n"
-        f"Статус: {'✅ Включён' if enabled else '❌ Выключен'}\n"
-        f"URL: <code>{url}</code>\n\n"
-        "Сайт может работать на отдельном домене и сервере.\n"
-        "При выключении кнопка «Личный кабинет» скрывается из бота."
-    )
     await callback.message.edit_text(
-        text=text,
+        text=_web_settings_text(),
         reply_markup=build_settings_web_kb().as_markup(),
     )
 
@@ -193,17 +184,7 @@ async def set_web_url(message: Message, state: FSMContext) -> None:
         await update_web_config(session, new_config)
 
     await state.clear()
-
-    enabled = new_config.get("WEB_ENABLED", False)
-    display_url = url or "не указан"
-    text = (
-        "<b>🌐 Настройки веб-сайта</b>\n\n"
-        f"Статус: {'✅ Включён' if enabled else '❌ Выключен'}\n"
-        f"URL: <code>{display_url}</code>\n\n"
-        "Сайт может работать на отдельном домене и сервере.\n"
-        "При выключении кнопка «Личный кабинет» скрывается из бота."
-    )
     await message.answer(
-        text=text,
+        text=_web_settings_text(),
         reply_markup=build_settings_web_kb().as_markup(),
     )

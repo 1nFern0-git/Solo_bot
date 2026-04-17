@@ -1,10 +1,12 @@
 import asyncio
+import hashlib
 import os
 from time import perf_counter
 
 from fastapi import Depends, FastAPI, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.middleware.cors import CORSMiddleware
+from starlette.responses import Response as StarletteResponse
 from starlette.staticfiles import StaticFiles
 
 from audit import ensure_api_context, log_api_access, record_api_access_event_background
@@ -40,12 +42,29 @@ app.add_middleware(
 
 
 @app.middleware("http")
-async def security_headers_middleware(request: Request, call_next):
+async def security_and_cache_middleware(request: Request, call_next):
     response = await call_next(request)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     response.headers.setdefault("X-XSS-Protection", "1; mode=block")
+
+    content_type = response.headers.get("content-type", "")
+    if request.method == "GET" and response.status_code == 200 and "application/json" in content_type:
+        body = b""
+        async for chunk in response.body_iterator:
+            body += chunk
+        etag = '"' + hashlib.md5(body).hexdigest() + '"'
+        if_none_match = request.headers.get("if-none-match", "")
+        client_etags = [t.strip() for t in if_none_match.split(",") if t.strip()]
+        if etag in client_etags or if_none_match.strip() == "*":
+            return StarletteResponse(status_code=304, headers={"ETag": etag, "Cache-Control": "no-cache"})
+        headers = dict(response.headers)
+        headers["ETag"] = etag
+        headers["Cache-Control"] = "no-cache"
+        return StarletteResponse(content=body, status_code=200, headers=headers, media_type=response.media_type)
+
+    response.headers.setdefault("Cache-Control", "no-store")
     return response
 
 
