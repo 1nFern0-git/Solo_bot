@@ -76,19 +76,11 @@ def register_periodic_tasks() -> None:
             AUDIT_DRAIN_TRIGGER,
         )
 
-    if process_budget > 0:
-        periodic_task_manager.register_cron_task(
-            "daily_stats_report",
-            scheduled_stats_report_process_runner,
-            DAILY_STATS_REPORT_TRIGGER,
-            execution_mode="process",
-        )
-    else:
-        periodic_task_manager.register_cron_task(
-            "daily_stats_report",
-            scheduled_stats_report,
-            DAILY_STATS_REPORT_TRIGGER,
-        )
+    periodic_task_manager.register_cron_task(
+        "daily_stats_report",
+        scheduled_stats_report,
+        DAILY_STATS_REPORT_TRIGGER,
+    )
 
     if process_budget > 0:
         periodic_task_manager.register_cron_task(

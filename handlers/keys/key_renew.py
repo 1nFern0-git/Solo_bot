@@ -34,6 +34,7 @@ from database.tariffs import create_subgroup_hash, find_subgroup_by_hash, get_ta
 from handlers.buttons import BACK, MAIN_MENU, MY_SUB, PAYMENT
 from handlers.payments.fast_payment_flow import try_fast_payment_flow
 from handlers.texts import (
+    ADDON_RESET_PLAN_WARNING,
     DISCOUNT_OFFER_MESSAGE,
     DISCOUNT_OFFER_STEP2,
     DISCOUNT_OFFER_STEP3,
@@ -244,11 +245,25 @@ async def process_callback_renew_key(callback_query: CallbackQuery, state: FSMCo
             )
             discount_message = DISCOUNT_OFFER_MESSAGE.format(offer_text=offer_text, time_left=time_left)
 
+        addon_warning = ""
+        _cur_dev = record.get("current_device_limit")
+        _sel_dev = record.get("selected_device_limit")
+        _cur_trf = record.get("current_traffic_limit")
+        _sel_trf = record.get("selected_traffic_limit")
+        _addon_parts: list[str] = []
+        if _cur_dev is not None and _sel_dev is not None and int(_cur_dev) > int(_sel_dev):
+            _addon_parts.append(f"+{int(_cur_dev) - int(_sel_dev)} устройств")
+        if _cur_trf is not None and _sel_trf is not None and int(_cur_trf) > int(_sel_trf):
+            _addon_parts.append(f"+{int(_cur_trf) - int(_sel_trf)} ГБ")
+        if _addon_parts:
+            addon_warning = ADDON_RESET_PLAN_WARNING.format(addons=", ".join(_addon_parts))
+
         response_message = (
             PLAN_SELECTION_MSG.format(
                 balance=balance,
                 expiry_date=datetime.utcfromtimestamp(expiry_time / 1000).strftime("%Y-%m-%d %H:%M:%S"),
             )
+            + addon_warning
             + discount_message
         )
 
@@ -515,6 +530,10 @@ async def process_callback_renew_plan(callback_query: CallbackQuery, state: FSMC
                 renew_new_expiry_time=new_expiry_time,
                 config_selected_device_limit=config_selected_devices,
                 config_selected_traffic_gb=config_selected_traffic_gb,
+                renew_current_device_limit=record.get("current_device_limit"),
+                renew_selected_device_limit=record.get("selected_device_limit"),
+                renew_current_traffic_limit=record.get("current_traffic_limit"),
+                renew_selected_traffic_limit=record.get("selected_traffic_limit"),
             )
 
             from handlers.tariffs.buy.key_tariffs import start_tariff_config

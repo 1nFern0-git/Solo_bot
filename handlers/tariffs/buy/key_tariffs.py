@@ -15,6 +15,7 @@ from database.notifications import check_hot_lead_discount
 from handlers.buttons import BACK, CONFIG_PAY_BUTTON_TEXT, MAIN_MENU, PAYMENT
 from handlers.payments.fast_payment_flow import try_fast_payment_flow
 from handlers.texts import (
+    ADDON_RESET_CONFIG_WARNING,
     CONFIG_SCREEN_TEMPLATE,
     CREATING_CONNECTION_MSG,
     DEFAULT_LIMIT_LABEL,
@@ -471,10 +472,25 @@ async def render_user_config_screen(
     else:
         choice_text = ", ".join(choice_parts)
 
+    addon_warning_text = ""
+    if data.get("renew_mode") == "renew":
+        _rc_dev = data.get("renew_current_device_limit")
+        _rs_dev = data.get("renew_selected_device_limit")
+        _rc_trf = data.get("renew_current_traffic_limit")
+        _rs_trf = data.get("renew_selected_traffic_limit")
+        _addon_parts: list[str] = []
+        if _rc_dev is not None and _rs_dev is not None and int(_rc_dev) > int(_rs_dev):
+            _addon_parts.append(f"+{int(_rc_dev) - int(_rs_dev)} устройств")
+        if _rc_trf is not None and _rs_trf is not None and int(_rc_trf) > int(_rs_trf):
+            _addon_parts.append(f"+{int(_rc_trf) - int(_rs_trf)} ГБ")
+        if _addon_parts:
+            addon_warning_text = ADDON_RESET_CONFIG_WARNING.format(addons=", ".join(_addon_parts))
+
     text = CONFIG_SCREEN_TEMPLATE.format(
         base=base_text,
         choice=choice_text,
         price=price_text,
+        addon_warning=addon_warning_text,
     )
 
     builder = InlineKeyboardBuilder()
