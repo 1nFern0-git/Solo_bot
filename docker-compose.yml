@@ -10,6 +10,7 @@ services:
     environment:
       REDIS_URL: redis://127.0.0.1:6379/0
       BACK_DIR: /app/backups
+      GHCR_IMAGE: ${GHCR_IMAGE:-vladless/solo-brick}
     volumes:
       - /:/host:ro
       - backups_data:/app/backups
