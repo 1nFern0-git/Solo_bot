@@ -5,7 +5,7 @@ import time
 
 import aiohttp
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.depends import get_session
