@@ -7,7 +7,6 @@ from database import get_tariff_by_id
 from database.models import Key
 from handlers.texts import key_message_success
 from logger import logger
-from panels.remnawave_runtime import get_remnawave_profile
 
 
 GB = 1024 * 1024 * 1024
@@ -145,7 +144,7 @@ async def get_key_tariff_display(
     selected_device_limit_override: int | None = None,
     selected_traffic_gb_override: int | None = None,
 ) -> tuple[str, str, int, int, bool]:
-    """Возвращает отображение тарифа и эффективные лимиты, приоритет — данные панели."""
+    """Возвращает отображение тарифа и эффективные лимиты из БД."""
     tariff_id = key_record.get("tariff_id")
     if not tariff_id:
         return "", "", 0, 0, False, None
@@ -177,34 +176,6 @@ async def get_key_tariff_display(
         selected_traffic_gb=selected_traffic_gb,
         tariff=tariff,
     )
-
-    server_cluster_id = key_record.get("server_id")
-    client_id = key_record.get("client_id")
-
-    if server_cluster_id and client_id:
-        try:
-            profile = await get_remnawave_profile(session, str(server_cluster_id), client_id, fallback_any=True)
-            if profile:
-                panel_traffic_limit_bytes = profile.get("traffic_limit_bytes")
-                panel_device_limit = profile.get("hwid_device_limit")
-
-                if panel_traffic_limit_bytes is not None:
-                    try:
-                        traffic_limit_bytes = int(panel_traffic_limit_bytes)
-                    except (TypeError, ValueError):
-                        logger.warning(
-                            f"[KeyTariffDisplay] Invalid trafficLimitBytes from Remnawave for {client_id}: {panel_traffic_limit_bytes}"
-                        )
-
-                if panel_device_limit is not None:
-                    try:
-                        device_limit = int(panel_device_limit)
-                    except (TypeError, ValueError):
-                        logger.warning(
-                            f"[KeyTariffDisplay] Invalid hwidDeviceLimit from Remnawave for {client_id}: {panel_device_limit}"
-                        )
-        except Exception as e:
-            logger.warning(f"[KeyTariffDisplay] Error while overriding limits from panel: {e}")
 
     traffic_limit_gb = int(traffic_limit_bytes / GB) if traffic_limit_bytes else 0
 

@@ -79,7 +79,7 @@ class SubscriptionMiddleware(BaseMiddleware):
         if "original_text" in state_data and "user_data" in state_data:
             return
 
-        original_text = message.text or message.caption
+        original_text = getattr(message, "text", None) or getattr(message, "caption", None)
         user_data = {
             "tg_id": from_user.id,
             "username": from_user.username,
