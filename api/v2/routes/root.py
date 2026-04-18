@@ -272,7 +272,7 @@ def _latest_for_channel(tags: list[str], dev: bool) -> str | None:
 async def update_check(current: str | None = Query(default=None)):
     """Сравнивает переданную версию с последним тегом в GHCR. Канал (dev/release) определяется по current."""
     current_v = (current or "").strip()
-    image = (os.environ.get("GHCR_IMAGE") or "").strip()
+    image = (os.environ.get("GHCR_IMAGE") or "vladless/solo-brick").strip()
     if not image:
         return {"current": current_v or None, "latest": None, "hasUpdate": False}
 
