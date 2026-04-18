@@ -11,6 +11,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.depends import get_session, verify_identity_admin
+from database.site_revision import bump_site_revision
 from api.v2.schemas import WebBlockResponse, WebPageResponse, WebPageUpdate, WebTheme
 from api.v2.schemas.web import (
     WebPageVariantCreate,
@@ -306,6 +307,7 @@ async def update_web_page(
         current.theme_tokens = body.theme.tokens
 
     await session.flush()
+    await bump_site_revision(session)
     refreshed_variants = await _list_variants(session, slug)
     refreshed_current = next((item for item in refreshed_variants if item.id == current.id), current)
     return await _build_page_response(session, slug, refreshed_current, refreshed_variants)
@@ -369,6 +371,7 @@ async def create_web_page_variant(
             )
         )
     await session.flush()
+    await bump_site_revision(session)
 
     refreshed = await _list_variants(session, slug)
     return WebPageVariantsResponse(
@@ -397,6 +400,7 @@ async def update_web_page_variant(
         await session.flush()
         variants = await _list_variants(session, slug)
 
+    await bump_site_revision(session)
     active = next((item for item in variants if item.is_active), current)
     return WebPageVariantsResponse(
         slug=slug,
@@ -426,6 +430,7 @@ async def delete_web_page_variant(
     else:
         replacement_variants = await _list_variants(session, slug)
 
+    await bump_site_revision(session)
     current_variant_key = replacement.variant_key if replacement is not None else DEFAULT_VARIANT_KEY
     active_variant_key = next(
         (item.variant_key for item in replacement_variants if item.is_active),

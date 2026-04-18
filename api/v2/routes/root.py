@@ -106,6 +106,16 @@ async def site_init_state(session: AsyncSession = Depends(get_session)):
     return {"initialized": bool(initialized)}
 
 
+@router.get("/api/site/revision", include_in_schema=True)
+async def site_revision(session: AsyncSession = Depends(get_session)):
+    """Глобальный счётчик ревизии контента. Фронт опрашивает его в фоне и при
+    изменении инвалидирует свои SWR-кэши, подтягивая свежие правки админа."""
+    from database.site_revision import get_site_revision
+
+    revision = await get_site_revision(session)
+    return {"revision": int(revision)}
+
+
 @router.get("/api/site-config", include_in_schema=True)
 async def site_config():
     """Настройки витрины и кабинета для веб-клиента (флаги из runtime-конфигов бота)."""

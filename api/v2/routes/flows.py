@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.depends import get_session, verify_identity_admin
 from api.v2.schemas.flows import FlowCreate, FlowResponse, FlowUpdate
 from database.models import WebFlow
+from database.site_revision import bump_site_revision
 
 
 router = APIRouter()
@@ -74,6 +75,7 @@ async def create_flow(
         updated_at=datetime.now(UTC),
     )
     session.add(flow)
+    await bump_site_revision(session)
     await session.commit()
     await session.refresh(flow)
     return _flow_to_response(flow)
@@ -98,6 +100,7 @@ async def update_flow(
     flow.version = flow.version + 1
     flow.updated_at = datetime.now(UTC)
 
+    await bump_site_revision(session)
     await session.commit()
     await session.refresh(flow)
     return _flow_to_response(flow)
@@ -113,4 +116,5 @@ async def delete_flow(
     if not flow:
         raise HTTPException(404, "Flow not found")
     await session.delete(flow)
+    await bump_site_revision(session)
     await session.commit()
