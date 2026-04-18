@@ -119,6 +119,20 @@ async def register_by_email(
     billing_user_id = await idb.ensure_billing_user_for_identity(session, identity)
     if referrer_user is not None and not await get_referral_by_referred_id(session, billing_user_id):
         await add_referral(session, billing_user_id, referrer_user.id)
+        if referrer_user.tg_id is not None:
+            try:
+                from database.web_notifications import notify_web
+
+                await notify_web(
+                    session,
+                    tg_id=int(referrer_user.tg_id),
+                    type="referral_joined",
+                    title="Ваш реферал присоединился",
+                    message="Новый пользователь зарегистрировался по вашей реферальной ссылке.",
+                    data={"referred_user_id": int(billing_user_id)},
+                )
+            except Exception:
+                pass
     if smtp_configured():
         try:
             code = f"{secrets.randbelow(900000) + 100000}"

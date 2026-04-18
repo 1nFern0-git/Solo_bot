@@ -109,8 +109,15 @@ async def _resolve_partner_user(session: AsyncSession, request: Request, identit
             {"user_id": int(billing_user_id)},
         )
     ).first()
-    if row is None or row[1] is None:
+    if row is None:
         raise HTTPException(status_code=400, detail="Партнерский профиль недоступен")
+    if row[1] is None:
+        synthetic = -int(row[0])
+        await session.execute(
+            text("UPDATE users SET tg_id = :tg_id WHERE id = :user_id"),
+            {"tg_id": synthetic, "user_id": int(row[0])},
+        )
+        return int(row[0]), synthetic
     return int(row[0]), int(row[1])
 
 
@@ -207,6 +214,19 @@ async def partner_apply(
         ),
         {"partner_tg_id": int(referrer_tg_id), "joined_tg_id": int(joined_tg_id)},
     )
+    try:
+        from database.web_notifications import notify_web
+
+        await notify_web(
+            session,
+            tg_id=int(referrer_tg_id),
+            type="partner_joined",
+            title="К вам присоединился партнёр",
+            message="Новый пользователь перешёл по вашей партнёрской ссылке.",
+            data={"joined_tg_id": int(joined_tg_id), "joined_user_id": int(joined_user_id)},
+        )
+    except Exception:
+        pass
     await session.commit()
     return PartnerApplyResponse(
         ok=True,

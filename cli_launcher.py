@@ -2,6 +2,7 @@ import json
 import locale
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -1139,6 +1140,31 @@ def _ensure_web_logs_dir() -> None:
         pass
 
 
+def _read_env_value(env_path: str, key: str) -> str:
+    """Читает значение ключа из .env файла, если файл существует."""
+    if not os.path.exists(env_path):
+        return ""
+    try:
+        with open(env_path) as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if line.startswith(f"{key}="):
+                    return line.split("=", 1)[1].strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _ensure_plugin_builder_token(env_path: str) -> tuple[str, bool]:
+    """Возвращает (token, is_new): существующий PLUGIN_BUILDER_TOKEN из .env или свежий 64-hex."""
+    existing = _read_env_value(env_path, "PLUGIN_BUILDER_TOKEN")
+    if existing and len(existing) >= 32:
+        return existing, False
+    return secrets.token_hex(32), True
+
+
 def _generate_vapid_keys() -> tuple[str, str] | None:
     """VAPID keypair (P-256). Returns (public_b64url, private_b64url) или None."""
     try:
@@ -1705,6 +1731,7 @@ def install_website():
         api_port_from_url = "80"
 
     env_path = os.path.join(WEB_DIR, ".env")
+    plugin_builder_token, plugin_builder_token_is_new = _ensure_plugin_builder_token(env_path)
     with open(env_path, "w") as f:
         f.write(f"API_URL={api_url}\n")
         f.write(f"API_BASE_URL={api_url}\n")
@@ -1716,6 +1743,7 @@ def install_website():
         f.write(f"NEXT_PUBLIC_TURNSTILE_SITE_KEY={turnstile_key}\n")
         f.write("NEXT_PUBLIC_LOG_LEVEL=info\n")
         f.write(f"WEB_PORT={web_port}\n")
+        f.write(f"PLUGIN_BUILDER_TOKEN={plugin_builder_token}\n")
         if tg_bot_username:
             f.write(f"NEXT_PUBLIC_TELEGRAM_BOT_USERNAME={tg_bot_username}\n")
         if smtp_host:
@@ -1724,6 +1752,19 @@ def install_website():
             f.write(f"EMAIL_SMTP_USER={smtp_user}\n")
             f.write(f"EMAIL_SMTP_PASSWORD={smtp_password}\n")
             f.write(f"EMAIL_FROM={smtp_from}\n")
+
+    if plugin_builder_token_is_new:
+        console.print(
+            Panel(
+                f"[bold]PLUGIN_BUILDER_TOKEN[/bold] = {plugin_builder_token}\n\n"
+                "[yellow]Токен защищает plugin-builder API от посторонних.\n"
+                "Сохраните, если планируете использовать внешний билд-воркер для custom-elements —\n"
+                "воркер должен слать этот же токен в заголовке Authorization: Bearer <token>.[/yellow]",
+                border_style="yellow",
+                title="[bold yellow]PLUGIN_BUILDER_TOKEN — сгенерирован[/bold yellow]",
+                padding=(1, 2),
+            )
+        )
 
     src_dir = os.path.join(WEB_DIR, "src")
     if not _ensure_web_image(src_dir, web_tag):

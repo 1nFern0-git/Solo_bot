@@ -378,10 +378,15 @@ async def ensure_billing_user_for_identity(session: AsyncSession, identity: Iden
     res = await session.execute(select(User).where(User.identity_id == identity.id))
     row = res.scalars().first()
     if row is not None:
+        if row.tg_id is None:
+            synthetic = -int(row.id)
+            await session.execute(update(User).where(User.id == row.id).values(tg_id=synthetic))
         return int(row.id)
     new_u = User(identity_id=identity.id, tg_id=None)
     session.add(new_u)
     await session.flush()
+    synthetic = -int(new_u.id)
+    await session.execute(update(User).where(User.id == new_u.id).values(tg_id=synthetic))
     return int(new_u.id)
 
 

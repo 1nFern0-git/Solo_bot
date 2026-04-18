@@ -93,6 +93,23 @@ async def apply_referral(
         raise HTTPException(status_code=409, detail="Реферальная связь уже сохранена")
     await add_referral(session, billing_uid, referrer_u.id)
     referred_u = await resolve_user_optional(session, billing_uid)
+    if referrer_u.tg_id is not None:
+        try:
+            from database.web_notifications import notify_web
+
+            await notify_web(
+                session,
+                tg_id=int(referrer_u.tg_id),
+                type="referral_joined",
+                title="Ваш реферал присоединился",
+                message="Новый пользователь зарегистрировался по вашей реферальной ссылке.",
+                data={
+                    "referred_tg_id": int(referred_u.tg_id) if referred_u and referred_u.tg_id else None,
+                    "referred_user_id": int(billing_uid),
+                },
+            )
+        except Exception:
+            pass
     return ReferralApplyResponse(
         ok=True,
         message="Приглашение применено",

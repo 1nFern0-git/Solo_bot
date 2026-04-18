@@ -89,7 +89,7 @@ async def count_unread_for_identity(
         .select_from(WebNotification)
         .where(
             WebNotification.identity_id == identity_id,
-            WebNotification.read is False,
+            WebNotification.read == False,  # noqa: E712 SQLAlchemy expression
         )
     )
     return result.scalar() or 0
@@ -103,7 +103,7 @@ async def mark_all_read_for_identity(
         update(WebNotification)
         .where(
             WebNotification.identity_id == identity_id,
-            WebNotification.read is False,
+            WebNotification.read == False,  # noqa: E712 SQLAlchemy expression
         )
         .values(read=True)
     )

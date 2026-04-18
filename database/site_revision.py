@@ -19,12 +19,10 @@ async def get_site_revision(session: AsyncSession) -> int:
 
 
 async def bump_site_revision(session: AsyncSession) -> int:
-    """Инкрементирует глобальный счётчик контента сайта. Клиенты опрашивают его
-    и инвалидируют свои кэши при изменении значения."""
     result = await session.execute(select(Setting).where(Setting.key == _KEY))
     setting = result.scalar_one_or_none()
     if setting is None:
-        session.add(Setting(key=_KEY, value=1, description="Счётчик ревизии контента сайта — инкремент на любом сохранении"))
+        session.add(Setting(key=_KEY, value=1))
         return 1
     try:
         current = int(setting.value or 0)

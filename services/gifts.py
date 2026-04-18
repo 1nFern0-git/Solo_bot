@@ -159,13 +159,25 @@ async def redeem_gift(
     try:
         from database.web_notifications import notify_web
 
-        await notify_web(
-            session,
-            tg_id=wu.tg_id,
-            type="gift_received",
-            template_vars={"name": tariff["name"], "duration": duration_text},
-            data={"gift_id": gift_info.gift_id, "tariff_id": int(tariff["id"])},
-        )
+        if wu.tg_id is not None:
+            await notify_web(
+                session,
+                tg_id=wu.tg_id,
+                type="gift_received",
+                template_vars={"name": tariff["name"], "duration": duration_text},
+                data={"gift_id": gift_info.gift_id, "tariff_id": int(tariff["id"])},
+            )
+        if gift_info.sender_user_id:
+            sender = await resolve_user_optional(session, gift_info.sender_user_id)
+            if sender and sender.tg_id is not None:
+                await notify_web(
+                    session,
+                    tg_id=int(sender.tg_id),
+                    type="gift_redeemed",
+                    title="Ваш подарок активирован",
+                    message=f"Получатель активировал подарок — подписка на {duration_text}.",
+                    data={"gift_id": gift_info.gift_id, "tariff_id": int(tariff["id"])},
+                )
     except Exception as e:
         logger.warning("[Gifts] Ошибка отправки уведомления о подарке: {}", e)
 
