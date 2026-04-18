@@ -68,7 +68,7 @@ class BroadcastMessage:
 
 
 class RateLimiter:
-    def __init__(self, max_rate: int = 35, window: float = 1.0) -> None:
+    def __init__(self, max_rate: int = 30, window: float = 1.0) -> None:
         self.max_rate = max_rate
         self.window = window
         self.send_times = deque()
@@ -102,7 +102,7 @@ class BroadcastService:
         self,
         bot: Bot,
         session: AsyncSession | None = None,
-        messages_per_second: int = 35,
+        messages_per_second: int = 30,
     ) -> None:
         self.bot = bot
         self._session = session
