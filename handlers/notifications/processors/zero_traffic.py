@@ -130,7 +130,6 @@ async def process_zero_traffic(
     if keys_to_mark:
         try:
             await session.execute(update(Key).where(Key.client_id.in_(keys_to_mark)).values(notified=True))
-            await session.commit()
             logger.info(f"[ZeroTraffic] Отмечено {len(keys_to_mark)} ключей как notified")
         except Exception as e:
             logger.error(f"[ZeroTraffic] Ошибка обновления notified: {e}")

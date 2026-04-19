@@ -42,5 +42,4 @@ async def delete_one_referral(
     if not obj:
         raise HTTPException(status_code=404, detail="Referral not found")
     await session.delete(obj)
-    await session.commit()
     return {"status": "deleted_one"}

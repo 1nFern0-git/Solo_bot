@@ -664,7 +664,6 @@ async def handle_addons_downgrade_apply(callback: CallbackQuery, state: FSMConte
             has_traffic_choice=has_traffic_choice,
             config_mode="downgrade",
         )
-        await session.commit()
     except Exception as error:
         logger.error(f"[ADDONS] Ошибка при сохранении будущих условий для {email}: {error}")
         await callback.message.answer("❌ Ошибка при сохранении новых условий. Попробуйте позже.")
@@ -896,7 +895,6 @@ async def handle_addons_confirm(callback: CallbackQuery, state: FSMContext, sess
         )
 
         await update_balance(session, tg_id, -extra_price)
-        await session.commit()
 
         logger.info(
             "[ADDONS] Успешное применение расширения: "

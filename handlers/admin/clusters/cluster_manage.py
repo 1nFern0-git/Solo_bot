@@ -193,7 +193,6 @@ async def handle_days_input(message: Message, state: FSMContext, session: AsyncS
                 .values(expiry_time=Key.expiry_time + add_ms)
                 .execution_options(synchronize_session=False)
             )
-            await session.commit()
 
             await message.answer(
                 f"✅ Время подписки продлено на <b>{days} дней</b> для <b>{affected}</b> пользователей в кластере <b>{cluster_name}</b>."
@@ -327,7 +326,6 @@ async def handle_new_cluster_name_input(message: Message, state: FSMContext, ses
                 update(Key).where(Key.server_id == old_cluster_name).values(server_id=new_cluster_name)
             )
 
-        await session.commit()
 
         await message.answer(
             text=f"✅ Название кластера успешно изменено с '{old_cluster_name}' на '{new_cluster_name}'!",
@@ -442,7 +440,6 @@ async def handle_new_server_name_input(message: Message, state: FSMContext, sess
         if keys_count > 0:
             await session.execute(update(Key).where(Key.server_id == old_server_name).values(server_id=new_server_name))
 
-        await session.commit()
 
         await message.answer(
             text=(

@@ -78,7 +78,6 @@ async def process_inactive_trial(
 
     if users_to_extend:
         await session.execute(update(User).where(User.tg_id.in_(users_to_extend)).values(trial=-1))
-        await session.commit()
         logger.info(f"[InactiveTrial] {len(users_to_extend)} пользователей с расширенным триалом")
 
     if messages:

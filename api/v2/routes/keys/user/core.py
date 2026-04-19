@@ -195,7 +195,6 @@ async def user_key_update_alias(
     if db_key is None:
         raise HTTPException(status_code=404, detail="Подписка не найдена")
     db_key.alias = alias
-    await session.commit()
     return AccountKeyResponse(
         email=str(getattr(db_key, "email", "") or ""),
         alias=getattr(db_key, "alias", None),
@@ -237,5 +236,4 @@ async def user_key_delete(
             session=session,
         )
     await session.delete(db_key)
-    await session.commit()
     return AccountKeyActionResponse(ok=True, message="Подписка удалена")

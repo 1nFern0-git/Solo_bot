@@ -147,7 +147,6 @@ async def apply_subgroup_title(message: Message, state: FSMContext, session: Asy
     await session.execute(
         update(Tariff).where(Tariff.id.in_(selected_ids)).values(subgroup_title=title, updated_at=datetime.utcnow())
     )
-    await session.commit()
     await state.clear()
 
     await message.answer(
@@ -286,7 +285,6 @@ async def save_new_subgroup_title(message: Message, state: FSMContext, session: 
         )
         .values(subgroup_title=new_title)
     )
-    await session.commit()
     await state.clear()
 
     create_subgroup_hash(new_title, group_code)
@@ -347,7 +345,6 @@ async def perform_subgroup_deletion(callback: CallbackQuery, state: FSMContext, 
         .where(Tariff.group_code == group_code, Tariff.subgroup_title == subgroup_title)
         .values(subgroup_title=None)
     )
-    await session.commit()
     await state.clear()
 
     await callback.message.edit_text(
@@ -496,7 +493,6 @@ async def save_subgroup_tariffs_changes(callback: CallbackQuery, state: FSMConte
             .values(subgroup_title=subgroup_title, updated_at=datetime.utcnow())
         )
 
-    await session.commit()
     await state.clear()
 
     if not selected_tariff_ids:

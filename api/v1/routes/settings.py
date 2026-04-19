@@ -125,7 +125,6 @@ async def upsert_setting(
         value=payload.value,
         description=payload.description,
     )
-    await session.commit()
     await session.refresh(obj)
     settings_cache.update(
         key,
@@ -148,6 +147,5 @@ async def delete_setting(
     if not obj:
         raise HTTPException(status_code=404, detail="Setting not found")
     await session.delete(obj)
-    await session.commit()
     settings_cache.delete(key)
     return {"detail": "Setting deleted"}

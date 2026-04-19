@@ -244,7 +244,6 @@ async def delete_my_gift(
         raise HTTPException(status_code=404, detail="Подарок не найден")
     await session.execute(delete(GiftUsage).where(GiftUsage.gift_id == gift_id))
     await session.delete(gift)
-    await session.commit()
     return {"ok": True, "message": "Подарок удалён"}
 
 
@@ -330,5 +329,4 @@ async def delete_gift_with_usages(
         raise HTTPException(status_code=404, detail="Gift not found")
     await session.execute(delete(GiftUsage).where(GiftUsage.gift_id == gift_id))
     await session.delete(gift)
-    await session.commit()
     return {"message": "Подарок и связанные использования удалены"}

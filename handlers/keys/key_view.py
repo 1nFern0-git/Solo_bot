@@ -282,7 +282,6 @@ async def handle_new_alias_input(message: Message, state: FSMContext, session: A
             await state.clear()
             return
         await session.execute(update(Key).where(Key.user_id == u.id, Key.client_id == client_id).values(alias=alias))
-        await session.commit()
     except Exception as error:
         await message.answer("❌ Не удалось переименовать подписку.")
         logger.error(f"Ошибка при обновлении alias: {error}")

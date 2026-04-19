@@ -65,5 +65,4 @@ async def delete_gift_with_usages(
 
     await session.execute(delete(GiftUsage).where(GiftUsage.gift_id == gift_id))
     await session.delete(gift)
-    await session.commit()
     return {"message": "Подарок и связанные использования удалены"}

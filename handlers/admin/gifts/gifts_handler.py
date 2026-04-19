@@ -243,7 +243,6 @@ async def delete_gift(callback: CallbackQuery, session: AsyncSession):
 
     await session.execute(delete(GiftUsage).where(GiftUsage.gift_id == gift_id))
     await session.execute(delete(Gift).where(Gift.gift_id == gift_id))
-    await session.commit()
 
     builder = InlineKeyboardBuilder()
     builder.button(text="🔙 Назад к списку", callback_data="admin_gifts_all")

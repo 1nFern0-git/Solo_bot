@@ -174,7 +174,6 @@ async def user_key_renew(
         )
     except ServiceError as e:
         raise HTTPException(status_code=400, detail=e.message)
-    await session.commit()
     return AccountKeyRenewResponse(
         ok=True,
         message="Подписка продлена",

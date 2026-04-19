@@ -343,7 +343,6 @@ async def restore_trials(callback_query: types.CallbackQuery, session: AsyncSess
         .values(trial=0)
     )
     result = await session.execute(stmt)
-    await session.commit()
 
     builder = InlineKeyboardBuilder()
     builder.row(build_admin_back_btn())

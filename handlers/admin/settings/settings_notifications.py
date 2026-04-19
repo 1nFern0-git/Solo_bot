@@ -67,7 +67,6 @@ async def toggle_notification_setting(
     config[key] = not current
 
     await update_notifications_config(session, config)
-    await session.commit()
 
     notifications_state = await load_notification_settings()
     await callback.message.edit_reply_markup(
@@ -126,7 +125,6 @@ async def notification_interval_value_input(message: Message, state: FSMContext,
     config[key] = new_value
 
     await update_notifications_config(session, config)
-    await session.commit()
     await state.clear()
 
     notifications_state = await load_notification_settings()

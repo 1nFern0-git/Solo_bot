@@ -249,7 +249,6 @@ async def update_subscription(
     await release_session_early(session)
     await delete_key_from_cluster(old_cluster_id, email, client_id, session=session)
     await delete_key_by_user_and_email(session, uid, email)
-    await session.commit()
 
     if country_override or cluster_override:
         new_cluster_id = country_override or cluster_override

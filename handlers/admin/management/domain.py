@@ -55,7 +55,6 @@ async def process_new_domain(message: Message, state: FSMContext, session: Async
             )
         )
         await session.execute(stmt)
-        await session.commit()
         logger.info("[DomainChange] Запрос на обновление домена выполнен успешно.")
     except Exception as e:
         logger.error(f"[DomainChange] Ошибка при выполнении запроса: {e}")

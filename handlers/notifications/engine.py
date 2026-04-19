@@ -162,4 +162,3 @@ async def _run_cycle(bot: Bot, sessionmaker: async_sessionmaker):
 
         total_time = (datetime.now() - start_time).total_seconds()
         logger.info(f"Уведомления завершены за {total_time:.2f}s")
-        await session.commit()

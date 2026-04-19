@@ -4,7 +4,7 @@ from datetime import datetime
 from io import StringIO
 
 from fastapi import APIRouter, Depends, Path, Query
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import ORJSONResponse, StreamingResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -124,7 +124,7 @@ async def get_all_partners(
             "referred_count": int(partner[6] or 0),
         })
 
-    return JSONResponse(content={"total": total, "items": partners_list})
+    return ORJSONResponse(content={"total": total, "items": partners_list})
 
 
 @router.get("/stats/all")
@@ -194,7 +194,7 @@ async def get_partners_stats(
             "top_partner_refs": 0,
         }
 
-    return JSONResponse(content=stats)
+    return ORJSONResponse(content=stats)
 
 
 @router.patch("/{tg_id}")
@@ -224,21 +224,20 @@ async def update_partner(
         )
 
         result = await session.execute(stmt, {"tg_id": tg_id, "balance": balance, "percent": percent})
-        await session.commit()
 
         if result.rowcount > 0:
-            return JSONResponse(
+            return ORJSONResponse(
                 content={"success": True, "message": f"Партнёр {tg_id} успешно обновлён"},
                 status_code=200,
             )
         else:
-            return JSONResponse(
+            return ORJSONResponse(
                 content={"success": False, "message": "Партнёр не найден"},
                 status_code=404,
             )
     except Exception as e:
         await session.rollback()
-        return JSONResponse(
+        return ORJSONResponse(
             content={"success": False, "message": str(e)},
             status_code=500,
         )
@@ -332,7 +331,7 @@ async def get_partner_data(
         ],
     }
 
-    return JSONResponse(content=response)
+    return ORJSONResponse(content=response)
 
 
 @router.post("/{tg_id}/invited")
@@ -345,7 +344,7 @@ async def add_partner_invited(
     """Добавляет приглашённого пользователю партнёра."""
 
     if joined_tg_id == tg_id:
-        return JSONResponse(
+        return ORJSONResponse(
             content={"success": False, "message": "Нельзя привязать пользователя к самому себе"},
             status_code=400,
         )
@@ -356,7 +355,7 @@ async def add_partner_invited(
             {"tg_id": tg_id},
         )
         if not partner_exists.scalar():
-            return JSONResponse(
+            return ORJSONResponse(
                 content={"success": False, "message": "Партнёр не найден"},
                 status_code=404,
             )
@@ -366,7 +365,7 @@ async def add_partner_invited(
             {"joined_tg_id": joined_tg_id},
         )
         if not invited_exists.scalar():
-            return JSONResponse(
+            return ORJSONResponse(
                 content={"success": False, "message": "Приглашённый пользователь не найден"},
                 status_code=404,
             )
@@ -377,7 +376,7 @@ async def add_partner_invited(
         )
         existing_partner = existing.scalar()
         if existing_partner is not None:
-            return JSONResponse(
+            return ORJSONResponse(
                 content={
                     "success": False,
                     "message": f"Пользователь уже привязан к партнёру {existing_partner}",
@@ -394,8 +393,7 @@ async def add_partner_invited(
             ),
             {"partner_tg_id": tg_id, "joined_tg_id": joined_tg_id},
         )
-        await session.commit()
-        return JSONResponse(
+        return ORJSONResponse(
             content={
                 "success": True,
                 "message": "Приглашённый добавлен",
@@ -406,7 +404,7 @@ async def add_partner_invited(
         )
     except Exception as e:
         await session.rollback()
-        return JSONResponse(content={"success": False, "message": str(e)}, status_code=500)
+        return ORJSONResponse(content={"success": False, "message": str(e)}, status_code=500)
 
 
 @router.delete("/{tg_id}/invited/{joined_tg_id}")
@@ -429,10 +427,9 @@ async def delete_partner_invited(
             ),
             {"partner_tg_id": tg_id, "joined_tg_id": joined_tg_id},
         )
-        await session.commit()
 
         if result.rowcount > 0:
-            return JSONResponse(
+            return ORJSONResponse(
                 content={
                     "success": True,
                     "message": "Приглашённый удалён",
@@ -441,13 +438,13 @@ async def delete_partner_invited(
                 },
                 status_code=200,
             )
-        return JSONResponse(
+        return ORJSONResponse(
             content={"success": False, "message": "Связка партнёр-приглашённый не найдена"},
             status_code=404,
         )
     except Exception as e:
         await session.rollback()
-        return JSONResponse(content={"success": False, "message": str(e)}, status_code=500)
+        return ORJSONResponse(content={"success": False, "message": str(e)}, status_code=500)
 
 
 @router.patch("/{tg_id}/percent")
@@ -461,7 +458,7 @@ async def update_partner_percent(
 
     normalized = _parse_percent(percent)
     if normalized is None:
-        return JSONResponse(
+        return ORJSONResponse(
             content={"success": False, "message": "Неверный процент. Допустимо 0-100 или 0.0-1.0"},
             status_code=400,
         )
@@ -477,17 +474,16 @@ async def update_partner_percent(
             ),
             {"tg_id": tg_id, "percent": normalized},
         )
-        await session.commit()
 
         if result.rowcount > 0:
-            return JSONResponse(
+            return ORJSONResponse(
                 content={"success": True, "message": "Процент обновлён", "percent": normalized},
                 status_code=200,
             )
-        return JSONResponse(content={"success": False, "message": "Партнёр не найден"}, status_code=404)
+        return ORJSONResponse(content={"success": False, "message": "Партнёр не найден"}, status_code=404)
     except Exception as e:
         await session.rollback()
-        return JSONResponse(content={"success": False, "message": str(e)}, status_code=500)
+        return ORJSONResponse(content={"success": False, "message": str(e)}, status_code=500)
 
 
 @router.patch("/{tg_id}/balance")
@@ -502,7 +498,7 @@ async def update_partner_balance(
 
     mode_normalized = (mode or "set").strip().lower()
     if mode_normalized not in {"set", "add", "subtract"}:
-        return JSONResponse(
+        return ORJSONResponse(
             content={"success": False, "message": "Неверный режим. Используйте set, add или subtract"},
             status_code=400,
         )
@@ -510,13 +506,13 @@ async def update_partner_balance(
     try:
         amount_val = float(amount)
     except (TypeError, ValueError):
-        return JSONResponse(
+        return ORJSONResponse(
             content={"success": False, "message": "Неверная сумма"},
             status_code=400,
         )
 
     if amount_val < 0:
-        return JSONResponse(
+        return ORJSONResponse(
             content={"success": False, "message": "Сумма не может быть отрицательной"},
             status_code=400,
         )
@@ -528,7 +524,7 @@ async def update_partner_balance(
         )
         current_balance = current_res.scalar()
         if current_balance is None:
-            return JSONResponse(content={"success": False, "message": "Партнёр не найден"}, status_code=404)
+            return ORJSONResponse(content={"success": False, "message": "Партнёр не найден"}, status_code=404)
 
         current_balance = float(current_balance or 0.0)
 
@@ -538,7 +534,7 @@ async def update_partner_balance(
             new_balance = current_balance + amount_val
         else:
             if current_balance < amount_val:
-                return JSONResponse(
+                return ORJSONResponse(
                     content={"success": False, "message": "Недостаточно средств"},
                     status_code=400,
                 )
@@ -548,15 +544,14 @@ async def update_partner_balance(
             text("UPDATE users SET partner_balance = :balance WHERE tg_id = :tg_id"),
             {"tg_id": tg_id, "balance": new_balance},
         )
-        await session.commit()
 
-        return JSONResponse(
+        return ORJSONResponse(
             content={"success": True, "message": "Баланс обновлён", "balance": new_balance},
             status_code=200,
         )
     except Exception as e:
         await session.rollback()
-        return JSONResponse(content={"success": False, "message": str(e)}, status_code=500)
+        return ORJSONResponse(content={"success": False, "message": str(e)}, status_code=500)
 
 
 @router.get("/{tg_id}/invited")
@@ -609,7 +604,7 @@ async def get_partner_invited(
         for row in invited_rows
     ]
 
-    return JSONResponse(content=invited_list)
+    return ORJSONResponse(content=invited_list)
 
 
 @router.get("/payouts/pending")
@@ -661,7 +656,7 @@ async def get_partner_payouts_pending(
             "destination": row[6] or None,
         })
 
-    return JSONResponse(content={"total": int(total), "items": items})
+    return ORJSONResponse(content={"total": int(total), "items": items})
 
 
 @router.get("/payouts/history")
@@ -713,7 +708,7 @@ async def get_partner_payouts_history(
             "destination": row[6] or None,
         })
 
-    return JSONResponse(content={"total": int(total), "items": items})
+    return ORJSONResponse(content={"total": int(total), "items": items})
 
 
 @router.post("/payouts/{payout_id}/approve")
@@ -730,7 +725,7 @@ async def approve_partner_payout(
     )
     req = req_row.fetchone()
     if not req:
-        return JSONResponse(
+        return ORJSONResponse(
             content={"success": False, "message": "Заявка не найдена или уже обработана"},
             status_code=404,
         )
@@ -754,9 +749,8 @@ async def approve_partner_payout(
         ),
         {"id": payout_id, "method": payout_method, "destination": destination},
     )
-    await session.commit()
 
-    return JSONResponse(content={"success": True, "message": "Заявка одобрена"}, status_code=200)
+    return ORJSONResponse(content={"success": True, "message": "Заявка одобрена"}, status_code=200)
 
 
 @router.post("/payouts/{payout_id}/reject")
@@ -773,7 +767,7 @@ async def reject_partner_payout(
     )
     req = req_row.fetchone()
     if not req:
-        return JSONResponse(
+        return ORJSONResponse(
             content={"success": False, "message": "Заявка не найдена или уже обработана"},
             status_code=404,
         )
@@ -805,9 +799,8 @@ async def reject_partner_payout(
             {"balance": current_balance + float(req[2] or 0.0), "tg_id": req[1]},
         )
 
-    await session.commit()
 
-    return JSONResponse(content={"success": True, "message": "Заявка отклонена"}, status_code=200)
+    return ORJSONResponse(content={"success": True, "message": "Заявка отклонена"}, status_code=200)
 
 
 @router.patch("/{tg_id}/percent/reset")
@@ -828,11 +821,10 @@ async def reset_partner_percent(
         ),
         {"tg_id": tg_id},
     )
-    await session.commit()
 
     if result.rowcount > 0:
-        return JSONResponse(content={"success": True, "message": "Процент сброшен"}, status_code=200)
-    return JSONResponse(content={"success": False, "message": "Партнёр не найден"}, status_code=404)
+        return ORJSONResponse(content={"success": True, "message": "Процент сброшен"}, status_code=200)
+    return ORJSONResponse(content={"success": False, "message": "Партнёр не найден"}, status_code=404)
 
 
 @router.patch("/{tg_id}/code")
@@ -846,12 +838,12 @@ async def update_partner_code(
 
     raw = (code or "").strip().lower()
     if not raw:
-        return JSONResponse(content={"success": False, "message": "Код не может быть пустым"}, status_code=400)
+        return ORJSONResponse(content={"success": False, "message": "Код не может быть пустым"}, status_code=400)
 
     import re
 
     if not re.fullmatch(r"[a-z0-9_]{3,32}", raw):
-        return JSONResponse(
+        return ORJSONResponse(
             content={"success": False, "message": "Неверный код. Разрешены a-z, 0-9, _ (3-32 символа)"},
             status_code=400,
         )
@@ -861,17 +853,16 @@ async def update_partner_code(
         {"code": raw, "tg_id": tg_id},
     )
     if exists.first():
-        return JSONResponse(content={"success": False, "message": "Такой код уже занят"}, status_code=409)
+        return ORJSONResponse(content={"success": False, "message": "Такой код уже занят"}, status_code=409)
 
     result = await session.execute(
         text("UPDATE users SET partner_code = :code WHERE tg_id = :tg_id"),
         {"code": raw, "tg_id": tg_id},
     )
-    await session.commit()
 
     if result.rowcount > 0:
-        return JSONResponse(content={"success": True, "message": "Код обновлён", "code": raw}, status_code=200)
-    return JSONResponse(content={"success": False, "message": "Партнёр не найден"}, status_code=404)
+        return ORJSONResponse(content={"success": True, "message": "Код обновлён", "code": raw}, status_code=200)
+    return ORJSONResponse(content={"success": False, "message": "Партнёр не найден"}, status_code=404)
 
 
 @router.post("/reset-disabled-methods")
@@ -907,7 +898,7 @@ async def reset_disabled_payout_methods(
         disabled.append(B.METHOD_SBP)
 
     if not disabled:
-        return JSONResponse(content={"success": True, "message": "Отключённых методов нет"}, status_code=200)
+        return ORJSONResponse(content={"success": True, "message": "Отключённых методов нет"}, status_code=200)
 
     await session.execute(
         text(
@@ -919,9 +910,8 @@ async def reset_disabled_payout_methods(
         ),
         {"methods": disabled},
     )
-    await session.commit()
 
-    return JSONResponse(content={"success": True, "message": "Отключённые методы сброшены"}, status_code=200)
+    return ORJSONResponse(content={"success": True, "message": "Отключённые методы сброшены"}, status_code=200)
 
 
 @router.get("/{tg_id}/export")
@@ -946,7 +936,7 @@ async def export_partner_invites_csv(
     data = rows.fetchall()
 
     if not data:
-        return JSONResponse(content={"success": False, "message": "Нет приглашённых"}, status_code=404)
+        return ORJSONResponse(content={"success": False, "message": "Нет приглашённых"}, status_code=404)
 
     buffer = StringIO()
     writer = csv.writer(buffer, delimiter=";")

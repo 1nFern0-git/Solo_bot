@@ -131,7 +131,6 @@ async def check_server_key_limit(server_info: dict, session: AsyncSession) -> bo
                     pass
             if anchor_uid is not None:
                 session.add(Notification(user_id=anchor_uid, notification_type=notif_key))
-                await session.commit()
 
     return await _svc_check(server_info, session, on_capacity_warning=_notify_admin_capacity)
 

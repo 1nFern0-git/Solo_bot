@@ -161,7 +161,6 @@ async def handle_ads_delete(
     try:
         await session.execute(update(User).where(User.source_code == code).values(source_code=None))
         await session.execute(delete(TrackingSource).where(TrackingSource.code == code))
-        await session.commit()
         await cache_delete(cache_key("utm_exists", code))
         await callback_query.message.edit_text(
             f"🗑️ Ссылка <code>{code}</code> удалена.",

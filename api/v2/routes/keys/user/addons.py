@@ -647,7 +647,6 @@ async def user_key_apply_addons(
     await update_balance(session, int(billing_user_id), -int(final_extra_price_rub))
     if coupon_id is not None:
         await mark_coupon_used(session, int(coupon_id), int(billing_user_id))
-    await session.commit()
     return AccountKeyApplyAddonsResponse(
         ok=True,
         message="Доп. опции применены",

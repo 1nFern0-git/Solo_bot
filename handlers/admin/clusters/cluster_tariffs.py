@@ -62,7 +62,6 @@ async def apply_tariff_group(callback: CallbackQuery, callback_data: AdminCluste
         group_code = row["group_code"]
 
         await session.execute(update(Server).where(Server.cluster_name == cluster_name).values(tariff_group=group_code))
-        await session.commit()
 
         servers = await get_servers(session=session, include_enabled=True)
         cluster_servers = servers.get(cluster_name, [])
@@ -294,7 +293,6 @@ async def apply_tariffs(
                     for sid in to_insert
                 ])
 
-        await session.commit()
 
         await state.update_data({
             f"subgrp_sel:{cluster_name}": [],
@@ -343,7 +341,6 @@ async def reset_cluster_subgroups(callback: CallbackQuery, callback_data: AdminC
             return
 
         await session.execute(delete(ServerSubgroup).where(ServerSubgroup.server_id.in_(server_ids)))
-        await session.commit()
 
         servers = await get_servers(session=session, include_enabled=True)
         cluster_servers = servers.get(cluster_name, [])
@@ -587,7 +584,6 @@ async def apply_group_to_servers(
 
         if to_insert:
             session.add_all([ServerSpecialgroup(server_id=sid, group_code=group_code) for sid in to_insert])
-            await session.commit()
 
         logger.debug(f"[apply_group_to_servers] group={group_code} server_ids={server_ids}")
 
@@ -616,7 +612,6 @@ async def reset_cluster_groups(callback: CallbackQuery, callback_data: AdminClus
             await callback.answer("В кластере нет серверов", show_alert=True)
             return
         await session.execute(delete(ServerSpecialgroup).where(ServerSpecialgroup.server_id.in_(server_ids)))
-        await session.commit()
         servers = await get_servers(session=session, include_enabled=True)
         cluster_servers = servers.get(cluster_name, [])
         await callback.message.edit_text(

@@ -4,6 +4,7 @@ import os
 from time import perf_counter
 
 from fastapi import Depends, FastAPI, Request
+from fastapi.responses import ORJSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
@@ -28,6 +29,7 @@ app = FastAPI(
     docs_url="/api/docs",
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",
+    default_response_class=ORJSONResponse,
 )
 
 _cors_origins = API_CORS_ORIGINS if API_CORS_ORIGINS != ["*"] else API_CORS_ORIGINS
@@ -42,6 +44,8 @@ app.add_middleware(
 )
 
 app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
+
+_ETAG_MAX_BODY_BYTES = 256 * 1024
 
 
 @app.middleware("http")
@@ -60,9 +64,32 @@ async def security_and_cache_middleware(request: Request, call_next):
         return response
 
     if request.method == "GET" and response.status_code == 200 and "application/json" in content_type:
-        body = b""
+        content_length_header = response.headers.get("content-length")
+        try:
+            cl = int(content_length_header) if content_length_header is not None else None
+        except (TypeError, ValueError):
+            cl = None
+        if cl is not None and cl > _ETAG_MAX_BODY_BYTES:
+            response.headers.setdefault("Cache-Control", "no-cache")
+            return response
+        chunks: list[bytes] = []
+        total = 0
+        too_big = False
         async for chunk in response.body_iterator:
-            body += chunk
+            total += len(chunk)
+            if total > _ETAG_MAX_BODY_BYTES:
+                chunks.append(chunk)
+                too_big = True
+                async for remaining in response.body_iterator:
+                    chunks.append(remaining)
+                break
+            chunks.append(chunk)
+        body = b"".join(chunks)
+        if too_big:
+            headers = dict(response.headers)
+            headers["Cache-Control"] = "no-cache"
+            headers.pop("content-length", None)
+            return StarletteResponse(content=body, status_code=200, headers=headers, media_type=response.media_type)
         etag = '"' + hashlib.md5(body).hexdigest() + '"'
         if_none_match = request.headers.get("if-none-match", "")
         client_etags = [t.strip() for t in if_none_match.split(",") if t.strip()]
@@ -80,12 +107,13 @@ async def security_and_cache_middleware(request: Request, call_next):
 @app.middleware("http")
 async def api_access_log_middleware(request: Request, call_next):
     context = ensure_api_context(request)
+    started = perf_counter()
     if not API_LOGGING:
         response = await call_next(request)
         response.headers["X-Request-Id"] = context.request_id
+        response.headers["X-Response-Time"] = f"{int((perf_counter() - started) * 1000)}ms"
         return response
 
-    started = perf_counter()
     try:
         response = await call_next(request)
     except Exception as exc:
@@ -110,6 +138,7 @@ async def api_access_log_middleware(request: Request, call_next):
 
     duration_ms = int((perf_counter() - started) * 1000)
     response.headers["X-Request-Id"] = context.request_id
+    response.headers["X-Response-Time"] = f"{duration_ms}ms"
     result = "success" if response.status_code < 400 else "fail"
     log_api_access(
         request,

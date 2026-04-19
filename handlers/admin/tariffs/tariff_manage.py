@@ -406,7 +406,6 @@ async def delete_tariff_with_gift_replacement(callback: CallbackQuery, session: 
     if not remaining_tariffs:
         await session.execute(update(Server).where(Server.tariff_group == group_code).values(tariff_group=None))
 
-    await session.commit()
     await callback.message.edit_text("🗑 Тариф удалён. Все подарки обновлены.", reply_markup=build_tariff_menu_kb())
 
 
@@ -432,7 +431,6 @@ async def delete_tariff(callback: CallbackQuery, session: AsyncSession):
     if not remaining_tariffs:
         await session.execute(update(Server).where(Server.tariff_group == group_code).values(tariff_group=None))
 
-    await session.commit()
     await callback.message.edit_text("🗑 Тариф успешно удалён.", reply_markup=build_tariff_menu_kb())
 
 
@@ -506,7 +504,6 @@ async def set_vless_flag(callback: CallbackQuery, state: FSMContext, session: As
 
     tariff.vless = vless_flag
     tariff.updated_at = datetime.utcnow()
-    await session.commit()
     await state.clear()
 
     text, markup = render_tariff_card(tariff)
@@ -542,7 +539,6 @@ async def apply_edit(message: Message, state: FSMContext, session: AsyncSession)
             value = None
         setattr(tariff, field, value)
         tariff.updated_at = datetime.utcnow()
-        await session.commit()
         await state.clear()
 
         text, markup = render_tariff_card(tariff)
@@ -565,7 +561,6 @@ async def apply_edit(message: Message, state: FSMContext, session: AsyncSession)
     setattr(tariff, field, value)
     tariff.updated_at = datetime.utcnow()
 
-    await session.commit()
     await state.clear()
 
     text, markup = render_tariff_card(tariff)
@@ -584,7 +579,6 @@ async def toggle_tariff_status(callback: CallbackQuery, session: AsyncSession):
         return
 
     tariff.is_active = not tariff.is_active
-    await session.commit()
 
     text, markup = render_tariff_card(tariff)
     await callback.message.edit_text(text=text, reply_markup=markup)
@@ -618,7 +612,6 @@ async def toggle_tariff_configurable(callback: CallbackQuery, session: AsyncSess
     tariff.configurable = not current
     tariff.updated_at = datetime.utcnow()
 
-    await session.commit()
 
     text, markup = render_tariff_card(tariff)
     await callback.message.edit_text(text=text, reply_markup=markup)

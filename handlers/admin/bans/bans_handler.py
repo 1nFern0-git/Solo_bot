@@ -232,7 +232,6 @@ async def handle_clear_blocked_users(callback_query: CallbackQuery, session: Asy
             return
 
         await session.execute(delete(BlockedUser))
-        await session.commit()
 
         await callback_query.message.answer(
             text=f"🗑️ Очищено {total_count} записей забанивших пользователей из базы данных.",
@@ -271,7 +270,6 @@ async def handle_clear_shadow_bans(callback_query: CallbackQuery, session: Async
         )
         tg_to_invalidate = [r[0] for r in tg_ids_result.all() if r[0] is not None]
         await session.execute(delete(ManualBan).where(ManualBan.reason == "shadow"))
-        await session.commit()
         for tid in tg_to_invalidate:
             await invalidate_ban_cache(tid)
 
@@ -314,7 +312,6 @@ async def handle_clear_manual_bans(callback_query: CallbackQuery, session: Async
         )
         tg_to_invalidate = [r[0] for r in tg_ids_result.all() if r[0] is not None]
         await session.execute(delete(ManualBan).where(or_(ManualBan.reason != "shadow", ManualBan.reason.is_(None))))
-        await session.commit()
         for tid in tg_to_invalidate:
             await invalidate_ban_cache(tid)
 
@@ -408,7 +405,6 @@ async def handle_preemptive_ids_input(message: Message, state: FSMContext, sessi
     )
 
     await session.execute(stmt)
-    await session.commit()
     for tid in cache_tg_ids:
         await invalidate_ban_cache(tid)
 

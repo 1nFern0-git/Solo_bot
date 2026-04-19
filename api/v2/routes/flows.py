@@ -76,7 +76,6 @@ async def create_flow(
     )
     session.add(flow)
     await bump_site_revision(session)
-    await session.commit()
     await session.refresh(flow)
     return _flow_to_response(flow)
 
@@ -101,7 +100,6 @@ async def update_flow(
     flow.updated_at = datetime.now(UTC)
 
     await bump_site_revision(session)
-    await session.commit()
     await session.refresh(flow)
     return _flow_to_response(flow)
 
@@ -117,4 +115,3 @@ async def delete_flow(
         raise HTTPException(404, "Flow not found")
     await session.delete(flow)
     await bump_site_revision(session)
-    await session.commit()

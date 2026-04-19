@@ -130,7 +130,6 @@ async def handle_admin_freeze_subscription(
             time_left = 0
 
         await mark_key_as_frozen(session, record["tg_id"], client_id, time_left)
-        await session.commit()
         session.expire_all()
 
         await callback_query.answer("✅ Подписка отключена")
@@ -207,7 +206,6 @@ async def handle_admin_unfreeze_subscription(
         new_expiry_time = now_ms + leftover
 
         await mark_key_as_unfrozen(session, record["tg_id"], client_id, new_expiry_time)
-        await session.commit()
         session.expire_all()
         await release_session_early(session)
 

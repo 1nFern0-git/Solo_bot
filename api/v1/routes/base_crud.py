@@ -155,7 +155,6 @@ def generate_crud_router(
                 data["days"] = None
             obj = model(**data)
             session.add(obj)
-            await session.commit()
             await session.refresh(obj)
             return to_schema(schema_response, obj)
 
@@ -181,7 +180,6 @@ def generate_crud_router(
             for k, v in validated.model_dump(exclude_unset=True).items():
                 setattr(obj, k, v)
 
-            await session.commit()
             await session.refresh(obj)
             return to_schema(schema_response, obj)
 
@@ -203,7 +201,6 @@ def generate_crud_router(
                 raise HTTPException(status_code=404, detail=f"{model.__name__} not found")
 
             await session.delete(obj)
-            await session.commit()
             return {"detail": f"{model.__name__} deleted"}
 
     return router

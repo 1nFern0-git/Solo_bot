@@ -67,9 +67,6 @@ async def execute_bulk_updates(session: AsyncSession, bulk_updates: dict[str, An
         if to_add or to_delete:
             logger.info(f"Bulk: {len(to_add)} добавлений, {len(to_delete)} удалений уведомлений")
 
-        await session.commit()
-
     except Exception as error:
         logger.error(f"Ошибка в bulk-обновлениях: {error}")
-        await session.rollback()
         raise

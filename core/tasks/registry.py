@@ -1,10 +1,12 @@
 from core.tasks.cron_tasks import (
     AUDIT_DRAIN_TRIGGER,
     DAILY_STATS_REPORT_TRIGGER,
+    DB_POOL_STATUS_TRIGGER,
     EXPIRED_GIFTS_CLEANUP_TRIGGER,
     STALE_PAYMENTS_SWEEP_TRIGGER,
     cleanup_expired_gifts_job,
     cleanup_expired_gifts_process_runner,
+    log_db_pool_status,
     scheduled_audit_drain,
     scheduled_audit_drain_process_runner,
     scheduled_stats_report,
@@ -109,5 +111,11 @@ def register_periodic_tasks() -> None:
             cleanup_expired_gifts_job,
             EXPIRED_GIFTS_CLEANUP_TRIGGER,
         )
+
+    periodic_task_manager.register_cron_task(
+        "db_pool_status",
+        log_db_pool_status,
+        DB_POOL_STATUS_TRIGGER,
+    )
 
     _TASKS_REGISTERED = True

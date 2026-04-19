@@ -61,7 +61,6 @@ async def save_device_step(message: Message, state: FSMContext, session: AsyncSe
 
     tariff.device_step_rub = price
     tariff.updated_at = datetime.utcnow()
-    await session.commit()
 
     await state.set_state(TariffConfigState.choosing_section)
 
@@ -151,7 +150,6 @@ async def clear_device_overrides(callback: CallbackQuery, state: FSMContext, ses
 
     tariff.device_overrides = None
     tariff.updated_at = datetime.utcnow()
-    await session.commit()
 
     text, markup = build_device_overrides_screen(tariff)
     await callback.message.edit_text(text=text, reply_markup=markup)
@@ -197,7 +195,6 @@ async def save_device_override_price(message: Message, state: FSMContext, sessio
     tariff.device_overrides = overrides if overrides else None
     attributes.flag_modified(tariff, "device_overrides")
     tariff.updated_at = datetime.utcnow()
-    await session.commit()
 
     await state.update_data(devices_override=None)
 

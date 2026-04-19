@@ -33,7 +33,6 @@ async def handle_server_transfer(callback_query: CallbackQuery, state: FSMContex
             )
         )
 
-        await session.commit()
 
         use_country_selection = bool(MODES_CONFIG.get("COUNTRY_SELECTION_ENABLED", USE_COUNTRY_SELECTION))
 
@@ -77,7 +76,6 @@ async def handle_cluster_transfer(callback_query: CallbackQuery, state: FSMConte
             )
         )
 
-        await session.commit()
 
         await callback_query.message.edit_text(
             text=(

@@ -370,7 +370,6 @@ async def handle_sync_server(
                                         .where(Key.user_id == key["user_id"], Key.client_id == key["client_id"])
                                         .values(remnawave_link=new_remnawave_link, key=key_value)
                                     )
-                                    await session.commit()
                                     logger.info(f"[Sync] Обновлена ссылка для {key['email']}: {new_remnawave_link}")
                         except Exception as e:
                             logger.warning(f"[Sync] Не удалось получить ссылку для {key['email']}: {e}")
@@ -683,7 +682,6 @@ async def handle_sync_cluster(
                         await session.run_sync(
                             lambda sync_session: sync_session.bulk_update_mappings(Key, bulk_updates)
                         )
-                        await session.commit()
                         logger.info(f"[Sync] Bulk: обновлено {len(bulk_updates)} ключей")
                     except Exception as bulk_error:
                         logger.warning(f"[Sync] Bulk упал, fallback: {bulk_error}")
@@ -696,7 +694,6 @@ async def handle_sync_cluster(
                                     .where(Key.client_id == upd["client_id"])
                                     .values(remnawave_link=upd["remnawave_link"], key=upd["key"])
                                 )
-                                await session.commit()
                             except Exception as e:
                                 logger.error(f"[Sync] Fallback ошибка {upd['client_id']}: {e}")
                                 await session.rollback()
@@ -708,7 +705,6 @@ async def handle_sync_cluster(
                         await session.execute(
                             delete(Key).where(Key.user_id == key["user_id"], Key.client_id == key["client_id"])
                         )
-                        await session.commit()
 
                         cluster_id_for_recreate = key["server_id"] if use_country_selection else cluster_name
                         await create_key_on_cluster(

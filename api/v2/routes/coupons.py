@@ -56,7 +56,6 @@ async def apply_coupon(
             tg_id=tg_id,
             code=str(body.code or ""),
         )
-        await session.commit()
         return CouponApplyResponse(
             ok=True,
             message="Купон успешно активирован",

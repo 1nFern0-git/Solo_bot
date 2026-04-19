@@ -55,7 +55,6 @@ async def save_new_admin(message: Message, session: AsyncSession, state: FSMCont
         await message.answer("⚠️ Такой админ уже существует.")
     else:
         session.add(Admin(tg_id=tg_id, role="moderator", description="Добавлен вручную"))
-        await session.commit()
         await message.answer(f"✅ Админ <code>{tg_id}</code> добавлен.", reply_markup=build_admin_back_kb_to_admins())
 
     await state.clear()
@@ -87,7 +86,6 @@ async def generate_token(callback: CallbackQuery, callback_data: AdminPanelCallb
     token = Admin.generate_token()
     token_hash = hashlib.sha256(token.encode()).hexdigest()
     admin.token = token_hash
-    await session.commit()
 
     msg = await callback.message.edit_text(
         f"🎟 <b>Новый токен для</b> <code>{tg_id}</code>:\n\n"
@@ -135,7 +133,6 @@ async def set_admin_role(callback: CallbackQuery, callback_data: AdminPanelCallb
         return
 
     admin.role = role
-    await session.commit()
 
     await callback.message.edit_text(
         f"✅ Роль админа <code>{tg_id}</code> изменена на <b>{role}</b>.", reply_markup=build_single_admin_menu(tg_id)
@@ -147,7 +144,6 @@ async def delete_admin(callback: CallbackQuery, callback_data: AdminPanelCallbac
     tg_id = int(callback_data.action.split("|")[1])
 
     await session.execute(delete(Admin).where(Admin.tg_id == tg_id))
-    await session.commit()
 
     await callback.message.edit_text(
         f"🗑 Админ <code>{tg_id}</code> удалён.", reply_markup=build_admin_back_kb_to_admins()

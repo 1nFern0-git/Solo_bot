@@ -1225,6 +1225,28 @@ async def _migration_v23_add_identity_onboarding_stage(conn: AsyncConnection) ->
         await _exec_ignore(conn, "ALTER TABLE identities ADD COLUMN onboarding_stage VARCHAR(32)")
 
 
+async def _migration_v26_add_keys_indexes(conn: AsyncConnection) -> None:
+    logger.info("[schema_upgrade] v26: индексы keys(expiry_time/server_id/tariff_id)")
+    if not await _table_exists(conn, "keys"):
+        return
+    if not await _index_exists(conn, "keys", "ix_keys_expiry_time"):
+        await _exec_ignore(conn, "CREATE INDEX ix_keys_expiry_time ON keys(expiry_time)")
+    if not await _index_exists(conn, "keys", "ix_keys_server_id"):
+        await _exec_ignore(conn, "CREATE INDEX ix_keys_server_id ON keys(server_id)")
+    if not await _index_exists(conn, "keys", "ix_keys_tariff_id"):
+        await _exec_ignore(conn, "CREATE INDEX ix_keys_tariff_id ON keys(tariff_id)")
+
+
+async def _migration_v25_add_partners_indexes(conn: AsyncConnection) -> None:
+    logger.info("[schema_upgrade] v25: индексы на partners(partner_tg_id/joined_tg_id)")
+    if not await _table_exists(conn, "partners"):
+        return
+    if not await _index_exists(conn, "partners", "ix_partners_partner_tg_id"):
+        await _exec_ignore(conn, "CREATE INDEX ix_partners_partner_tg_id ON partners(partner_tg_id)")
+    if not await _index_exists(conn, "partners", "ix_partners_joined_tg_id"):
+        await _exec_ignore(conn, "CREATE INDEX ix_partners_joined_tg_id ON partners(joined_tg_id)")
+
+
 async def _migration_v24_add_identity_sessions(conn: AsyncConnection) -> None:
     logger.info("[schema_upgrade] v24: таблица identity_sessions + перенос существующих токенов")
     if not await _table_exists(conn, "identities"):
@@ -1302,6 +1324,8 @@ _MIGRATIONS = [
     (22, "identities.onboarding_completed_at", _migration_v22_add_identity_onboarding_completed_at),
     (23, "identities.onboarding_stage", _migration_v23_add_identity_onboarding_stage),
     (24, "таблица identity_sessions (мультидевайс)", _migration_v24_add_identity_sessions),
+    (25, "индексы на partners(partner_tg_id/joined_tg_id)", _migration_v25_add_partners_indexes),
+    (26, "индексы keys(expiry_time/server_id/tariff_id)", _migration_v26_add_keys_indexes),
 ]
 
 

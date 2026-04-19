@@ -195,7 +195,6 @@ async def change_domain(
         )
     )
     result = await session.execute(stmt)
-    await session.commit()
 
     return {"updated": result.rowcount or 0}
 
@@ -214,7 +213,6 @@ async def restore_trials(
         .values(trial=0)
     )
     result = await session.execute(stmt)
-    await session.commit()
 
     return {"restored": result.rowcount or 0}
 

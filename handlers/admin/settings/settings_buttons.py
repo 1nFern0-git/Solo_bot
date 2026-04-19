@@ -46,7 +46,6 @@ async def toggle_button_setting(
     config[key] = not current
 
     await update_buttons_config(session, config)
-    await session.commit()
 
     buttons_state = {k: bool(config.get(k, False)) for k in BUTTON_TITLES.keys()}
     await callback.message.edit_reply_markup(reply_markup=build_settings_buttons_kb(buttons_state))

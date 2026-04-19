@@ -90,7 +90,6 @@ async def handle_ban_forever_reason_input(message: Message, state: FSMContext, s
     )
 
     await session.execute(stmt)
-    await session.commit()
     if u.tg_id is not None:
         await invalidate_ban_cache(u.tg_id)
     await state.clear()
@@ -179,7 +178,6 @@ async def handle_ban_duration_input(message: Message, state: FSMContext, session
         )
 
         await session.execute(stmt)
-        await session.commit()
         if u.tg_id is not None:
             await invalidate_ban_cache(u.tg_id)
 
@@ -227,7 +225,6 @@ async def handle_ban_shadow(callback: CallbackQuery, callback_data: AdminUserEdi
         )
     )
     await session.execute(stmt)
-    await session.commit()
     if u.tg_id is not None:
         await invalidate_ban_cache(u.tg_id)
 
@@ -252,7 +249,6 @@ async def handle_user_unban(
         return
 
     await session.execute(delete(ManualBan).where(ManualBan.user_id == u.id))
-    await session.commit()
     if u.tg_id is not None:
         await invalidate_ban_cache(u.tg_id)
 

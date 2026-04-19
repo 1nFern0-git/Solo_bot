@@ -302,7 +302,6 @@ async def purchase_tariff_with_balance(
         )
         if coupon_id is not None:
             await mark_coupon_used(session, int(coupon_id), int(tg_id))
-        await session.commit()
     except Exception:
         logger.exception("web tariff purchase failed")
         raise HTTPException(status_code=500, detail="Не удалось оформить подписку") from None

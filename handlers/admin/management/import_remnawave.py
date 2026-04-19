@@ -140,7 +140,6 @@ async def import_remnawave_users(session: AsyncSession, users: list[dict]) -> in
             logger.error(f"[Remnawave Import] Ошибка при добавлении пользователя {tg_id}: {e}")
             continue
 
-    await session.commit()
     return added
 
 
@@ -192,6 +191,5 @@ async def import_remnawave_keys(session: AsyncSession, users: list[dict], server
         except Exception as e:
             logger.error(f"[ERROR] Ошибка при добавлении ключа {client_id}: {e}")
 
-    await session.commit()
     logger.info(f"[IMPORT] Всего добавлено ключей: {added}")
     return added

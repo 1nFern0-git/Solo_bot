@@ -187,7 +187,6 @@ async def key_cluster_mode(
                 selected_price_rub=price_to_charge,
             )
         )
-        await session.commit()
 
         key_record = await get_key_details(session, email)
         if not key_record:

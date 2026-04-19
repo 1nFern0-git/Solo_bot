@@ -231,7 +231,6 @@ async def handle_panel_type_selection(
     )
 
     session.add(new_server)
-    await session.commit()
 
     await callback_query.message.edit_text(
         text=f"✅ Сервер <b>{server_name}</b> с панелью <b>{panel_type}</b> успешно добавлен в кластер <b>{cluster_name}</b>!",

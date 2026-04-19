@@ -60,7 +60,6 @@ async def toggle_cashbox_setting(
         session,
         config,
     )
-    await session.commit()
 
     updated_state = {k: bool(config.get(k, False)) for k in PAYMENT_PROVIDER_TITLES.keys()}
     await callback.message.edit_reply_markup(

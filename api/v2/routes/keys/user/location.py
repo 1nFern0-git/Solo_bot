@@ -215,7 +215,6 @@ async def user_key_change_location(
     db_key.client_id = key_client_id
     db_key.key = public_link if isinstance(public_link, str) and public_link.strip() else None
     db_key.remnawave_link = remnawave_link
-    await session.commit()
     return AccountKeyChangeLocationResponse(
         ok=True,
         message="Локация успешно изменена",

@@ -74,7 +74,6 @@ async def save_devices_config(message: Message, state: FSMContext, session: Asyn
             return
 
     tariff.updated_at = datetime.utcnow()
-    await session.commit()
 
     await state.set_state(TariffConfigState.choosing_section)
 
@@ -136,7 +135,6 @@ async def save_traffic_config(message: Message, state: FSMContext, session: Asyn
             return
 
     tariff.updated_at = datetime.utcnow()
-    await session.commit()
 
     await state.set_state(TariffConfigState.choosing_section)
 

@@ -110,7 +110,6 @@ async def _process_renew_candidates(
                     )
                     try:
                         result = await try_auto_renew(one_ctx, key)
-                        await session.commit()
                         return (key, notification_id, result)
                     except Exception as e:
                         logger.error(f"Ошибка продления {key.tg_id} ({key.email}): {e}")

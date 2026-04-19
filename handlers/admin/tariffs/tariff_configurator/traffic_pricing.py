@@ -62,7 +62,6 @@ async def save_traffic_step(message: Message, state: FSMContext, session: AsyncS
 
     tariff.traffic_step_rub = price
     tariff.updated_at = datetime.utcnow()
-    await session.commit()
 
     await state.set_state(TariffConfigState.choosing_section)
 
@@ -144,7 +143,6 @@ async def clear_traffic_overrides(callback: CallbackQuery, state: FSMContext, se
 
     tariff.traffic_overrides = None
     tariff.updated_at = datetime.utcnow()
-    await session.commit()
 
     text, markup = build_traffic_overrides_screen(tariff)
 
@@ -195,7 +193,6 @@ async def save_traffic_override_price(message: Message, state: FSMContext, sessi
     tariff.traffic_overrides = overrides if overrides else None
     attributes.flag_modified(tariff, "traffic_overrides")
     tariff.updated_at = datetime.utcnow()
-    await session.commit()
 
     await state.update_data(traffic_override_gb=None)
 

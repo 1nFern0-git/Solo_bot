@@ -44,7 +44,6 @@ async def delete_key_by_email(
             cluster_id=db_key.server_id,
         )
         await session.delete(db_key)
-        await session.commit()
         logger.info(f"[API] Ключ удалён: {db_key.client_id}")
         return {"message": "Ключ успешно удалён"}
 
@@ -108,7 +107,6 @@ async def edit_key_by_email(
             hwid_device_limit=getattr(db_key, "device_limit", None),
             reset_traffic=True,
         )
-        await session.commit()
 
         logger.info(f"[API] Ключ обновлён: {db_key.client_id}")
         return db_key

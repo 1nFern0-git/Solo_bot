@@ -288,7 +288,6 @@ async def finalize_key_creation(
             if state:
                 await state.update_data(skip_balance_charge=False)
 
-        await session.commit()
 
     except Exception as e:
         logger.error(f"[Key Finalize] Ошибка при создании ключа для пользователя {tg_id}: {e}")

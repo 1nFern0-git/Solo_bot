@@ -145,7 +145,6 @@ async def handle_gift_delete_confirm(
 
     await session.execute(delete(GiftUsage).where(GiftUsage.gift_id == gift_id))
     await session.execute(delete(Gift).where(Gift.gift_id == gift_id))
-    await session.commit()
 
     await callback.answer("✅ Подарок удалён", show_alert=True)
     await show_gifts_list(callback.message, session, tg_id, page=0)

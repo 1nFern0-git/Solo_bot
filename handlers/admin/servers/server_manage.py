@@ -229,7 +229,6 @@ async def process_callback_delete_server(
             (Server.cluster_name == cluster_name) & (Server.server_name == server_name)
         )
         await session.execute(stmt_delete)
-        await session.commit()
         await callback_query.message.edit_text(
             text=(
                 f"✅ Сервер '{server_name}' удален. "
@@ -242,7 +241,6 @@ async def process_callback_delete_server(
             (Server.cluster_name == cluster_name) & (Server.server_name == server_name)
         )
         await session.execute(stmt_delete)
-        await session.commit()
         await callback_query.message.edit_text(
             text=f"✅ Сервер '{server_name}' удален.",
             reply_markup=build_admin_back_kb("clusters"),
@@ -261,7 +259,6 @@ async def toggle_server_enabled(
     new_status = action == "enable"
 
     await session.execute(update(Server).where(Server.server_name == server_name).values(enabled=new_status))
-    await session.commit()
 
     servers = await get_servers(session=session, include_enabled=True)
 
@@ -314,7 +311,6 @@ async def save_server_limit(message: types.Message, state: FSMContext, session: 
         new_value = limit if limit > 0 else None
 
         await session.execute(update(Server).where(Server.server_name == server_name).values(max_keys=new_value))
-        await session.commit()
 
         servers = await get_servers(session=session, include_enabled=True)
         cluster_name, server = next(
