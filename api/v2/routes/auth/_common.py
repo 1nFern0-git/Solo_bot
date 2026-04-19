@@ -2,6 +2,7 @@ from fastapi import Request
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.v2.schemas.identities import IdentityResponse, LoginResponse
 from config import API_TOKEN_TTL_DAYS
 from logger import logger
 from utils.referral_codes import encode_partner_code
@@ -9,6 +10,13 @@ from utils.referral_codes import encode_partner_code
 
 TOKEN_TTL_HINT = "бессрочно" if API_TOKEN_TTL_DAYS is None else f"{API_TOKEN_TTL_DAYS} дн."
 TELEGRAM_LOGIN_MAX_AGE = 86400
+
+
+def build_login_response(identity) -> LoginResponse:
+    return LoginResponse(
+        identity_id=identity.id,
+        identity=IdentityResponse.model_validate(identity),
+    )
 
 _TRUSTED_PROXY_CIDRS: list[str] = []
 

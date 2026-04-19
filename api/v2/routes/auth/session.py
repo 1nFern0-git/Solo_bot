@@ -7,12 +7,16 @@ from api.depends import (
     clear_auth_cookie,
     get_request_actor,
     get_session,
+    hash_token,
     verify_identity_token,
 )
+from api.depends import AUTH_COOKIE_NAME
 from api.v2.routes.auth._common import _resolve_partner_snapshot
 from api.v2.schemas.identities import (
     ChangePasswordRequest,
     IdentityResponse,
+    IdentitySessionItem,
+    IdentitySessionsResponse,
     SetPasswordRequest,
 )
 from api.v2.schemas.web_public import AccountSummaryResponse
@@ -21,6 +25,7 @@ from database import (
     get_keys,
     get_trial,
     identities as idb,
+    identity_sessions as idsess,
 )
 from database.models import CouponUsage, Gift, GiftUsage
 from database.referrals import get_referral_stats
@@ -39,12 +44,87 @@ async def me(
     return IdentityResponse.model_validate(identity)
 
 
+def _current_token_hash(request: Request) -> str | None:
+    raw = request.cookies.get(AUTH_COOKIE_NAME)
+    if not raw or not raw.strip():
+        return None
+    return hash_token(raw.strip())
+
+
+@router.get("/sessions", response_model=IdentitySessionsResponse)
+async def list_my_sessions(
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    identity=Depends(verify_identity_token),
+):
+    """Возвращает активные сессии текущей identity (все устройства)."""
+    current_hash = _current_token_hash(request)
+    rows = await idsess.list_sessions_for_identity(session, identity.id)
+    items = [
+        IdentitySessionItem(
+            id=row.id,
+            device_label=row.device_label,
+            ip=row.ip,
+            created_at=row.created_at,
+            last_seen_at=row.last_seen_at,
+            expires_at=row.expires_at,
+            is_current=bool(current_hash and row.token_hash == current_hash),
+        )
+        for row in rows
+    ]
+    return IdentitySessionsResponse(sessions=items)
+
+
+@router.delete("/sessions/{session_id}")
+async def revoke_my_session(
+    session_id: str,
+    request: Request,
+    response: Response,
+    session: AsyncSession = Depends(get_session),
+    identity=Depends(verify_identity_token),
+):
+    """Удаляет одну сессию текущей identity. Если удалена текущая — очищаем cookie."""
+    ok = await idsess.delete_session_by_id(
+        session, session_id=session_id, identity_id=identity.id
+    )
+    if not ok:
+        raise HTTPException(status_code=404, detail="Сессия не найдена")
+    current_hash = _current_token_hash(request)
+    rows = await idsess.list_sessions_for_identity(session, identity.id)
+    if current_hash and not any(r.token_hash == current_hash for r in rows):
+        clear_auth_cookie(response, request)
+    return {"ok": True}
+
+
+@router.post("/sessions/revoke-others")
+async def revoke_other_sessions(
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    identity=Depends(verify_identity_token),
+):
+    """Удаляет все сессии текущей identity кроме текущей."""
+    current_hash = _current_token_hash(request)
+    if not current_hash:
+        raise HTTPException(status_code=400, detail="Текущая сессия не определена")
+    removed = await idsess.delete_other_sessions(
+        session, identity_id=identity.id, keep_token_hash=current_hash
+    )
+    return {"ok": True, "removed": removed}
+
+
 @router.post("/logout")
 async def logout(
     request: Request,
     response: Response,
+    session: AsyncSession = Depends(get_session),
 ):
-    """Очищает auth cookie. Не требует валидной сессии — всегда возвращает ok."""
+    """Удаляет текущую сессию из БД и очищает auth cookie. Не требует валидной сессии."""
+    raw = request.cookies.get(AUTH_COOKIE_NAME)
+    if raw and raw.strip():
+        try:
+            await idsess.delete_session_by_token_hash(session, hash_token(raw.strip()))
+        except Exception:
+            pass
     clear_auth_cookie(response, request)
     return {"ok": True}
 

@@ -14,6 +14,9 @@ from api.depends import get_session, verify_identity_admin
 from database.site_revision import bump_site_revision
 from api.v2.schemas import WebBlockResponse, WebPageResponse, WebPageUpdate, WebTheme
 from api.v2.schemas.web import (
+    WebPageSaveResponse,
+    WebPageThemeResponse,
+    WebPageThemeUpdate,
     WebPageVariantCreate,
     WebPageVariantSummary,
     WebPageVariantUpdate,
@@ -282,11 +285,51 @@ async def get_web_page(
     return await _build_page_response(session, slug, current, variants)
 
 
-@router.put("/api/web/pages/{slug}", response_model=WebPageResponse)
+@router.get("/api/web/pages/{slug}/theme", response_model=WebPageThemeResponse)
+async def get_web_page_theme(
+    slug: str,
+    variant: str | None = Query(default=None),
+    session: AsyncSession = Depends(get_session),
+):
+    """Возвращает только theme tokens страницы (без блоков/вариантов). Используется для fallback-темы cabinet-страниц."""
+    if not slug or len(slug) > 64 or not _SLUG_RE.match(slug):
+        raise HTTPException(400, "Некорректный slug страницы")
+    current, _ = await _resolve_variant(session, slug, variant)
+    return WebPageThemeResponse(
+        slug=slug,
+        variant_key=current.variant_key,
+        tokens=dict(current.theme_tokens or {}),
+    )
+
+
+@router.put("/api/web/pages/{slug}/theme", response_model=WebPageThemeResponse)
+async def update_web_page_theme(
+    slug: str,
+    body: WebPageThemeUpdate,
+    variant: str | None = Query(default=None),
+    session: AsyncSession = Depends(get_session),
+    identity=Depends(verify_identity_admin),
+):
+    """Обновляет только theme_tokens страницы (без трогания блоков). Используется для sync темы между страницами."""
+    if not slug or len(slug) > 64 or not _SLUG_RE.match(slug):
+        raise HTTPException(400, "Некорректный slug страницы")
+    current, _ = await _resolve_variant(session, slug, variant)
+    current.theme_tokens = body.tokens
+    await session.flush()
+    await bump_site_revision(session)
+    return WebPageThemeResponse(
+        slug=slug,
+        variant_key=current.variant_key,
+        tokens=dict(current.theme_tokens or {}),
+    )
+
+
+@router.put("/api/web/pages/{slug}")
 async def update_web_page(
     slug: str,
     body: WebPageUpdate,
     variant: str | None = Query(default=None),
+    minimal: bool = Query(default=False),
     session: AsyncSession = Depends(get_session),
     identity=Depends(verify_identity_admin),
 ):
@@ -310,6 +353,14 @@ async def update_web_page(
     await bump_site_revision(session)
     refreshed_variants = await _list_variants(session, slug)
     refreshed_current = next((item for item in refreshed_variants if item.id == current.id), current)
+    if minimal:
+        active = next((item for item in refreshed_variants if item.is_active), refreshed_current)
+        return WebPageSaveResponse(
+            slug=slug,
+            variant_key=refreshed_current.variant_key,
+            active_variant_key=active.variant_key,
+            variants=[_variant_summary(item) for item in refreshed_variants],
+        )
     return await _build_page_response(session, slug, refreshed_current, refreshed_variants)
 
 

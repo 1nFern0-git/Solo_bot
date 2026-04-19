@@ -12,7 +12,7 @@ from api.depends import (
     set_is_admin_cookie,
     verify_identity_token,
 )
-from api.v2.routes.auth._common import TELEGRAM_LOGIN_MAX_AGE, TOKEN_TTL_HINT, _client_ip
+from api.v2.routes.auth._common import TELEGRAM_LOGIN_MAX_AGE, TOKEN_TTL_HINT, _client_ip, build_login_response
 from api.v2.schemas.identities import (
     IdentityResponse,
     LinkTelegramRequest,
@@ -61,7 +61,7 @@ async def login_telegram(
         raise HTTPException(status_code=401, detail="Неверная подпись или устаревшие данные от Telegram")
     identity = await idb.get_or_create_identity_for_tg(session, body.id)
     await bind_identity_actor(request, session, identity)
-    token = await idb.issue_token_for_identity(session, identity)
+    token = await idb.issue_token_for_identity(session, identity, request=request)
     logger.info(
         "[Auth] Login success: identity={}, tg_id={}, ip={}, method=telegram_widget",
         identity.id,
@@ -70,7 +70,7 @@ async def login_telegram(
     )
     set_auth_cookie(response, token, request)
     set_is_admin_cookie(response, identity, request)
-    return LoginResponse(identity_id=identity.id)
+    return build_login_response(identity)
 
 
 @router.post("/login-telegram-webapp", response_model=LoginResponse)
@@ -91,7 +91,7 @@ async def login_telegram_webapp(
         raise HTTPException(status_code=401, detail="Не удалось определить пользователя из initData")
     identity = await idb.get_or_create_identity_for_tg(session, int(tg_id))
     await bind_identity_actor(request, session, identity)
-    token = await idb.issue_token_for_identity(session, identity)
+    token = await idb.issue_token_for_identity(session, identity, request=request)
     logger.info(
         "[Auth] Login success: identity={}, tg_id={}, ip={}, method=telegram_webapp",
         identity.id,
@@ -100,7 +100,7 @@ async def login_telegram_webapp(
     )
     set_auth_cookie(response, token, request)
     set_is_admin_cookie(response, identity, request)
-    return LoginResponse(identity_id=identity.id)
+    return build_login_response(identity)
 
 
 class LoginTelegramOIDCRequest(BaseModel):
@@ -192,7 +192,7 @@ async def login_telegram_oidc(
 
     identity = await idb.get_or_create_identity_for_tg(session, tg_id_int)
     await bind_identity_actor(request, session, identity)
-    token = await idb.issue_token_for_identity(session, identity)
+    token = await idb.issue_token_for_identity(session, identity, request=request)
 
     if getattr(identity, "is_admin", False):
         from database.site_state import mark_site_initialized
@@ -206,7 +206,7 @@ async def login_telegram_oidc(
     )
     set_auth_cookie(response, token, request)
     set_is_admin_cookie(response, identity, request)
-    return LoginResponse(identity_id=identity.id)
+    return build_login_response(identity)
 
 
 @router.post("/link-telegram", response_model=IdentityResponse)

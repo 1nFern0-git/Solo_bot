@@ -1,4 +1,5 @@
 from . import identities
+from . import identity_sessions
 from .audit import *
 from .bans import *
 from .coupons import *

@@ -53,6 +53,12 @@ async def security_and_cache_middleware(request: Request, call_next):
     response.headers.setdefault("X-XSS-Protection", "1; mode=block")
 
     content_type = response.headers.get("content-type", "")
+    path = request.url.path
+
+    if path.startswith("/api/web/uploads/") and request.method == "GET" and response.status_code == 200:
+        response.headers.setdefault("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400")
+        return response
+
     if request.method == "GET" and response.status_code == 200 and "application/json" in content_type:
         body = b""
         async for chunk in response.body_iterator:

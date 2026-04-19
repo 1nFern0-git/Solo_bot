@@ -26,7 +26,7 @@ def _flow_to_response(flow: WebFlow) -> FlowResponse:
     )
 
 
-@router.get("/flows/{flow_id}", response_model=FlowResponse)
+@router.get("/flows/{flow_id}", response_model=FlowResponse, response_model_by_alias=True)
 async def get_flow_public(flow_id: str, session: AsyncSession = Depends(get_session)):
     flow = await session.get(WebFlow, flow_id)
     if not flow:
@@ -34,7 +34,7 @@ async def get_flow_public(flow_id: str, session: AsyncSession = Depends(get_sess
     return _flow_to_response(flow)
 
 
-@router.get("/admin/flows", response_model=list[FlowResponse])
+@router.get("/admin/flows", response_model=list[FlowResponse], response_model_by_alias=True)
 async def list_flows(
     session: AsyncSession = Depends(get_session),
     _identity=Depends(verify_identity_admin),
@@ -43,7 +43,7 @@ async def list_flows(
     return [_flow_to_response(f) for f in result.scalars().all()]
 
 
-@router.get("/admin/flows/{flow_id}", response_model=FlowResponse)
+@router.get("/admin/flows/{flow_id}", response_model=FlowResponse, response_model_by_alias=True)
 async def get_flow_admin(
     flow_id: str,
     session: AsyncSession = Depends(get_session),
@@ -55,7 +55,7 @@ async def get_flow_admin(
     return _flow_to_response(flow)
 
 
-@router.post("/admin/flows", response_model=FlowResponse, status_code=201)
+@router.post("/admin/flows", response_model=FlowResponse, status_code=201, response_model_by_alias=True)
 async def create_flow(
     body: FlowCreate,
     session: AsyncSession = Depends(get_session),
@@ -81,7 +81,7 @@ async def create_flow(
     return _flow_to_response(flow)
 
 
-@router.put("/admin/flows/{flow_id}", response_model=FlowResponse)
+@router.put("/admin/flows/{flow_id}", response_model=FlowResponse, response_model_by_alias=True)
 async def update_flow(
     flow_id: str,
     body: FlowUpdate,

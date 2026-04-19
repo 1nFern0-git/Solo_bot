@@ -31,10 +31,27 @@ class WebTheme(BaseModel):
     tokens: dict[str, Any]
 
 
+class WebPageThemeResponse(BaseModel):
+    slug: str
+    variant_key: str = "default"
+    tokens: dict[str, Any] = Field(default_factory=dict)
+
+
+class WebPageThemeUpdate(BaseModel):
+    tokens: dict[str, Any]
+
+
 class WebPageVariantSummary(BaseModel):
     key: str = Field(..., max_length=64)
     name: str = Field(..., max_length=255)
     is_active: bool = False
+
+
+class WebPageSaveResponse(BaseModel):
+    slug: str
+    variant_key: str = "default"
+    active_variant_key: str = "default"
+    variants: list[WebPageVariantSummary] = Field(default_factory=list)
 
 
 class WebPageResponse(BaseModel):

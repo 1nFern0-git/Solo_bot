@@ -4,6 +4,7 @@ from .audit import AuditEvent
 from .coupons import Coupon, CouponUsage
 from .gifts import Gift, GiftUsage
 from .identity import Identity
+from .identity_session import IdentitySession
 from .keys import Key
 from .notifications import Notification, ScheduledBroadcast
 from .payments import Payment
@@ -30,6 +31,7 @@ __all__ = [
     "Base",
     "DictLikeMixin",
     "Identity",
+    "IdentitySession",
     "User",
     "ManualBan",
     "TemporaryData",

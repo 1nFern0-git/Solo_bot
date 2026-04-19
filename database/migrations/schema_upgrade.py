@@ -1225,6 +1225,58 @@ async def _migration_v23_add_identity_onboarding_stage(conn: AsyncConnection) ->
         await _exec_ignore(conn, "ALTER TABLE identities ADD COLUMN onboarding_stage VARCHAR(32)")
 
 
+async def _migration_v24_add_identity_sessions(conn: AsyncConnection) -> None:
+    logger.info("[schema_upgrade] v24: таблица identity_sessions + перенос существующих токенов")
+    if not await _table_exists(conn, "identities"):
+        return
+    if not await _table_exists(conn, "identity_sessions"):
+        await _exec_ignore(
+            conn,
+            """
+            CREATE TABLE identity_sessions (
+                id VARCHAR(36) PRIMARY KEY,
+                identity_id VARCHAR(36) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+                token_hash VARCHAR(64) NOT NULL UNIQUE,
+                device_label VARCHAR(128),
+                user_agent TEXT,
+                ip VARCHAR(64),
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                last_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                expires_at TIMESTAMP
+            )
+            """,
+        )
+        await _exec_ignore(
+            conn,
+            "CREATE INDEX IF NOT EXISTS ix_identity_sessions_identity_id ON identity_sessions(identity_id)",
+        )
+        await _exec_ignore(
+            conn,
+            "CREATE INDEX IF NOT EXISTS ix_identity_sessions_identity_last_seen "
+            "ON identity_sessions(identity_id, last_seen_at)",
+        )
+    if await _column_exists(conn, "identities", "api_token_hash"):
+        await _exec_ignore(conn, "CREATE EXTENSION IF NOT EXISTS pgcrypto")
+        await _exec_ignore(
+            conn,
+            """
+            INSERT INTO identity_sessions (
+                id, identity_id, token_hash, device_label, created_at, last_seen_at
+            )
+            SELECT
+                gen_random_uuid()::text,
+                id,
+                api_token_hash,
+                'legacy',
+                COALESCE(token_issued_at, CURRENT_TIMESTAMP),
+                COALESCE(token_issued_at, CURRENT_TIMESTAMP)
+            FROM identities
+            WHERE api_token_hash IS NOT NULL
+              AND api_token_hash NOT IN (SELECT token_hash FROM identity_sessions)
+            """,
+        )
+
+
 _MIGRATIONS = [
     (1, "Добавление users.id", _migration_v1_add_users_id),
     (2, "Добавление user_id колонок", _migration_v2_add_user_id_columns),
@@ -1249,6 +1301,7 @@ _MIGRATIONS = [
     (21, "identities.yandex_sub", _migration_v21_add_identity_yandex_sub),
     (22, "identities.onboarding_completed_at", _migration_v22_add_identity_onboarding_completed_at),
     (23, "identities.onboarding_stage", _migration_v23_add_identity_onboarding_stage),
+    (24, "таблица identity_sessions (мультидевайс)", _migration_v24_add_identity_sessions),
 ]
 
 

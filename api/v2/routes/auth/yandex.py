@@ -188,7 +188,7 @@ async def yandex_callback(
         email=email,
     )
     await bind_identity_actor(request, session, identity)
-    token = await idb.issue_token_for_identity(session, identity)
+    token = await idb.issue_token_for_identity(session, identity, request=request)
     logger.info(
         "[Auth] Login success: identity={}, yandex_sub={}, ip={}, method=yandex",
         identity.id,

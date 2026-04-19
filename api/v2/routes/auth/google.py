@@ -191,7 +191,7 @@ async def google_callback(
         email=email if (email and email_verified) else None,
     )
     await bind_identity_actor(request, session, identity)
-    token = await idb.issue_token_for_identity(session, identity)
+    token = await idb.issue_token_for_identity(session, identity, request=request)
     logger.info(
         "[Auth] Login success: identity={}, google_sub={}, ip={}, method=google",
         identity.id,

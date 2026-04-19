@@ -10,8 +10,28 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import API_TOKEN_TTL_DAYS
 from core.executor import run_cpu, run_io
+from database import identity_sessions as _idsess
 from database.access.tg_mirror import refresh_tg_mirrors_for_user
 from database.models import Admin, Identity, User
+
+
+def _request_meta(request) -> tuple[str | None, str | None]:
+    if request is None:
+        return None, None
+    try:
+        ua = request.headers.get("user-agent")
+    except Exception:
+        ua = None
+    ip = None
+    try:
+        xff = request.headers.get("x-forwarded-for")
+        if xff:
+            ip = xff.split(",")[0].strip()
+        elif request.client and request.client.host:
+            ip = request.client.host
+    except Exception:
+        ip = None
+    return ua, ip
 
 
 _BCRYPT_MAX_PASSWORD_BYTES = 72
@@ -263,21 +283,24 @@ async def get_identity_by_token_hash(session: AsyncSession, token_hash: str) -> 
     return result.scalar_one_or_none()
 
 
-async def issue_token_for_identity(session: AsyncSession, identity: Identity) -> str:
-    """Генерирует токен, сохраняет хеш и token_issued_at в identity, возвращает токен (показать один раз)."""
+async def issue_token_for_identity(
+    session: AsyncSession,
+    identity: Identity,
+    *,
+    request=None,
+) -> str:
+    """Генерирует токен и создаёт новую сессию в identity_sessions (не затирая другие устройства)."""
     token = generate_token()
-    identity.api_token_hash = await run_io(hash_token, token)
-    identity.token_issued_at = datetime.utcnow()
-    await session.flush()
+    token_hash = await run_io(hash_token, token)
+    user_agent, ip = _request_meta(request)
+    await _idsess.create_identity_session(
+        session,
+        identity=identity,
+        token_hash=token_hash,
+        user_agent=user_agent,
+        ip=ip,
+    )
     return token
-
-
-def _is_token_expired(identity: Identity) -> bool:
-    """Проверяет, истёк ли срок действия токена (если задан API_TOKEN_TTL_DAYS)."""
-    if API_TOKEN_TTL_DAYS is None or identity.token_issued_at is None:
-        return False
-    expiry = identity.token_issued_at + timedelta(days=API_TOKEN_TTL_DAYS)
-    return datetime.utcnow() >= expiry
 
 
 async def create_identity_with_token(
@@ -285,37 +308,43 @@ async def create_identity_with_token(
     email: str | None = None,
     password: str | None = None,
     tg_id: int | None = None,
+    *,
+    request=None,
 ) -> tuple[Identity, str]:
     """Создаёт идентичность и выдаёт API-токен. При регистрации по почте передать email и password."""
     identity = await create_identity(session, email=email, tg_id=tg_id)
     if password:
         identity.password_hash = await run_cpu(hash_password, password)
         await session.refresh(identity)
-    token = await issue_token_for_identity(session, identity)
+    token = await issue_token_for_identity(session, identity, request=request)
     return identity, token
 
 
 async def verify_identity_token(session: AsyncSession, identity_id: str, token: str) -> Identity | None:
-    """Проверяет пару identity_id + token и срок действия токена; возвращает Identity или None."""
-    identity = await get_identity_by_id(session, identity_id)
-    if not identity or not identity.api_token_hash:
-        return None
+    """Проверяет пару identity_id + token через identity_sessions; возвращает Identity или None."""
     token_hash = await run_io(hash_token, token)
-    if token_hash != identity.api_token_hash:
+    sess = await _idsess.get_session_by_token_hash(session, token_hash)
+    if sess is None or sess.identity_id != identity_id:
         return None
-    if _is_token_expired(identity):
+    if sess.expires_at is not None and sess.expires_at <= datetime.utcnow():
         return None
-    return identity
+    return await get_identity_by_id(session, identity_id)
 
 
-async def login_by_email(session: AsyncSession, email: str, password: str) -> tuple[Identity, str] | None:
+async def login_by_email(
+    session: AsyncSession,
+    email: str,
+    password: str,
+    *,
+    request=None,
+) -> tuple[Identity, str] | None:
     """Вход по email и паролю: проверяет пароль, выдаёт новый токен; возвращает (identity, token) или None."""
     identity = await get_identity_by_email(session, email)
     if not identity:
         return None
     if not await run_cpu(check_password, password, identity.password_hash):
         return None
-    token = await issue_token_for_identity(session, identity)
+    token = await issue_token_for_identity(session, identity, request=request)
     return identity, token
 
 

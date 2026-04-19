@@ -7,10 +7,13 @@ from fastapi import Depends, HTTPException, Header, Query, Request, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from datetime import datetime
+
 from audit import set_api_actor
 from database import (
     async_session_maker,
     identities as idb,
+    identity_sessions as idsess,
 )
 from database.access.resolution import ResolvedActor, resolve_actor_from_identity
 from database.models import Admin, Identity
@@ -148,11 +151,20 @@ async def _identity_from_cookie(session: AsyncSession, request: Request | None) 
     if not token:
         return None
     token_hash = hash_token(token)
-    identity = await idb.get_identity_by_token_hash(session, token_hash)
+    sess = await idsess.get_session_by_token_hash(session, token_hash)
+    if sess is None:
+        return None
+    if sess.expires_at is not None and sess.expires_at <= datetime.utcnow():
+        return None
+    identity = await idb.get_identity_by_id(session, sess.identity_id)
     if identity is None:
         return None
-    if idb._is_token_expired(identity):
-        return None
+    await idsess.touch_session_last_seen(session, sess)
+    if request is not None:
+        try:
+            request.state.auth_session = sess
+        except Exception:
+            pass
     return identity
 
 

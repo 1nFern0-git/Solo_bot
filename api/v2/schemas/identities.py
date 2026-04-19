@@ -53,6 +53,7 @@ class ChangePasswordRequest(BaseModel):
 
 class LoginResponse(BaseModel):
     identity_id: str
+    identity: IdentityResponse
 
 
 class SendLoginCodeRequest(BaseModel):
@@ -115,3 +116,17 @@ class LinkEmailConfirmRequest(BaseModel):
 
 class IdentityAttachTelegram(BaseModel):
     tg_id: int = Field(...)
+
+
+class IdentitySessionItem(BaseModel):
+    id: str
+    device_label: str | None = None
+    ip: str | None = None
+    created_at: datetime
+    last_seen_at: datetime
+    expires_at: datetime | None = None
+    is_current: bool = False
+
+
+class IdentitySessionsResponse(BaseModel):
+    sessions: list[IdentitySessionItem]

@@ -9,7 +9,7 @@ from api.depends import (
     set_auth_cookie,
     set_is_admin_cookie,
 )
-from api.v2.routes.auth._common import TOKEN_TTL_HINT, _client_ip
+from api.v2.routes.auth._common import TOKEN_TTL_HINT, _client_ip, build_login_response
 from api.v2.schemas.identities import (
     ConfirmPasswordResetRequest,
     LoginByCodeRequest,
@@ -114,7 +114,9 @@ async def register_by_email(
         referrer_user = await resolve_user_optional(session, referrer_legacy)
         if referrer_user is None:
             raise HTTPException(status_code=400, detail="Код приглашения недействителен")
-    identity, token = await idb.create_identity_with_token(session, email=email, password=body.password)
+    identity, token = await idb.create_identity_with_token(
+        session, email=email, password=body.password, request=request
+    )
     await bind_identity_actor(request, session, identity)
     billing_user_id = await idb.ensure_billing_user_for_identity(session, identity)
     if referrer_user is not None and not await get_referral_by_referred_id(session, billing_user_id):
@@ -176,14 +178,14 @@ async def login(
         raise
     except Exception as e:
         logger.warning("[Auth] Ошибка rate-limit проверки для email-логина: {}", e)
-    result = await idb.login_by_email(session, email, body.password)
+    result = await idb.login_by_email(session, email, body.password, request=request)
     if not result:
         from database.setup.web_admin_bootstrap import ensure_web_admin
 
         try:
             await ensure_web_admin(session)
             await session.flush()
-            result = await idb.login_by_email(session, email, body.password)
+            result = await idb.login_by_email(session, email, body.password, request=request)
         except Exception as exc:
             logger.warning("[Auth] lazy web-admin bootstrap failed: {}", exc)
     if not result:
@@ -212,7 +214,7 @@ async def login(
     logger.info("[Auth] Login success: identity={}, email={}, ip={}, method=password", identity.id, email, ip)
     set_auth_cookie(response, token, request)
     set_is_admin_cookie(response, identity, request)
-    return LoginResponse(identity_id=identity.id)
+    return build_login_response(identity)
 
 
 @router.post("/send-login-code")
@@ -329,7 +331,7 @@ async def login_by_code(
             sa_update(IdentityModel).where(IdentityModel.id == identity.id).values(email_verified=True)
         )
     await bind_identity_actor(request, session, identity)
-    token = await idb.issue_token_for_identity(session, identity)
+    token = await idb.issue_token_for_identity(session, identity, request=request)
     if getattr(identity, "is_admin", False):
         from database.site_state import mark_site_initialized
 
@@ -337,7 +339,7 @@ async def login_by_code(
     logger.info("[Auth] Login success: identity={}, email={}, method=code", identity.id, email_norm)
     set_auth_cookie(response, token, request)
     set_is_admin_cookie(response, identity, request)
-    return LoginResponse(identity_id=identity.id)
+    return build_login_response(identity)
 
 
 @router.post("/request-password-reset")
@@ -422,7 +424,7 @@ async def confirm_password_reset(
     if not updated:
         raise HTTPException(status_code=400, detail="Не удалось обновить пароль")
     await bind_identity_actor(request, session, updated)
-    token = await idb.issue_token_for_identity(session, updated)
+    token = await idb.issue_token_for_identity(session, updated, request=request)
     set_auth_cookie(response, token, request)
     set_is_admin_cookie(response, updated, request)
-    return LoginResponse(identity_id=updated.id)
+    return build_login_response(updated)
