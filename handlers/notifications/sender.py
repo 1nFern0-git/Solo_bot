@@ -21,6 +21,7 @@ from database.bans import save_blocked_user_ids
 from handlers.utils import format_hours, format_minutes, get_russian_month
 from logger import logger
 from services.tariffs.tariff_display import get_key_tariff_display
+from utils.custom_emojis import _process_text
 
 moscow_tz = pytz.timezone("Europe/Moscow")
 
@@ -157,7 +158,12 @@ async def _send_text(
     keyboard: InlineKeyboardMarkup | None = None,
 ) -> bool:
     try:
-        await bot.send_message(tg_id, caption, reply_markup=keyboard)
+        processed, entities = await _process_text(caption)
+        kwargs = {"reply_markup": keyboard}
+        if entities:
+            kwargs["entities"] = entities
+            kwargs["parse_mode"] = None
+        await bot.send_message(tg_id, processed, **kwargs)
         return True
     except (TelegramForbiddenError, TelegramBadRequest):
         return False
@@ -182,14 +188,22 @@ class FastNotificationSender:
         try:
             await self.rate_limiter.acquire()
 
+            processed_text, entities = await _process_text(msg["text"])
+            emoji_kwargs = {}
+            if entities:
+                emoji_kwargs["parse_mode"] = None
+
             if msg.get("photo"):
                 photo_path = os.path.join("img", msg["photo"])
                 cached_id = await _get_cached_file_id(photo_path)
 
+                caption_kwargs = {"caption_entities": entities} if entities else {}
+
                 if cached_id:
                     await self.bot.send_photo(
                         chat_id=tg_id, photo=cached_id,
-                        caption=msg["text"], reply_markup=msg.get("keyboard"),
+                        caption=processed_text, reply_markup=msg.get("keyboard"),
+                        **emoji_kwargs, **caption_kwargs,
                     )
                 else:
                     actual_path = _find_photo_file(photo_path)
@@ -199,17 +213,22 @@ class FastNotificationSender:
                         buffered = BufferedInputFile(image_data, filename=os.path.basename(actual_path))
                         result = await self.bot.send_photo(
                             chat_id=tg_id, photo=buffered,
-                            caption=msg["text"], reply_markup=msg.get("keyboard"),
+                            caption=processed_text, reply_markup=msg.get("keyboard"),
+                            **emoji_kwargs, **caption_kwargs,
                         )
                         if result and hasattr(result, "photo") and result.photo:
                             await _set_cached_file_id(photo_path, result.photo[-1].file_id)
                     else:
+                        text_kwargs = {"entities": entities} if entities else {}
                         await self.bot.send_message(
-                            chat_id=tg_id, text=msg["text"], reply_markup=msg.get("keyboard"),
+                            chat_id=tg_id, text=processed_text, reply_markup=msg.get("keyboard"),
+                            **emoji_kwargs, **text_kwargs,
                         )
             else:
+                text_kwargs = {"entities": entities} if entities else {}
                 await self.bot.send_message(
-                    chat_id=tg_id, text=msg["text"], reply_markup=msg.get("keyboard"),
+                    chat_id=tg_id, text=processed_text, reply_markup=msg.get("keyboard"),
+                    **emoji_kwargs, **text_kwargs,
                 )
             return True
 
