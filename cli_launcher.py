@@ -1323,6 +1323,8 @@ def _check_feature(name: str) -> bool:
 
         return check_feature(name)
     except Exception:
+        if name == "web":
+            return True
         return False
 
 
