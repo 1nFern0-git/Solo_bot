@@ -1355,14 +1355,15 @@ def _check_feature(name: str) -> bool:
         return False
 
 
-def _verify_license_for_web(code: str, password: str) -> tuple[bool, str]:
+def _authorize_web_install(code: str, password: str) -> bool:
     _ensure_rpc_module()
     try:
-        from core.rpc import verify_web_license
+        from core.rpc import authorize_web_install
 
-        return verify_web_license(code, password)
+        return authorize_web_install(code, password, out=console.print)
     except Exception:
-        return False, "Не удалось загрузить модуль проверки лицензии"
+        console.print("[red]❌ Не удалось загрузить модуль проверки лицензии[/red]")
+        return False
 
 
 def _ensure_docker():
@@ -1583,15 +1584,11 @@ def install_website():
         console.print("[red]Пароль обязателен.[/red]")
         return
 
-    console.print("[dim]Проверка лицензии...[/dim]")
-    lc_ok, lc_msg = _verify_license_for_web(lc_code.strip(), lc_pass.strip())
+    ok = _authorize_web_install(lc_code.strip(), lc_pass.strip())
     lc_code = None
     lc_pass = None
-
-    if not lc_ok:
-        console.print(f"[red]❌ {lc_msg or 'Авторизация не пройдена'}[/red]")
+    if not ok:
         return
-    console.print("[green]✓ Авторизация пройдена[/green]")
 
     console.print("\n[bold][1/5] Docker[/bold]")
     if not _ensure_docker():
