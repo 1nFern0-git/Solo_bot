@@ -1317,7 +1317,39 @@ def _ensure_web_image(src_dir: str, tag: str, force_pull: bool = False) -> bool:
     return _build_web_image(src_dir, tag)
 
 
+def _ensure_rpc_module() -> bool:
+    try:
+        import core.rpc  # noqa: F401
+        return True
+    except ImportError:
+        pass
+
+    core_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "core")
+    init_path = os.path.join(core_dir, "__init__.py")
+    rpc_path = os.path.join(core_dir, "rpc.py")
+
+    url = "https://raw.githubusercontent.com/Vladless/Solo_bot/dev/core/rpc.py"
+    try:
+        req = Request(url)
+        with urlopen(req, timeout=15) as resp:
+            data = resp.read()
+    except Exception:
+        return False
+
+    try:
+        os.makedirs(core_dir, exist_ok=True)
+        if not os.path.exists(init_path):
+            with open(init_path, "w") as f:
+                f.write("")
+        with open(rpc_path, "wb") as f:
+            f.write(data)
+        return True
+    except Exception:
+        return False
+
+
 def _check_feature(name: str) -> bool:
+    _ensure_rpc_module()
     try:
         from core.rpc import check_feature
 
@@ -1329,12 +1361,13 @@ def _check_feature(name: str) -> bool:
 
 
 def _verify_license_for_web(code: str, password: str) -> tuple[bool, str]:
+    _ensure_rpc_module()
     try:
         from core.rpc import verify_web_license
 
         return verify_web_license(code, password)
     except Exception:
-        return False, ""
+        return False, "Не удалось загрузить модуль проверки лицензии"
 
 
 def _ensure_docker():
