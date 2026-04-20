@@ -28,7 +28,7 @@ from handlers.texts import (
     UNLIMITED_DEVICES_LABEL,
     UNLIMITED_TRAFFIC_LABEL,
 )
-from handlers.utils import edit_or_send_message
+from handlers.utils import edit_or_send_message, get_plural_form
 from hooks.hook_buttons import insert_hook_buttons
 from hooks.processors import process_addon_purchase_complete, process_addons_menu
 from logger import logger
@@ -236,7 +236,7 @@ async def render_addons_screen(callback: CallbackQuery, state: FSMContext, sessi
             if value == 0:
                 caption = f"{UNLIMITED_DEVICES_LABEL.capitalize()}{mark}"
             else:
-                caption = f"{value} устройств{mark}"
+                caption = f"{value} {get_plural_form(value, 'устройство', 'устройства', 'устройств')}{mark}"
             device_buttons.append(
                 InlineKeyboardButton(
                     text=caption,

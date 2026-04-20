@@ -23,7 +23,7 @@ from handlers.texts import (
     UNLIMITED_DEVICES_LABEL,
     UNLIMITED_TRAFFIC_LABEL,
 )
-from handlers.utils import edit_or_send_message, safe_answer_callback
+from handlers.utils import edit_or_send_message, get_plural_form, safe_answer_callback
 from hooks.processors import process_check_discount_validity
 from logger import logger
 from services.payments.currency_rates import format_for_user
@@ -430,7 +430,8 @@ async def render_user_config_screen(
         if int(base_device) <= 0:
             base_devices_label = UNLIMITED_DEVICES_LABEL
         else:
-            base_devices_label = f"{int(base_device)} устройств"
+            _bd = int(base_device)
+            base_devices_label = f"{_bd} {get_plural_form(_bd, 'устройство', 'устройства', 'устройств')}"
         base_parts.append(base_devices_label)
 
     if base_traffic_gb is not None:
@@ -454,7 +455,8 @@ async def render_user_config_screen(
             if int(selected_devices) <= 0:
                 devices_label = UNLIMITED_DEVICES_LABEL
             else:
-                devices_label = f"{int(selected_devices)} устройств"
+                _sd = int(selected_devices)
+                devices_label = f"{_sd} {get_plural_form(_sd, 'устройство', 'устройства', 'устройств')}"
         choice_parts.append(devices_label)
 
     if has_traffic_choice:
@@ -480,7 +482,8 @@ async def render_user_config_screen(
         _rs_trf = data.get("renew_selected_traffic_limit")
         _addon_parts: list[str] = []
         if _rc_dev is not None and _rs_dev is not None and int(_rc_dev) > int(_rs_dev):
-            _addon_parts.append(f"+{int(_rc_dev) - int(_rs_dev)} устройств")
+            _diff_dev = int(_rc_dev) - int(_rs_dev)
+            _addon_parts.append(f"+{_diff_dev} {get_plural_form(_diff_dev, 'устройство', 'устройства', 'устройств')}")
         if _rc_trf is not None and _rs_trf is not None and int(_rc_trf) > int(_rs_trf):
             _addon_parts.append(f"+{int(_rc_trf) - int(_rs_trf)} ГБ")
         if _addon_parts:
@@ -505,7 +508,7 @@ async def render_user_config_screen(
             if value == 0:
                 caption = f"{UNLIMITED_DEVICES_LABEL.capitalize()}{mark}"
             else:
-                caption = f"{value} устройств{mark}"
+                caption = f"{value} {get_plural_form(value, 'устройство', 'устройства', 'устройств')}{mark}"
             device_buttons.append(
                 InlineKeyboardButton(
                     text=caption,

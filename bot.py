@@ -27,6 +27,7 @@ redis = redis_from_url(
     REDIS_URL,
     encoding="utf-8",
     decode_responses=True,
+    max_connections=64,
     health_check_interval=30,
     socket_connect_timeout=5,
     socket_timeout=5,

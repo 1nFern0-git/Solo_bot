@@ -3,6 +3,7 @@ from typing import Any
 
 from aiogram.fsm.state import State, StatesGroup
 
+from handlers.utils import get_plural_form
 from handlers.texts import (
     ADDONS_CURRENT_HEADER_TEXT,
     ADDONS_HINT_BOTH_OPTIONS_TEXT,
@@ -39,7 +40,7 @@ def format_devices_label(value, default_text: str = "по умолчанию") -
     value_int = int(value)
     if value_int <= 0:
         return UNLIMITED_DEVICES_LABEL
-    return f"{value_int} устройств"
+    return f"{value_int} {get_plural_form(value_int, 'устройство', 'устройства', 'устройств')}"
 
 
 def format_traffic_label(value, default_text: str = "по умолчанию") -> str:

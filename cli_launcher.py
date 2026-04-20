@@ -402,7 +402,9 @@ def build_systemd_service() -> str:
         f"WorkingDirectory={PROJECT_DIR}\n"
         f"ExecStart={VENV_PYTHON} {os.path.join(PROJECT_DIR, 'main.py')}\n"
         "Restart=always\n"
-        "RestartSec=5\n"
+        "RestartSec=10\n"
+        "TimeoutStopSec=10\n"
+        "KillMode=control-group\n"
         'Environment="PYTHONUNBUFFERED=1"\n\n'
         "[Install]\n"
         "WantedBy=multi-user.target\n"
