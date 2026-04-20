@@ -1316,7 +1316,6 @@ def _ensure_web_image(src_dir: str, tag: str, force_pull: bool = False) -> bool:
     console.print("[yellow]Не удалось скачать образ из GHCR. Пробую локальную сборку.[/yellow]")
     return _build_web_image(src_dir, tag)
 
-
 def _ensure_rpc_module() -> bool:
     try:
         import core.rpc  # noqa: F401
@@ -1326,23 +1325,19 @@ def _ensure_rpc_module() -> bool:
 
     core_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "core")
     init_path = os.path.join(core_dir, "__init__.py")
-    rpc_path = os.path.join(core_dir, "rpc.py")
+    so_name = "rpc.cpython-312-x86_64-linux-gnu.so"
+    rpc_path = os.path.join(core_dir, so_name)
 
-    url = "https://raw.githubusercontent.com/Vladless/Solo_bot/dev/core/rpc.py"
-    try:
-        req = Request(url)
-        with urlopen(req, timeout=15) as resp:
-            data = resp.read()
-    except Exception:
-        return False
-
+    base_url = "https://raw.githubusercontent.com/Vladless/Solo_bot/dev/core"
     try:
         os.makedirs(core_dir, exist_ok=True)
-        if not os.path.exists(init_path):
-            with open(init_path, "w") as f:
-                f.write("")
-        with open(rpc_path, "wb") as f:
-            f.write(data)
+
+        for name, path in [("__init__.py", init_path), (so_name, rpc_path)]:
+            req = Request(f"{base_url}/{name}")
+            with urlopen(req, timeout=15) as resp:
+                with open(path, "wb") as f:
+                    f.write(resp.read())
+
         return True
     except Exception:
         return False
