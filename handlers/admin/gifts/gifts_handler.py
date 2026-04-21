@@ -16,11 +16,16 @@ from handlers.texts import get_site_gift_link
 from handlers.utils import edit_or_send_message, format_days, format_months
 from logger import logger
 
+from filters.admin import HasPermission
+from filters.permissions import PERM_GIFTS
+
 from ..panel.keyboard import AdminPanelCallback
 from .keyboard import build_admin_gifts_kb, build_gifts_list_kb
 
 
 router = Router()
+router.callback_query.filter(HasPermission(PERM_GIFTS))
+router.message.filter(HasPermission(PERM_GIFTS))
 
 
 class GiftCreationState(StatesGroup):

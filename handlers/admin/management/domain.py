@@ -8,7 +8,8 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.models import Key
-from filters.admin import IsAdminFilter
+from filters.admin import HasPermission
+from filters.permissions import PERM_MANAGEMENT
 from logger import logger
 
 from ..panel.keyboard import build_admin_back_kb
@@ -20,7 +21,7 @@ class AdminManagementStates(StatesGroup):
     waiting_for_new_domain = State()
 
 
-@router.callback_query(AdminPanelCallback.filter(F.action == "change_domain"), IsAdminFilter())
+@router.callback_query(AdminPanelCallback.filter(F.action == "change_domain"), HasPermission(PERM_MANAGEMENT))
 async def request_new_domain(callback_query: CallbackQuery, state: FSMContext):
     await state.set_state(AdminManagementStates.waiting_for_new_domain)
     await callback_query.message.edit_text(
@@ -28,7 +29,7 @@ async def request_new_domain(callback_query: CallbackQuery, state: FSMContext):
     )
 
 
-@router.message(AdminManagementStates.waiting_for_new_domain, IsAdminFilter())
+@router.message(AdminManagementStates.waiting_for_new_domain, HasPermission(PERM_MANAGEMENT))
 async def process_new_domain(message: Message, state: FSMContext, session: AsyncSession):
     new_domain = message.text.strip()
 

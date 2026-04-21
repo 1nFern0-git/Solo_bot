@@ -1,9 +1,25 @@
-from typing import Any
+from typing import Any, Iterable
 
 from aiogram.filters.callback_data import CallbackData
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+from filters.permissions import (
+    PERM_ADMINS,
+    PERM_ADS,
+    PERM_BROADCASTING,
+    PERM_CLUSTERS,
+    PERM_COUPONS,
+    PERM_EMOJI,
+    PERM_GIFTS,
+    PERM_KEYS,
+    PERM_MANAGEMENT,
+    PERM_MODULES,
+    PERM_SETTINGS,
+    PERM_STATS,
+    PERM_TARIFFS,
+    PERM_USERS,
+)
 from handlers.buttons import BACK, MAIN_MENU
 from hooks.hook_buttons import insert_hook_buttons
 from hooks.hooks import run_hooks
@@ -19,35 +35,50 @@ class AdminPanelCallback(CallbackData, prefix="admin_panel"):
         super().__init__(**data)
 
 
-async def build_panel_kb(admin_role: str) -> InlineKeyboardMarkup:
+async def build_panel_kb(
+    admin_role: str,
+    permissions: Iterable[str] | None = None,
+) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     is_super = admin_role == "superadmin"
-    is_moderator = admin_role == "moderator"
+    perm_set = frozenset(permissions or ())
 
-    builder.row(
-        InlineKeyboardButton(
-            text="👤 Поиск пользователя",
-            callback_data=AdminPanelCallback(action="search_user").pack(),
-        ),
-        InlineKeyboardButton(
-            text="🔑 Поиск подписок",
-            callback_data=AdminPanelCallback(action="search_key").pack(),
-        ),
-    )
+    def can(perm: str) -> bool:
+        return is_super or perm in perm_set
 
-    if is_super:
+    row: list[InlineKeyboardButton] = []
+    if can(PERM_USERS):
+        row.append(
+            InlineKeyboardButton(
+                text="👤 Поиск пользователя",
+                callback_data=AdminPanelCallback(action="search_user").pack(),
+            )
+        )
+    if can(PERM_KEYS):
+        row.append(
+            InlineKeyboardButton(
+                text="🔑 Поиск подписок",
+                callback_data=AdminPanelCallback(action="search_key").pack(),
+            )
+        )
+    if row:
+        builder.row(*row)
+
+    if can(PERM_CLUSTERS):
         builder.row(
             InlineKeyboardButton(
                 text="🖥️ Управление серверами",
                 callback_data=AdminPanelCallback(action="clusters").pack(),
             )
         )
+    if can(PERM_TARIFFS):
         builder.row(
             InlineKeyboardButton(
                 text="💸Управление тарифами",
                 callback_data=AdminPanelCallback(action="tariffs").pack(),
             )
         )
+    if can(PERM_MANAGEMENT) or can(PERM_ADMINS):
         builder.row(
             InlineKeyboardButton(
                 text="🤖 Управление ботом",
@@ -55,50 +86,72 @@ async def build_panel_kb(admin_role: str) -> InlineKeyboardMarkup:
             )
         )
 
-    builder.row(
-        InlineKeyboardButton(
-            text="📢 Рассылка",
-            callback_data=AdminPanelCallback(action="sender").pack(),
-        ),
-        InlineKeyboardButton(
-            text="🎟️ Купоны",
-            callback_data=AdminPanelCallback(action="coupons").pack(),
-        ),
-    )
+    row = []
+    if can(PERM_BROADCASTING):
+        row.append(
+            InlineKeyboardButton(
+                text="📢 Рассылка",
+                callback_data=AdminPanelCallback(action="sender").pack(),
+            )
+        )
+    if can(PERM_COUPONS):
+        row.append(
+            InlineKeyboardButton(
+                text="🎟️ Купоны",
+                callback_data=AdminPanelCallback(action="coupons").pack(),
+            )
+        )
+    if row:
+        builder.row(*row)
 
-    if is_super:
-        builder.row(
+    row = []
+    if can(PERM_GIFTS):
+        row.append(
             InlineKeyboardButton(
                 text="🎁 Подарки",
                 callback_data=AdminPanelCallback(action="gifts").pack(),
-            ),
+            )
+        )
+    if can(PERM_MODULES):
+        row.append(
             InlineKeyboardButton(
                 text="🧩 Мои модули",
                 callback_data=AdminPanelCallback(action="modules").pack(),
-            ),
+            )
         )
-        builder.row(
+    if row:
+        builder.row(*row)
+
+    row = []
+    if can(PERM_STATS):
+        row.append(
             InlineKeyboardButton(
                 text="📊 Статистика",
                 callback_data=AdminPanelCallback(action="stats").pack(),
-            ),
+            )
+        )
+    if can(PERM_ADS):
+        row.append(
             InlineKeyboardButton(
                 text="📈 Аналитика",
                 callback_data=AdminPanelCallback(action="ads").pack(),
-            ),
+            )
         )
-    else:
+    if row:
+        builder.row(*row)
+
+    if can(PERM_EMOJI):
         builder.row(
             InlineKeyboardButton(
-                text="🎁 Подарки",
-                callback_data=AdminPanelCallback(action="gifts").pack(),
+                text="😀 Эмоджи",
+                callback_data=AdminPanelCallback(action="emoji").pack(),
             )
         )
 
     module_buttons = await run_hooks("admin_panel", admin_role=admin_role)
     builder = insert_hook_buttons(builder, module_buttons)
 
-    if not is_moderator:
+    if can(PERM_SETTINGS):
         builder.row(
             InlineKeyboardButton(
                 text="⚙️ Настройки",
@@ -108,29 +161,7 @@ async def build_panel_kb(admin_role: str) -> InlineKeyboardMarkup:
 
     builder.row(InlineKeyboardButton(text=MAIN_MENU, callback_data="profile"))
 
-    markup = builder.as_markup()
-
-    if is_super:
-        ads_callback = AdminPanelCallback(action="ads").pack()
-        emoji_button = InlineKeyboardButton(
-            text="😀 Эмоджи",
-            callback_data=AdminPanelCallback(action="emoji").pack(),
-        )
-
-        inserted = False
-        for index, row in enumerate(markup.inline_keyboard):
-            for button in row:
-                if getattr(button, "callback_data", None) == ads_callback:
-                    markup.inline_keyboard.insert(index + 1, [emoji_button])
-                    inserted = True
-                    break
-            if inserted:
-                break
-
-        if not inserted:
-            markup.inline_keyboard.append([emoji_button])
-
-    return markup
+    return builder.as_markup()
 
 
 def build_restart_kb() -> InlineKeyboardMarkup:

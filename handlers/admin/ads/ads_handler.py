@@ -29,8 +29,13 @@ from .keyboard import (
     build_cancel_input_kb,
 )
 
+from filters.admin import HasPermission
+from filters.permissions import PERM_ADS
+
 
 router = Router()
+router.callback_query.filter(HasPermission(PERM_ADS))
+router.message.filter(HasPermission(PERM_ADS))
 
 
 class AdminAdsState(StatesGroup):

@@ -9,12 +9,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.executor import run_io
 from filters.admin import IsAdminFilter
 from handlers.admin.panel.keyboard import AdminPanelCallback
+from filters.admin import HasPermission
+from filters.permissions import PERM_MODULES
 from utils.modules_manager import manager
 
 from .keyboard import build_module_menu_kb, build_modules_kb
 
 
 router = Router()
+router.callback_query.filter(HasPermission(PERM_MODULES))
+router.message.filter(HasPermission(PERM_MODULES))
 
 
 def list_installed_modules() -> list[tuple[str, str | None]]:

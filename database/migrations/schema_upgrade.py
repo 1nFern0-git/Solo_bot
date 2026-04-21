@@ -1247,6 +1247,27 @@ async def _migration_v25_add_partners_indexes(conn: AsyncConnection) -> None:
         await _exec_ignore(conn, "CREATE INDEX ix_partners_joined_tg_id ON partners(joined_tg_id)")
 
 
+async def _migration_v27_add_admins_permissions(conn: AsyncConnection) -> None:
+    logger.info("[schema_upgrade] v27: admins.permissions (JSONB)")
+    if not await _table_exists(conn, "admins"):
+        return
+    if not await _column_exists(conn, "admins", "permissions"):
+        await _exec_ignore(
+            conn,
+            "ALTER TABLE admins ADD COLUMN permissions JSONB NOT NULL DEFAULT '[]'::jsonb",
+        )
+        # Бэкфилл существующих модераторов: давать права, которыми moderator обладал
+        # до гранулярной RBAC (users/keys/broadcasting/coupons/gifts).
+        await _exec_ignore(
+            conn,
+            """
+            UPDATE admins
+               SET permissions = '["users","keys","broadcasting","coupons","gifts"]'::jsonb
+             WHERE role = 'moderator' AND permissions = '[]'::jsonb
+            """,
+        )
+
+
 async def _migration_v24_add_identity_sessions(conn: AsyncConnection) -> None:
     logger.info("[schema_upgrade] v24: таблица identity_sessions + перенос существующих токенов")
     if not await _table_exists(conn, "identities"):
@@ -1326,6 +1347,7 @@ _MIGRATIONS = [
     (24, "таблица identity_sessions (мультидевайс)", _migration_v24_add_identity_sessions),
     (25, "индексы на partners(partner_tg_id/joined_tg_id)", _migration_v25_add_partners_indexes),
     (26, "индексы keys(expiry_time/server_id/tariff_id)", _migration_v26_add_keys_indexes),
+    (27, "admins.permissions (JSONB per-admin permissions)", _migration_v27_add_admins_permissions),
 ]
 
 

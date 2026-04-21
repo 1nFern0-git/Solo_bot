@@ -1,20 +1,36 @@
+from typing import Iterable
+
 from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from core.bootstrap import MANAGEMENT_CONFIG
+from filters.permissions import PERM_ADMINS, PERM_MANAGEMENT
 from handlers.buttons import BACK
 
 from ..panel.keyboard import AdminPanelCallback, build_admin_back_btn
 
 
-def build_management_kb(admin_role: str) -> InlineKeyboardMarkup:
+def build_management_kb(
+    admin_role: str,
+    permissions: Iterable[str] | None = None,
+) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
+    is_super = admin_role == "superadmin"
+    perm_set = frozenset(permissions or ())
 
-    if admin_role == "superadmin":
+    def can(perm: str) -> bool:
+        return is_super or perm in perm_set
+
+    if can(PERM_ADMINS):
         builder.button(
             text="👑 Управление админами",
             callback_data=AdminPanelCallback(action="admins").pack(),
         )
+
+    if not can(PERM_MANAGEMENT):
+        builder.row(build_admin_back_btn())
+        builder.adjust(1)
+        return builder.as_markup()
 
     builder.button(
         text="🗄 Управление БД",
@@ -109,6 +125,11 @@ def build_single_admin_menu(tg_id: int, role: str = "moderator") -> InlineKeyboa
     builder = InlineKeyboardBuilder()
 
     builder.button(text="✏ Изменить роль", callback_data=AdminPanelCallback(action=f"edit_role|{tg_id}").pack())
+    if role != "superadmin":
+        builder.button(
+            text="🔐 Настроить права",
+            callback_data=AdminPanelCallback(action=f"edit_perms|{tg_id}").pack(),
+        )
     builder.button(text="🗑 Удалить админа", callback_data=AdminPanelCallback(action=f"delete_admin|{tg_id}").pack())
 
     if role == "superadmin":
@@ -118,6 +139,23 @@ def build_single_admin_menu(tg_id: int, role: str = "moderator") -> InlineKeyboa
 
     builder.button(text=BACK, callback_data=AdminPanelCallback(action="admins").pack())
 
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def build_admin_permissions_kb(tg_id: int, current: set[str]) -> InlineKeyboardMarkup:
+    from filters.permissions import PERMISSION_LABELS
+
+    builder = InlineKeyboardBuilder()
+    for perm_id, label in PERMISSION_LABELS.items():
+        mark = "✅" if perm_id in current else "⬜"
+        builder.button(
+            text=f"{mark} {label}",
+            callback_data=AdminPanelCallback(action=f"toggle_perm|{tg_id}|{perm_id}").pack(),
+        )
+    builder.button(
+        text=BACK, callback_data=AdminPanelCallback(action=f"admin_menu|{tg_id}").pack()
+    )
     builder.adjust(1)
     return builder.as_markup()
 

@@ -28,8 +28,13 @@ from .keyboard import (
     build_shadow_bans_kb,
 )
 
+from filters.admin import HasPermission
+from filters.permissions import PERM_MANAGEMENT
+
 
 router = Router()
+router.callback_query.filter(HasPermission(PERM_MANAGEMENT))
+router.message.filter(HasPermission(PERM_MANAGEMENT))
 
 
 class PreemptiveBanStates(StatesGroup):

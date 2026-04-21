@@ -6,7 +6,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.models import Key, User
-from filters.admin import IsAdminFilter
+from filters.admin import HasPermission
+from filters.permissions import PERM_MANAGEMENT
 from logger import logger
 from services.operations import update_subscription
 
@@ -18,7 +19,7 @@ class Import3xuiStates(StatesGroup):
     waiting_for_file = State()
 
 
-@router.callback_query(AdminPanelCallback.filter(F.action == "request_3xui_file"), IsAdminFilter())
+@router.callback_query(AdminPanelCallback.filter(F.action == "request_3xui_file"), HasPermission(PERM_MANAGEMENT))
 async def prompt_for_3xui_file(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
         "📂 Пришлите файл базы данных <code>x-ui.db</code> для восстановления подписок и клиентов.\n\n"
@@ -30,7 +31,7 @@ async def prompt_for_3xui_file(callback: CallbackQuery, state: FSMContext):
     await state.set_state(Import3xuiStates.waiting_for_file)
 
 
-@router.message(Import3xuiStates.waiting_for_file, F.document, IsAdminFilter())
+@router.message(Import3xuiStates.waiting_for_file, F.document, HasPermission(PERM_MANAGEMENT))
 async def handle_3xui_db_upload(message: Message, state: FSMContext, session: AsyncSession):
     file = message.document
 
@@ -65,7 +66,7 @@ async def handle_3xui_db_upload(message: Message, state: FSMContext, session: As
     await state.clear()
 
 
-@router.callback_query(AdminPanelCallback.filter(F.action == "resync_after_import"), IsAdminFilter())
+@router.callback_query(AdminPanelCallback.filter(F.action == "resync_after_import"), HasPermission(PERM_MANAGEMENT))
 async def handle_resync_after_import(callback: CallbackQuery, session: AsyncSession):
     await callback.answer("🔁 Начинаю перевыпуск подписок...")
 

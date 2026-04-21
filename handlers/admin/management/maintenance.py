@@ -5,13 +5,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.bootstrap import MANAGEMENT_CONFIG, update_management_config
 from database.models import Admin
-from filters.admin import IsAdminFilter
+from filters.admin import HasPermission, get_admin_context
+from filters.permissions import PERM_ADMINS, PERM_MANAGEMENT
 
 from . import router
 from .keyboard import AdminPanelCallback, build_management_kb
 
 
-@router.callback_query(AdminPanelCallback.filter(F.action == "management"), IsAdminFilter())
+@router.callback_query(
+    AdminPanelCallback.filter(F.action == "management"),
+    HasPermission(PERM_MANAGEMENT, PERM_ADMINS),
+)
 async def handle_management(callback_query: CallbackQuery, session: AsyncSession):
     tg_id = callback_query.from_user.id
 
@@ -22,13 +26,17 @@ async def handle_management(callback_query: CallbackQuery, session: AsyncSession
         await callback_query.message.edit_text("❌ Вы не зарегистрированы как администратор.")
         return
 
+    _, _, perms = await get_admin_context(tg_id)
     await callback_query.message.edit_text(
         text="🤖 Управление ботом",
-        reply_markup=build_management_kb(admin.role),
+        reply_markup=build_management_kb(admin.role, permissions=perms),
     )
 
 
-@router.callback_query(AdminPanelCallback.filter(F.action == "toggle_maintenance"), IsAdminFilter())
+@router.callback_query(
+    AdminPanelCallback.filter(F.action == "toggle_maintenance"),
+    HasPermission(PERM_MANAGEMENT),
+)
 async def toggle_maintenance_mode(callback: CallbackQuery, session: AsyncSession):
     tg_id = callback.from_user.id
 
@@ -49,4 +57,7 @@ async def toggle_maintenance_mode(callback: CallbackQuery, session: AsyncSession
     new_status = "включён" if new_value else "выключен"
     await callback.answer(f"🛠️ Режим обслуживания {new_status}.", show_alert=True)
 
-    await callback.message.edit_reply_markup(reply_markup=build_management_kb(admin.role))
+    _, _, perms = await get_admin_context(tg_id)
+    await callback.message.edit_reply_markup(
+        reply_markup=build_management_kb(admin.role, permissions=perms)
+    )

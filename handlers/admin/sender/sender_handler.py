@@ -156,7 +156,13 @@ def _broadcast_result_text(recipients: int, stats: dict) -> str:
     )
 
 
+from filters.admin import HasPermission
+from filters.permissions import PERM_BROADCASTING
+
+
 router = Router()
+router.callback_query.filter(HasPermission(PERM_BROADCASTING))
+router.message.filter(HasPermission(PERM_BROADCASTING))
 
 
 @router.callback_query(

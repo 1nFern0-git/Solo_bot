@@ -1,6 +1,7 @@
 from aiogram import Router
 
-from filters.admin import IsSuperAdminFilter
+from filters.admin import HasPermission
+from filters.permissions import PERM_SETTINGS
 
 from .settings_buttons import router as settings_buttons_router
 from .settings_cashboxes import router as settings_cashboxes_router
@@ -13,8 +14,8 @@ from .settings_web import router as settings_web_router
 
 
 router = Router(name="admin_settings")
-router.callback_query.filter(IsSuperAdminFilter())
-router.message.filter(IsSuperAdminFilter())
+router.callback_query.filter(HasPermission(PERM_SETTINGS))
+router.message.filter(HasPermission(PERM_SETTINGS))
 router.include_router(settings_manage_router)
 router.include_router(settings_buttons_router)
 router.include_router(settings_cashboxes_router)

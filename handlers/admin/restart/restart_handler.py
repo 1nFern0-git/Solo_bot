@@ -9,12 +9,15 @@ from aiogram import F, Router
 from aiogram.types import CallbackQuery
 
 from core.executor import run_io
-from filters.admin import IsAdminFilter
+from filters.admin import HasPermission, IsAdminFilter
+from filters.permissions import PERM_MANAGEMENT
 
 from ..panel.keyboard import AdminPanelCallback, build_admin_back_kb
 
 
 router = Router()
+router.callback_query.filter(HasPermission(PERM_MANAGEMENT))
+router.message.filter(HasPermission(PERM_MANAGEMENT))
 
 
 @router.callback_query(AdminPanelCallback.filter(F.action == "restart"), IsAdminFilter())

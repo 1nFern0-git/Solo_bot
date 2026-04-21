@@ -29,7 +29,13 @@ from .keyboard import (
 )
 
 
+from filters.admin import HasPermission
+from filters.permissions import PERM_COUPONS
+
+
 router = Router()
+router.callback_query.filter(HasPermission(PERM_COUPONS))
+router.message.filter(HasPermission(PERM_COUPONS))
 
 
 class AdminCouponsState(StatesGroup):

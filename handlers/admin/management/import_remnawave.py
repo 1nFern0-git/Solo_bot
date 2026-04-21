@@ -13,7 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import REMNAWAVE_LOGIN, REMNAWAVE_PASSWORD
 from database.models import Key, Server, User
-from filters.admin import IsAdminFilter
+from filters.admin import HasPermission
+from filters.permissions import PERM_MANAGEMENT
 from logger import logger
 from panels.remnawave import RemnawaveAPI
 
@@ -56,7 +57,7 @@ def extract_tg_id_from_user_payload(user: dict) -> int | None:
     return tg_id
 
 
-@router.callback_query(AdminPanelCallback.filter(F.action == "export_remnawave"), IsAdminFilter())
+@router.callback_query(AdminPanelCallback.filter(F.action == "export_remnawave"), HasPermission(PERM_MANAGEMENT))
 async def show_remnawave_clients(callback: CallbackQuery, session: AsyncSession):
     result = await session.execute(select(Server).where(Server.panel_type == "remnawave", Server.enabled.is_(True)))
     servers = result.scalars().all()

@@ -14,7 +14,8 @@ from aiogram.types import CallbackQuery, Message
 
 from config import DB_NAME, DB_PASSWORD, DB_USER, PG_HOST, PG_IN_DOCKER, PG_PORT
 from core.executor import run_io
-from filters.admin import IsAdminFilter
+from filters.admin import HasPermission
+from filters.permissions import PERM_MANAGEMENT
 from logger import logger
 from utils.backup import _find_docker_postgres_container
 
@@ -211,7 +212,7 @@ class DatabaseState(StatesGroup):
     waiting_for_backup_file = State()
 
 
-@router.callback_query(AdminPanelCallback.filter(F.action == "database"), IsAdminFilter())
+@router.callback_query(AdminPanelCallback.filter(F.action == "database"), HasPermission(PERM_MANAGEMENT))
 async def handle_database_menu(callback: CallbackQuery):
     await callback.message.edit_text(
         text="🗄 <b>Управление базой данных</b>",
@@ -219,7 +220,7 @@ async def handle_database_menu(callback: CallbackQuery):
     )
 
 
-@router.callback_query(AdminPanelCallback.filter(F.action == "restore_db"), IsAdminFilter())
+@router.callback_query(AdminPanelCallback.filter(F.action == "restore_db"), HasPermission(PERM_MANAGEMENT))
 async def prompt_restore_db(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
         "📂 Отправьте файл резервной копии (.sql), чтобы восстановить базу данных.\n"
@@ -229,7 +230,7 @@ async def prompt_restore_db(callback: CallbackQuery, state: FSMContext):
     await state.set_state(DatabaseState.waiting_for_backup_file)
 
 
-@router.message(DatabaseState.waiting_for_backup_file, IsAdminFilter())
+@router.message(DatabaseState.waiting_for_backup_file, HasPermission(PERM_MANAGEMENT))
 async def restore_database(message: Message, state: FSMContext, bot: Bot):
     document = message.document
 
@@ -282,7 +283,7 @@ async def restore_database(message: Message, state: FSMContext, bot: Bot):
             pass
 
 
-@router.callback_query(AdminPanelCallback.filter(F.action == "export_db"), IsAdminFilter())
+@router.callback_query(AdminPanelCallback.filter(F.action == "export_db"), HasPermission(PERM_MANAGEMENT))
 async def handle_export_db(callback: CallbackQuery):
     await callback.message.edit_text(
         "📤 Выберите панель, с которой требуется получить данные:\n\n"
@@ -291,6 +292,6 @@ async def handle_export_db(callback: CallbackQuery):
     )
 
 
-@router.callback_query(AdminPanelCallback.filter(F.action == "back_to_db_menu"), IsAdminFilter())
+@router.callback_query(AdminPanelCallback.filter(F.action == "back_to_db_menu"), HasPermission(PERM_MANAGEMENT))
 async def back_to_database_menu(callback: CallbackQuery):
     await callback.message.edit_text("📦 Управление базой данных:", reply_markup=build_database_kb())

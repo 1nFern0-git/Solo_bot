@@ -48,11 +48,16 @@ from utils.csv_export import (
     export_users_csv,
 )
 
+from filters.admin import HasPermission
+from filters.permissions import PERM_STATS
+
 from ..panel.keyboard import AdminPanelCallback, build_admin_back_kb
 from .keyboard import build_audit_refresh_kb, build_audit_reset_confirm_kb, build_audit_source_kb, build_stats_kb
 
 
 router = Router()
+router.callback_query.filter(HasPermission(PERM_STATS))
+router.message.filter(HasPermission(PERM_STATS))
 
 KEY_AUDIT_STEPS_ORDER = (
     "start",

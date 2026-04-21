@@ -15,6 +15,7 @@ class Admin(Base):
     token = Column(String, unique=True, nullable=True)
     description = Column(String, nullable=True)
     role = Column(String, nullable=False, default="admin")
+    permissions = Column(JSONB, nullable=False, default=list, server_default="[]")
     added_at = Column(DateTime, default=datetime.utcnow)
 
     @staticmethod

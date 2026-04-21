@@ -15,11 +15,17 @@ from handlers.buttons import BACK
 from ..panel.keyboard import AdminPanelCallback, build_admin_back_kb
 
 
+from filters.admin import HasPermission
+from filters.permissions import PERM_EMOJI
+
+
 class AdminEmojiState(StatesGroup):
     waiting_for_custom_emoji = State()
 
 
 router = Router()
+router.callback_query.filter(HasPermission(PERM_EMOJI))
+router.message.filter(HasPermission(PERM_EMOJI))
 
 
 def _build_back_to_emoji_menu() -> InlineKeyboardBuilder:

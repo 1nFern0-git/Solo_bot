@@ -291,12 +291,30 @@ def safe_prompt(message: str, **kwargs) -> str:
 
 
 if IS_ROOT_DIR:
-    console.print("[bold red]КРИТИЧЕСКАЯ ОШИБКА:[/bold red]")
-    console.print("[red]Обнаружена установка бота прямо в корневой папке (/root).[/red]")
-    console.print("[red]Это крайне опасно и может привести к потере данных![/red]")
-    console.print("[red]Рекомендуется перенести бота в отдельную папку, например /root/solobot[/red]")
-    console.print("[red]Обновление заблокировано в целях безопасности.[/red]")
-    sys.exit(1)
+    _required_paths = ("requirements.txt", "main.py")
+    _has_project = all(os.path.exists(os.path.join(PROJECT_DIR, p)) for p in _required_paths)
+    _has_config = os.path.exists(os.path.join(PROJECT_DIR, "config.py"))
+
+    if _has_project or _has_config:
+        console.print("[bold red]КРИТИЧЕСКАЯ ОШИБКА:[/bold red]")
+        console.print("[red]Обнаружена установка бота прямо в корневой папке (/root).[/red]")
+        console.print("[red]Это крайне опасно и может привести к потере данных![/red]")
+        console.print("[red]Рекомендуется перенести бота в отдельную папку, например /root/Solo_bot[/red]")
+        console.print("[red]Обновление заблокировано в целях безопасности.[/red]")
+        sys.exit(1)
+
+    _target_dir = "/root/Solo_bot"
+    os.makedirs(_target_dir, exist_ok=True)
+    _target_path = os.path.join(_target_dir, os.path.basename(__file__))
+    try:
+        shutil.move(__file__, _target_path)
+    except Exception as e:
+        console.print(f"[red]Не удалось перенести launcher в {_target_dir}: {e}[/red]")
+        sys.exit(1)
+    os.chdir(_target_dir)
+    console.print(f"[green]✓ Launcher перенесён в {_target_dir}[/green]")
+    console.print("[dim]Перезапуск из новой папки...[/dim]")
+    os.execv(sys.executable, [sys.executable, _target_path, *sys.argv[1:]])
 
 
 def is_service_exists(service_name):
