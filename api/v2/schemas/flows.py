@@ -36,6 +36,13 @@ class FlowEdgeSchema(BaseModel):
     priority: int | None = None
 
 
+class FlowNodeActionConfigSchema(BaseModel):
+    model_config = _FLOW_CONFIG
+
+    action_type: str
+    params: dict[str, Any] = {}
+
+
 class FlowNodeSchema(BaseModel):
     model_config = _FLOW_CONFIG
 
@@ -48,6 +55,8 @@ class FlowNodeSchema(BaseModel):
     cabinet_tab: str | None = None
     screen_group: str | None = None
     screen_id: str | None = None
+    auto_skip_if: EdgeConditionSchema | EdgeConditionGroupSchema | None = None
+    action_config: FlowNodeActionConfigSchema | None = None
     config: dict = {}
     position: dict
 
