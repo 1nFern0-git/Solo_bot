@@ -540,17 +540,48 @@ def prompt_install_if_needed():
     if is_runtime_ready():
         return
 
-    missing_parts = []
-    if not has_project_code():
-        missing_parts.append("файлы проекта")
-    if has_project_code() and not os.path.exists(VENV_PYTHON):
-        missing_parts.append("виртуальное окружение")
     refresh_service_name()
-    if has_project_code() and not is_service_exists(SERVICE_NAME):
-        missing_parts.append(f"служба {SERVICE_NAME}")
+    has_project = has_project_code()
+    has_venv = has_project and os.path.exists(VENV_PYTHON)
+    has_service = has_project and is_service_exists(SERVICE_NAME)
 
-    console.print(f"[yellow]Обнаружена неполная установка: {', '.join(missing_parts)}.[/yellow]")
-    if safe_confirm("[green]Выполнить автоматическую установку сейчас?[/green]", default=True):
+    if not has_project:
+        console.print(
+            Panel(
+                "[white]В этой папке ещё нет установки.[/white]\n\n"
+                "[bold]SoloBot состоит из двух независимых частей:[/bold]\n"
+                "  • [cyan]Telegram-бот[/cyan] — продажа VPN-ключей в ТГ\n"
+                "    (пункт меню [bold]9 — Установить / переустановить бота[/bold])\n"
+                "  • [cyan]Веб-сайт[/cyan] — личный кабинет для клиентов\n"
+                "    (пункт меню [bold]10 — 🌐 Веб-сайт[/bold])\n\n"
+                "[white]Можно установить только одно из двух, либо оба.[/white]\n"
+                "[white]Выберите нужный пункт в меню ниже.[/white]",
+                border_style="cyan",
+                title="[bold green]Первый запуск[/bold green]",
+                padding=(1, 2),
+            )
+        )
+        return
+
+    missing_labels: list[str] = []
+    if not has_venv:
+        missing_labels.append("Python virtual environment (venv/) с зависимостями")
+    if not has_service:
+        missing_labels.append(f"systemd-служба {SERVICE_NAME} (автозапуск)")
+    if not missing_labels:
+        return
+    bullets = "\n".join(f"  • {label}" for label in missing_labels)
+    console.print(
+        Panel(
+            "[white]Установка бота частично нарушена.[/white]\n"
+            f"[yellow]Не хватает:[/yellow]\n{bullets}\n\n"
+            "[white]CLI допустит недостающие части — исходники и настройки не трогаются.[/white]",
+            border_style="yellow",
+            title="[bold yellow]Починка установки бота[/bold yellow]",
+            padding=(1, 2),
+        )
+    )
+    if safe_confirm("[green]Выполнить починку сейчас?[/green]", default=True):
         install_bot()
 
 
@@ -844,7 +875,22 @@ def restart_service():
             subprocess.run(["sudo", "systemctl", "restart", SERVICE_NAME])
 
 
+def _extract_version_from_versioning(text: str) -> str | None:
+    match = re.search(r'["\'](v\.\d+(?:[.-][\w\d]+)*)', text)
+    return match.group(1) if match else None
+
+
 def get_local_version():
+    path = os.path.join(PROJECT_DIR, "utils", "versioning.py")
+    if os.path.isfile(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                version = _extract_version_from_versioning(f.read())
+            if version:
+                return version
+        except Exception:
+            pass
+
     try:
         result = subprocess.run(
             ["git", "-C", PROJECT_DIR, "describe", "--tags", "--always"],
@@ -899,6 +945,15 @@ def get_last_update_date():
 
 
 def get_remote_version(branch="main"):
+    try:
+        url = f"https://raw.githubusercontent.com/Vladless/Solo_bot/{branch}/utils/versioning.py"
+        response = http_get(url, timeout=10)
+        if response.status_code == 200:
+            version = _extract_version_from_versioning(response.text)
+            if version:
+                return version
+    except Exception:
+        pass
     try:
         url = f"https://raw.githubusercontent.com/Vladless/Solo_bot/{branch}/bot.py"
         response = http_get(url, timeout=10)

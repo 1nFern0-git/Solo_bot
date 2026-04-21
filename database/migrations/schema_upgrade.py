@@ -1256,8 +1256,6 @@ async def _migration_v27_add_admins_permissions(conn: AsyncConnection) -> None:
             conn,
             "ALTER TABLE admins ADD COLUMN permissions JSONB NOT NULL DEFAULT '[]'::jsonb",
         )
-        # Бэкфилл существующих модераторов: давать права, которыми moderator обладал
-        # до гранулярной RBAC (users/keys/broadcasting/coupons/gifts).
         await _exec_ignore(
             conn,
             """
