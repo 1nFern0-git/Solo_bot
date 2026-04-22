@@ -34,7 +34,7 @@ def run_broadcast_in_thread(
         bot = Bot(token=api_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
         keyboard = InlineKeyboardMarkup.model_validate(keyboard_data) if keyboard_data else None
         messages = [{"tg_id": tg_id, "text": text_message, "photo": photo, "keyboard": keyboard} for tg_id in tg_ids]
-        service = BroadcastService(bot=bot, session=None, messages_per_second=35)
+        service = BroadcastService(bot=bot, session=None, messages_per_second=30)
 
         async def on_progress(completed: int, total: int, sent: int, failed: int) -> None:
             if progress_cb:

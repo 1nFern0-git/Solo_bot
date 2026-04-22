@@ -35,7 +35,7 @@ def clamp_broadcast_workers(value: int | None) -> int:
 
 
 def clamp_broadcast_rate(value: int | None) -> int:
-    return max(1, min(int(value or 35), 60))
+    return max(1, min(int(value or 30), 60))
 
 
 def ensure_utc_datetime(value: datetime) -> datetime:

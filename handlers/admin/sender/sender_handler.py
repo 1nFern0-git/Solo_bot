@@ -410,12 +410,13 @@ async def handle_broadcast_confirm(callback_query: CallbackQuery, state: FSMCont
                 if "message is not modified" not in str(e).lower():
                     logger.debug(f"[Sender] Обновление прогресса: {e}")
 
-        broadcast_service = BroadcastService(bot=bot, session=session, messages_per_second=35)
+        broadcast_service = BroadcastService(bot=bot, session=session, messages_per_second=30)
         stats = await broadcast_service.broadcast(
             messages,
             workers=5,
             on_progress=on_progress,
             progress_interval=2.0,
+            progress_every=200,
         )
 
     await callback_query.message.answer(
@@ -463,7 +464,7 @@ async def handle_schedule_datetime_input(message: Message, state: FSMContext, se
         keyboard_json=data.get("keyboard"),
         scheduled_for=scheduled_for,
         workers=5,
-        messages_per_second=35,
+        messages_per_second=30,
     )
     await state.clear()
     await message.answer(
