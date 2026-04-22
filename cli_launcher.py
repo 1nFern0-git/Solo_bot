@@ -8,6 +8,8 @@ import subprocess
 import sys
 
 from contextlib import contextmanager
+import time as time_mod
+
 from datetime import datetime
 from time import sleep
 from urllib.error import HTTPError, URLError
@@ -317,6 +319,30 @@ if IS_ROOT_DIR:
     os.execv(sys.executable, [sys.executable, _target_path, *sys.argv[1:]])
 
 
+def run_with_status(
+    cmd,
+    *,
+    status_text: str,
+    cwd: str | None = None,
+    check: bool = False,
+    env: dict | None = None,
+) -> subprocess.CompletedProcess:
+    with console.status(f"[bold cyan]{status_text}[/bold cyan]", spinner="dots"):
+        result = subprocess.run(
+            cmd, cwd=cwd, env=env, capture_output=True, text=True, check=False
+        )
+    if result.returncode != 0:
+        if result.stdout:
+            console.print(result.stdout)
+        if result.stderr:
+            console.print(f"[red]{result.stderr.rstrip()}[/red]")
+        if check:
+            raise subprocess.CalledProcessError(
+                result.returncode, cmd, result.stdout, result.stderr
+            )
+    return result
+
+
 def is_service_exists(service_name):
     result = subprocess.run(["systemctl", "list-unit-files", service_name], capture_output=True, text=True)
     return service_name in result.stdout
@@ -345,9 +371,9 @@ def bootstrap_project_files(branch: str = "main") -> bool:
     install_rsync_if_needed()
 
     subprocess.run(["rm", "-rf", TEMP_DIR], check=False)
-    clone_result = subprocess.run(
+    clone_result = run_with_status(
         ["git", "clone", "--depth", "1", "--branch", branch, GITHUB_REPO, TEMP_DIR],
-        check=False,
+        status_text=f"Клонирование {GITHUB_REPO} (ветка {branch})",
     )
     if clone_result.returncode != 0:
         console.print("[red]❌ Не удалось скачать проект из GitHub.[/red]")
@@ -368,7 +394,7 @@ def bootstrap_project_files(branch: str = "main") -> bool:
         rsync_cmd.insert(2, "--exclude=modules")
     rsync_cmd.insert(2, "--exclude=.git")
 
-    sync_result = subprocess.run(rsync_cmd, check=False)
+    sync_result = run_with_status(rsync_cmd, status_text="Распаковка файлов проекта")
     subprocess.run(["rm", "-rf", TEMP_DIR], check=False)
     if sync_result.returncode != 0:
         console.print("[red]❌ Не удалось распаковать файлы проекта.[/red]")
@@ -405,8 +431,12 @@ def install_core_packages_if_needed():
 
     unique_packages = list(dict.fromkeys(missing_packages))
     console.print(f"[yellow]Устанавливаю системные пакеты: {', '.join(unique_packages)}[/yellow]")
-    subprocess.run(["sudo", "apt", "update"], check=True)
-    subprocess.run(["sudo", "apt", "install", "-y", *unique_packages], check=True)
+    run_with_status(["sudo", "apt", "update"], status_text="apt update", check=True)
+    run_with_status(
+        ["sudo", "apt", "install", "-y", *unique_packages],
+        status_text=f"Установка: {', '.join(unique_packages)}",
+        check=True,
+    )
 
 
 def build_systemd_service() -> str:
@@ -635,7 +665,7 @@ def prune_old_backups():
             subprocess.run(["sudo", "rm", "-rf", path])
 
 
-def backup_project():
+def backup_project() -> str | None:
     from datetime import datetime
 
     os.makedirs(BACK_DIR, exist_ok=True)
@@ -643,9 +673,38 @@ def backup_project():
     dst = os.path.join(BACK_DIR, f"backup-{ts}")
     console.print("[yellow]Создаётся резервная копия проекта...[/yellow]")
     with console.status("[bold cyan]Копирование файлов...[/bold cyan]"):
-        subprocess.run(["cp", "-r", PROJECT_DIR, dst])
+        result = subprocess.run(["cp", "-r", PROJECT_DIR, dst], check=False)
+    if result.returncode != 0:
+        console.print("[red]❌ Не удалось создать бэкап[/red]")
+        return None
     console.print(f"[green]Бэкап сохранён в: {dst}[/green]")
     prune_old_backups()
+    return dst
+
+
+def _restore_backup_unattended(backup_path: str) -> bool:
+    if not backup_path or not os.path.isdir(backup_path):
+        return False
+    if is_service_exists(SERVICE_NAME):
+        subprocess.run(["sudo", "systemctl", "stop", SERVICE_NAME], check=False)
+    install_rsync_if_needed()
+    result = run_with_status(
+        ["rsync", "-a", "--delete", f"{backup_path}/", f"{PROJECT_DIR}/"],
+        status_text="Откат из бэкапа",
+    )
+    return result.returncode == 0
+
+
+def _build_update_rsync_excludes(update_buttons: bool, update_img: bool, update_redis_cache: bool) -> list[str]:
+    excludes = []
+    if not update_img:
+        excludes.append("--exclude=img")
+    if not update_buttons:
+        excludes.append("--exclude=handlers/buttons.py")
+    if not update_redis_cache:
+        excludes.append("--exclude=core/redis_cache.py")
+    excludes.append("--exclude=modules")
+    return excludes
 
 
 def restore_from_backup():
@@ -1007,62 +1066,81 @@ def update_from_beta():
     update_img = safe_confirm("[yellow]Обновлять папку img?[/yellow]", default=False)
     update_redis_cache = safe_confirm("[yellow]Обновлять файл core/redis_cache.py?[/yellow]", default=False)
 
-    backup_project()
+    backup_path = backup_project()
+    if not backup_path and not safe_confirm(
+        "[yellow]Бэкап не создан. Продолжить обновление БЕЗ бэкапа?[/yellow]", default=False
+    ):
+        return
     install_git_if_needed()
     install_rsync_if_needed()
 
-    os.chdir(PROJECT_DIR)
-    console.print("[cyan]Клонируем временный репозиторий...[/cyan]")
-    subprocess.run(["rm", "-rf", TEMP_DIR])
+    try:
+        os.chdir(PROJECT_DIR)
+        subprocess.run(["rm", "-rf", TEMP_DIR])
 
-    if os.system(f"git clone --depth=1000000 -b dev {GITHUB_REPO} {TEMP_DIR}") != 0:
-        console.print("[red]❌ Ошибка при клонировании. Обновление отменено.[/red]")
-        return
+        clone_result = run_with_status(
+            ["git", "clone", "--depth=1000000", "-b", "dev", GITHUB_REPO, TEMP_DIR],
+            status_text=f"Клонирование dev-ветки {GITHUB_REPO}",
+        )
+        if clone_result.returncode != 0:
+            raise RuntimeError("git clone dev не удался")
 
-    subprocess.run(["sudo", "rm", "-rf", os.path.join(PROJECT_DIR, "venv")])
-    clean_project_dir_safe(
-        update_buttons=update_buttons,
-        update_img=update_img,
-        update_redis_cache=update_redis_cache,
-    )
+        subprocess.run(["sudo", "rm", "-rf", os.path.join(PROJECT_DIR, "venv")])
+        clean_project_dir_safe(
+            update_buttons=update_buttons,
+            update_img=update_img,
+            update_redis_cache=update_redis_cache,
+        )
 
-    exclude_options = ""
-    if not update_img:
-        exclude_options += "--exclude=img "
-    if not update_buttons:
-        exclude_options += "--exclude=handlers/buttons.py "
-    if not update_redis_cache:
-        exclude_options += "--exclude=core/redis_cache.py "
-    exclude_options += "--exclude=modules "
+        rsync_cmd = (
+            ["rsync", "-a"]
+            + _build_update_rsync_excludes(update_buttons, update_img, update_redis_cache)
+            + [f"{TEMP_DIR}/", f"{PROJECT_DIR}/"]
+        )
+        rsync_result = run_with_status(rsync_cmd, status_text="Применение обновления (rsync)")
+        if rsync_result.returncode != 0:
+            raise RuntimeError("rsync обновления не удался")
 
-    rsync_cmd = ["rsync", "-a"] + [x for x in exclude_options.split() if x] + [f"{TEMP_DIR}/", f"{PROJECT_DIR}/"]
-    subprocess.run(rsync_cmd)
+        modules_path = os.path.join(PROJECT_DIR, "modules")
+        if not os.path.exists(modules_path):
+            try:
+                os.makedirs(modules_path, exist_ok=True)
+            except Exception:
+                pass
 
-    modules_path = os.path.join(PROJECT_DIR, "modules")
-    if not os.path.exists(modules_path):
-        console.print("[yellow]Папка modules отсутствует — создаю вручную...[/yellow]")
-        try:
-            os.makedirs(modules_path, exist_ok=True)
-            console.print("[green]Папка modules успешно создана.[/green]")
-        except Exception as e:
-            console.print(f"[red]❌ Не удалось создать папку modules: {e}[/red]")
+        if os.path.exists(os.path.join(TEMP_DIR, ".git")):
+            subprocess.run(["cp", "-r", os.path.join(TEMP_DIR, ".git"), PROJECT_DIR])
 
-    if os.path.exists(os.path.join(TEMP_DIR, ".git")):
-        subprocess.run(["cp", "-r", os.path.join(TEMP_DIR, ".git"), PROJECT_DIR])
+        subprocess.run(["rm", "-rf", TEMP_DIR])
 
-    subprocess.run(["rm", "-rf", TEMP_DIR])
-
-    install_dependencies()
-    fix_permissions()
-    restart_service()
-    console.print("[green]Обновление с ветки dev завершено.[/green]")
+        install_dependencies()
+        fix_permissions()
+        restart_service()
+        console.print("[green]Обновление с ветки dev завершено.[/green]")
+    except Exception as e:
+        console.print(f"[red]❌ Обновление упало: {e}[/red]")
+        if backup_path and safe_confirm(
+            "[yellow]Откатить проект из свежего бэкапа?[/yellow]", default=True
+        ):
+            if _restore_backup_unattended(backup_path):
+                console.print(f"[green]✓ Проект восстановлен из {backup_path}[/green]")
+                restart_service()
+            else:
+                console.print(
+                    f"[red]Автооткат не удался. Восстановите вручную: пункт 8 меню → {backup_path}[/red]"
+                )
+        else:
+            console.print(
+                f"[yellow]Для ручного отката: пункт 8 меню → {backup_path or 'нет бэкапа'}[/yellow]"
+            )
 
 
 def _do_update_to_tag(tag_name: str, update_buttons: bool, update_img: bool, update_redis_cache: bool) -> None:
     """Общая логика обновления до указанного тега (релиз или произвольный тег)."""
     subprocess.run(["rm", "-rf", TEMP_DIR])
-    subprocess.run(
+    run_with_status(
         ["git", "clone", "--branch", tag_name, "--depth", "1", GITHUB_REPO, TEMP_DIR],
+        status_text=f"Клонирование тега {tag_name}",
         check=True,
     )
 
@@ -1074,17 +1152,14 @@ def _do_update_to_tag(tag_name: str, update_buttons: bool, update_img: bool, upd
         update_redis_cache=update_redis_cache,
     )
 
-    exclude_options = ""
-    if not update_img:
-        exclude_options += "--exclude=img "
-    if not update_buttons:
-        exclude_options += "--exclude=handlers/buttons.py "
-    if not update_redis_cache:
-        exclude_options += "--exclude=core/redis_cache.py "
-    exclude_options += "--exclude=modules "
-
-    rsync_cmd = ["rsync", "-a"] + exclude_options.split() + [f"{TEMP_DIR}/", f"{PROJECT_DIR}/"]
-    subprocess.run(rsync_cmd)
+    rsync_cmd = (
+        ["rsync", "-a"]
+        + _build_update_rsync_excludes(update_buttons, update_img, update_redis_cache)
+        + [f"{TEMP_DIR}/", f"{PROJECT_DIR}/"]
+    )
+    rsync_result = run_with_status(rsync_cmd, status_text=f"Применение тега {tag_name} (rsync)")
+    if rsync_result.returncode != 0:
+        raise RuntimeError(f"rsync тега {tag_name} не удался")
 
     modules_path = os.path.join(PROJECT_DIR, "modules")
     if not os.path.exists(modules_path):
@@ -1119,7 +1194,11 @@ def update_from_release():
     update_img = safe_confirm("[yellow]Обновлять папку img?[/yellow]", default=False)
     update_redis_cache = safe_confirm("[yellow]Обновлять файл core/redis_cache.py?[/yellow]", default=False)
 
-    backup_project()
+    backup_path = backup_project()
+    if not backup_path and not safe_confirm(
+        "[yellow]Бэкап не создан. Продолжить обновление БЕЗ бэкапа?[/yellow]", default=False
+    ):
+        return
     install_git_if_needed()
     install_rsync_if_needed()
 
@@ -1162,11 +1241,24 @@ def update_from_release():
         if not safe_confirm(f"[yellow]Установить {tag_name}?[/yellow]"):
             return
 
-        console.print(f"[cyan]Клонируем {tag_name} во временную папку...[/cyan]")
         _do_update_to_tag(tag_name, update_buttons, update_img, update_redis_cache)
 
     except Exception as e:
         console.print(f"[red]❌ Ошибка при обновлении: {e}[/red]")
+        if backup_path and safe_confirm(
+            "[yellow]Откатить проект из свежего бэкапа?[/yellow]", default=True
+        ):
+            if _restore_backup_unattended(backup_path):
+                console.print(f"[green]✓ Проект восстановлен из {backup_path}[/green]")
+                restart_service()
+            else:
+                console.print(
+                    f"[red]Автооткат не удался. Восстановите вручную: пункт 8 меню → {backup_path}[/red]"
+                )
+        else:
+            console.print(
+                f"[yellow]Для ручного отката: пункт 8 меню → {backup_path or 'нет бэкапа'}[/yellow]"
+            )
 
 
 WEB_IMAGE_REPO = "ghcr.io/vladless/solo-brick"
@@ -1462,19 +1554,153 @@ def _ensure_docker():
         return False
 
 
+def _port_owner(port: int) -> str | None:
+    try:
+        result = subprocess.run(
+            ["ss", "-ltnp", f"sport = :{port}"],
+            capture_output=True, text=True, timeout=3,
+        )
+        out = (result.stdout or "").strip()
+        if result.returncode == 0 and "LISTEN" in out:
+            lines = [l for l in out.splitlines() if "LISTEN" in l]
+            if lines:
+                match = re.search(r'users:\(\("([^"]+)"', lines[0])
+                return match.group(1) if match else "занят"
+    except Exception:
+        return None
+    return None
+
+
+def _check_http_ports_free() -> bool:
+    conflicts = []
+    for port in (80, 443):
+        owner = _port_owner(port)
+        if owner and owner != "nginx":
+            conflicts.append(f"{port} → {owner}")
+    if not conflicts:
+        return True
+    console.print(
+        Panel(
+            "[white]Порты HTTP/HTTPS заняты не-nginx процессом:[/white]\n"
+            + "\n".join(f"  • [bold]{c}[/bold]" for c in conflicts)
+            + "\n\n[white]Остановите конфликтующий процесс и повторите.[/white]",
+            border_style="red",
+            title="[bold red]Порты заняты[/bold red]",
+            padding=(1, 2),
+        )
+    )
+    return False
+
+
 def _ensure_nginx():
     """Проверяет/устанавливает nginx."""
+    if not _check_http_ports_free():
+        return False
     if shutil.which("nginx"):
         return True
-    console.print("[cyan]Установка nginx...[/cyan]")
     try:
-        subprocess.run(["sudo", "apt-get", "update", "-qq"], check=True, stdout=subprocess.DEVNULL)
-        subprocess.run(["sudo", "apt-get", "install", "-y", "-qq", "nginx"], check=True, stdout=subprocess.DEVNULL)
+        run_with_status(["sudo", "apt-get", "update"], status_text="apt update", check=True)
+        run_with_status(
+            ["sudo", "apt-get", "install", "-y", "nginx"],
+            status_text="Установка nginx",
+            check=True,
+        )
         subprocess.run(["sudo", "systemctl", "enable", "nginx"], check=False)
         subprocess.run(["sudo", "systemctl", "start", "nginx"], check=False)
         return True
     except subprocess.CalledProcessError:
         console.print("[yellow]Не удалось установить nginx автоматически.[/yellow]")
+        return False
+
+
+def _public_ip() -> str | None:
+    for url in ("https://api.ipify.org", "https://ifconfig.me/ip", "https://icanhazip.com"):
+        try:
+            response = http_get(url, timeout=5)
+            ip = (response.text or "").strip()
+            if response.status_code == 200 and ip:
+                return ip
+        except Exception:
+            continue
+    return None
+
+
+def _resolve_domain_ip(domain: str) -> str | None:
+    try:
+        import socket
+        infos = socket.getaddrinfo(domain, None, socket.AF_INET, socket.SOCK_STREAM)
+        if infos:
+            return infos[0][4][0]
+    except Exception:
+        return None
+    return None
+
+
+def _dns_precheck(domain: str) -> bool:
+    console.print(f"[dim]Проверяю DNS для {domain}...[/dim]")
+    resolved = _resolve_domain_ip(domain)
+    if not resolved:
+        console.print(
+            Panel(
+                f"[white]DNS-имя [bold]{domain}[/bold] не резолвится в IP.[/white]\n"
+                "[white]Добавьте A-запись в DNS и дождитесь пропагации (5–30 мин).[/white]",
+                border_style="red",
+                title="[bold red]DNS не настроен[/bold red]",
+                padding=(1, 2),
+            )
+        )
+        return False
+    local = _public_ip()
+    if local and resolved != local:
+        console.print(
+            Panel(
+                f"[white]DNS [bold]{domain}[/bold] указывает на [yellow]{resolved}[/yellow],[/white]\n"
+                f"[white]а этот сервер имеет IP [yellow]{local}[/yellow].[/white]\n\n"
+                "[white]Поправьте A-запись, дождитесь пропагации и повторите.[/white]",
+                border_style="red",
+                title="[bold red]DNS указывает не на этот сервер[/bold red]",
+                padding=(1, 2),
+            )
+        )
+        return False
+    console.print(f"[green]✓ DNS ок: {domain} → {resolved}[/green]")
+    return True
+
+
+def _wait_for_web_container(web_port: int, timeout_sec: int = 60) -> bool:
+    import socket
+
+    deadline = time_mod.time() + timeout_sec
+    with console.status(f"[bold cyan]Ожидание контейнера на :{web_port}...[/bold cyan]", spinner="dots"):
+        while time_mod.time() < deadline:
+            try:
+                with socket.create_connection(("127.0.0.1", web_port), timeout=2):
+                    return True
+            except Exception:
+                sleep(2)
+    return False
+
+
+def _check_bot_api_reachable(api_url: str) -> bool:
+    probe = api_url.rstrip("/") + "/health"
+    console.print(f"[dim]Проверяю доступность API: {probe}[/dim]")
+    try:
+        response = http_get(probe, timeout=5)
+        if 200 <= response.status_code < 500:
+            console.print(f"[green]✓ API отвечает ({response.status_code})[/green]")
+            return True
+        console.print(f"[yellow]API ответил {response.status_code}[/yellow]")
+        return False
+    except Exception as e:
+        console.print(
+            Panel(
+                f"[white]API [bold]{api_url}[/bold] недоступен: {e}[/white]\n\n"
+                f"[white]Проверьте: DNS, nginx, SSL, firewall, бот запущен.[/white]",
+                border_style="red",
+                title="[bold red]Bot API недоступен[/bold red]",
+                padding=(1, 2),
+            )
+        )
         return False
 
 
@@ -1574,12 +1800,14 @@ def _setup_nginx(domain, web_port=3000):
 
 def _setup_ssl(domain):
     """Получает SSL сертификат через certbot."""
+    if not _dns_precheck(domain):
+        return False
     if not shutil.which("certbot"):
         try:
-            subprocess.run(
-                ["sudo", "apt-get", "install", "-y", "-qq", "certbot", "python3-certbot-nginx"],
+            run_with_status(
+                ["sudo", "apt-get", "install", "-y", "certbot", "python3-certbot-nginx"],
+                status_text="Установка certbot",
                 check=True,
-                stdout=subprocess.DEVNULL,
             )
         except subprocess.CalledProcessError:
             console.print("[yellow]Не удалось установить certbot.[/yellow]")
@@ -1587,22 +1815,26 @@ def _setup_ssl(domain):
     try:
         subprocess.run(
             [
-                "sudo",
-                "certbot",
-                "--nginx",
-                "-d",
-                domain,
-                "--non-interactive",
-                "--agree-tos",
-                "--register-unsafely-without-email",
-                "--redirect",
+                "sudo", "certbot", "--nginx", "-d", domain,
+                "--non-interactive", "--agree-tos",
+                "--register-unsafely-without-email", "--redirect",
             ],
             check=True,
         )
         return True
     except subprocess.CalledProcessError:
-        console.print(f"[yellow]Не удалось получить SSL. Убедитесь что {domain} указывает на этот сервер.[/yellow]")
-        console.print(f"[dim]Повторите вручную: sudo certbot --nginx -d {domain}[/dim]")
+        console.print(
+            Panel(
+                f"[white]Сертификат не удалось выпустить. Причина обычно —[/white]\n"
+                f"[white]DNS [bold]{domain}[/bold] ещё не указывает на сервер, либо порт 80/443 закрыт.[/white]\n\n"
+                f"[yellow]Сайт без SSL открывать нельзя.[/yellow] После пропагации DNS:\n"
+                f"  1. [bold]dig +short {domain}[/bold]\n"
+                f"  2. [bold]sudo certbot --nginx -d {domain}[/bold]",
+                border_style="yellow",
+                title="[bold yellow]⚠ SSL отложен[/bold yellow]",
+                padding=(1, 2),
+            )
+        )
         return False
 
 
@@ -1643,27 +1875,35 @@ def install_website():
     console.print("[dim]Введите логин и пароль от вашего кабинета на сайте Solo.[/dim]")
     console.print("[dim]Данные используются только для проверки лицензии и нигде не сохраняются.[/dim]\n")
 
-    lc_code = safe_prompt("[cyan]Логин (Client Code)[/cyan]")
-    if not lc_code or not lc_code.strip():
-        console.print("[red]Логин обязателен.[/red]")
-        return
+    max_attempts = 3
+    for attempt in range(1, max_attempts + 1):
+        lc_code = safe_prompt("[cyan]Логин (Client Code)[/cyan]")
+        if not lc_code or not lc_code.strip():
+            console.print("[red]Логин обязателен.[/red]")
+            return
+        try:
+            import getpass
+            lc_pass = getpass.getpass("  Пароль: ")
+        except Exception:
+            lc_pass = safe_prompt("[cyan]Пароль[/cyan]")
+        if not lc_pass or not lc_pass.strip():
+            console.print("[red]Пароль обязателен.[/red]")
+            return
 
-    try:
-        import getpass
-
-        lc_pass = getpass.getpass("  Пароль: ")
-    except Exception:
-        lc_pass = safe_prompt("[cyan]Пароль[/cyan]")
-
-    if not lc_pass or not lc_pass.strip():
-        console.print("[red]Пароль обязателен.[/red]")
-        return
-
-    ok = _authorize_web_install(lc_code.strip(), lc_pass.strip())
-    lc_code = None
-    lc_pass = None
-    if not ok:
-        return
+        ok = _authorize_web_install(lc_code.strip(), lc_pass.strip())
+        lc_code = None
+        lc_pass = None
+        if ok:
+            break
+        if attempt < max_attempts:
+            console.print(f"[yellow]Попытка {attempt}/{max_attempts} не прошла.[/yellow]")
+            if not safe_confirm("[cyan]Повторить ввод?[/cyan]", default=True):
+                return
+        else:
+            console.print(
+                "[red]Исчерпаны попытки авторизации. Проверьте логин/пароль на сайте Solo и повторите установку.[/red]"
+            )
+            return
 
     console.print("\n[bold][1/5] Docker[/bold]")
     if not _ensure_docker():
@@ -1734,6 +1974,12 @@ def install_website():
         if not safe_confirm("[cyan]Всё настроено на сервере бота?[/cyan]", default=True):
             console.print("[yellow]Настройте сервер бота и повторите установку.[/yellow]")
             return
+        if not _check_bot_api_reachable(api_url):
+            if not safe_confirm(
+                "[yellow]API недоступен. Продолжить всё равно (сайт не заработает без API)?[/yellow]",
+                default=False,
+            ):
+                return
 
     console.print(
         "\n[dim]Внутренний порт, на котором запустится сайт.\nNginx проксирует на него запросы. Менять нужно только если порт занят.[/dim]"
@@ -1758,22 +2004,40 @@ def install_website():
         else:
             vapid_pub, vapid_priv = pair
             vapid_key = vapid_pub
+            vapid_file = os.path.expanduser(f"~/.solobot_vapid_{domain}.txt")
+            vapid_saved = True
+            try:
+                with open(vapid_file, "w", encoding="utf-8") as f:
+                    f.write(
+                        f"VAPID keypair for {domain}\n"
+                        f"Сгенерировано: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                        f"VAPID_PUBLIC_KEY  = {vapid_pub}\n"
+                        f"VAPID_PRIVATE_KEY = {vapid_priv}\n"
+                        f"VAPID_CLAIMS_EMAIL = mailto:admin@{domain}\n\n"
+                        "Вставьте VAPID_PRIVATE_KEY и VAPID_CLAIMS_EMAIL в config.py бота и перезапустите.\n"
+                    )
+                os.chmod(vapid_file, 0o600)
+            except Exception:
+                vapid_saved = False
+            saved_hint = (
+                f"[green]✓ Ключи сохранены в файл:[/green] [bold]{vapid_file}[/bold] [dim](chmod 600)[/dim]\n"
+                if vapid_saved
+                else "[red]⚠ Не удалось записать файл — скопируйте ключи из этой панели СЕЙЧАС.[/red]\n"
+            )
             console.print(
                 Panel(
                     f"[bold]VAPID_PUBLIC_KEY[/bold]  = {vapid_pub}\n"
                     f"[bold]VAPID_PRIVATE_KEY[/bold] = {vapid_priv}\n"
                     f"[bold]VAPID_CLAIMS_EMAIL[/bold] = mailto:admin@{domain}\n\n"
+                    f"{saved_hint}"
                     "[yellow]Публичный ключ CLI пропишет в web .env автоматически.\n"
                     "Приватный ключ и email добавьте в config.py бота (VAPID_PRIVATE_KEY, VAPID_CLAIMS_EMAIL)\n"
-                    "и перезапустите бота — иначе push слать будет нечем.[/yellow]",
+                    "и перезапустите бота.[/yellow]",
                     border_style="yellow",
-                    title="[bold yellow]VAPID keypair — сохраните приватный ключ[/bold yellow]",
+                    title="[bold yellow]VAPID keypair[/bold yellow]",
                     padding=(1, 2),
                 )
             )
-            if not safe_confirm("[cyan]Сохранили приватный ключ?[/cyan]", default=True):
-                console.print("[yellow]Повторите установку после сохранения ключа.[/yellow]")
-                return
     elif vapid_action == "2":
         vapid_key = safe_prompt("[cyan]VAPID Public Key[/cyan]", default="")
 
@@ -1901,7 +2165,20 @@ services:
     _ensure_web_logs_dir()
     console.print("[cyan]Запуск контейнера...[/cyan]")
     subprocess.run(["docker", "compose", "up", "-d"], cwd=WEB_DIR, check=True)
-    console.print(f"[green]✅ Контейнер запущен на порту {web_port}[/green]")
+
+    if _wait_for_web_container(int(web_port), timeout_sec=60):
+        console.print(f"[green]✅ Контейнер запущен и отвечает на порту {web_port}[/green]")
+    else:
+        console.print(
+            Panel(
+                f"[white]Контейнер запущен, но не отвечает на http://127.0.0.1:{web_port} за 60 сек.[/white]\n"
+                f"[white]Проверьте логи:[/white]\n"
+                f"  [bold]cd {WEB_DIR} && docker compose logs -f[/bold]",
+                border_style="yellow",
+                title="[bold yellow]⚠ Healthcheck не прошёл[/bold yellow]",
+                padding=(1, 2),
+            )
+        )
 
     console.print("\n[bold][4/5] Nginx[/bold]")
     nginx_configured = False
@@ -1929,14 +2206,18 @@ services:
         _print_manual_nginx_hint(domain, int(web_port))
 
     console.print("\n[bold][5/5] SSL[/bold]")
+    ssl_deferred = False
     if setup_ssl and not nginx_configured:
         console.print("[yellow]SSL пропущен: автоконфигурация certbot --nginx требует автонастройки nginx.[/yellow]")
         console.print("[dim]После ручной правки nginx запустите: sudo certbot --nginx -d " + domain + "[/dim]")
+        ssl_deferred = True
         setup_ssl = False
     if setup_ssl:
         if _setup_ssl(domain):
             console.print("[green]✅ SSL сертификат установлен[/green]")
-    else:
+        else:
+            ssl_deferred = True
+    elif not ssl_deferred:
         console.print("[dim]SSL пропущен[/dim]")
 
     smtp_hint = ""
@@ -1950,20 +2231,143 @@ services:
         f"[dim]  После правки перезапустите бота.[/dim]"
     )
 
+    if ssl_deferred:
+        header = (
+            f"[bold yellow]Сайт собран, но SSL ещё не получен.[/bold yellow]\n"
+            f"[white]Откроется по [bold]{site_url}[/bold] только после выпуска сертификата.[/white]\n\n"
+            f"[cyan]Что сделать:[/cyan]\n"
+            f"  1. [bold]dig +short {domain}[/bold] — должен вернуть IP этого сервера\n"
+            f"  2. [bold]sudo certbot --nginx -d {domain}[/bold]"
+        )
+        border = "yellow"
+        title = "[bold yellow]⚠ Установка почти завершена[/bold yellow]"
+    else:
+        header = f"[bold green]Сайт доступен: {site_url}[/bold green]"
+        border = "green"
+        title = "[bold green]✅ Установка завершена[/bold green]"
+
     console.print(
         Panel(
-            f"[bold green]Сайт доступен: {site_url}[/bold green]{smtp_hint}{bot_note}\n\n"
+            f"{header}{smtp_hint}{bot_note}\n\n"
             f"[white]Управление:[/white]\n"
             f"  cd {WEB_DIR}\n"
             f"  docker compose logs -f       [dim]— логи[/dim]\n"
             f"  docker compose restart       [dim]— перезапуск[/dim]\n"
             f"  docker compose down          [dim]— остановка[/dim]\n"
             f"  nano .env                    [dim]— настройки[/dim]",
-            border_style="green",
-            title="[bold green]✅ Установка завершена[/bold green]",
+            border_style=border,
+            title=title,
             padding=(1, 2),
         )
     )
+
+
+def _read_env_domain() -> str | None:
+    env_path = os.path.join(WEB_DIR, ".env")
+    if not os.path.isfile(env_path):
+        return None
+    try:
+        with open(env_path, encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("NEXT_PUBLIC_SITE_URL="):
+                    url = line.split("=", 1)[1].strip()
+                    return url.replace("https://", "").replace("http://", "").strip("/") or None
+    except Exception:
+        return None
+    return None
+
+
+def _web_container_status() -> str:
+    try:
+        result = subprocess.run(
+            ["docker", "compose", "ps", "--format", "{{.State}}"],
+            cwd=WEB_DIR, capture_output=True, text=True, timeout=5,
+        )
+        states = [s.strip() for s in (result.stdout or "").splitlines() if s.strip()]
+        if not states:
+            return "[dim]не запущен[/dim]"
+        running = sum(1 for s in states if s.lower() == "running")
+        total = len(states)
+        if running == total:
+            return f"[green]running ({running}/{total})[/green]"
+        return f"[yellow]{running}/{total} running[/yellow]"
+    except Exception:
+        return "[dim]статус неизвестен[/dim]"
+
+
+def uninstall_website():
+    if not os.path.exists(WEB_DIR):
+        console.print("[yellow]Сайт не установлен (папка отсутствует).[/yellow]")
+        return
+
+    domain = _read_env_domain()
+    console.print(
+        Panel(
+            f"[bold red]Вы собираетесь полностью удалить сайт.[/bold red]\n\n"
+            f"[white]Будет удалено:[/white]\n"
+            f"  • Docker-контейнеры и volumes (данные кабинета)\n"
+            f"  • Docker-образ {_web_image(_get_saved_web_tag())}\n"
+            f"  • Папка проекта [bold]{WEB_DIR}[/bold] (.env, логи)\n"
+            + (f"  • Nginx-конфиг [bold]/etc/nginx/sites-*/solo-{domain}[/bold]\n" if domain else "")
+            + (f"  • SSL-сертификат для [bold]{domain}[/bold]\n" if domain else "")
+            + "\n[yellow]Действие необратимо. Рекомендуется сделать бэкап БД заранее.[/yellow]",
+            border_style="red",
+            title="[bold red]⚠ Удаление сайта[/bold red]",
+            padding=(1, 2),
+        )
+    )
+
+    if not safe_confirm("[bold red]Продолжить удаление?[/bold red]", default=False):
+        return
+    confirm_text = safe_prompt(
+        "[red]Введите [bold]DELETE[/bold] заглавными чтобы подтвердить[/red]",
+        default="",
+    )
+    if confirm_text.strip() != "DELETE":
+        console.print("[yellow]Удаление отменено.[/yellow]")
+        return
+
+    if os.path.exists(os.path.join(WEB_DIR, "docker-compose.yml")):
+        run_with_status(
+            ["docker", "compose", "down", "-v", "--remove-orphans"],
+            status_text="Остановка и удаление контейнеров",
+            cwd=WEB_DIR,
+        )
+
+    try:
+        tag = _get_saved_web_tag()
+        run_with_status(
+            ["docker", "image", "rm", "-f", _web_image(tag)],
+            status_text=f"Удаление образа {_web_image(tag)}",
+        )
+    except Exception:
+        pass
+
+    if domain:
+        for path in (
+            f"/etc/nginx/sites-enabled/solo-{domain}",
+            f"/etc/nginx/sites-available/solo-{domain}",
+        ):
+            subprocess.run(["sudo", "rm", "-f", path], check=False)
+        subprocess.run(["sudo", "systemctl", "reload", "nginx"], check=False)
+
+        if shutil.which("certbot"):
+            subprocess.run(
+                ["sudo", "certbot", "delete", "--non-interactive", "--cert-name", domain],
+                check=False,
+            )
+
+    subprocess.run(["sudo", "rm", "-rf", WEB_DIR], check=False)
+
+    if domain:
+        vapid_file = os.path.expanduser(f"~/.solobot_vapid_{domain}.txt")
+        if os.path.exists(vapid_file):
+            try:
+                os.remove(vapid_file)
+            except Exception:
+                pass
+
+    console.print("[green]✅ Сайт удалён.[/green]")
 
 
 def manage_website():
@@ -1978,6 +2382,12 @@ def manage_website():
             install_website()
         return
 
+    tag = _get_saved_web_tag()
+    status = _web_container_status()
+    console.print(
+        f"[bold]Образ:[/bold] [cyan]{_web_image(tag)}[/cyan]  [bold]Статус:[/bold] {status}"
+    )
+
     table = Table(title="Управление сайтом", title_style="bold cyan", header_style="bold blue")
     table.add_column("№", justify="center", style="cyan", no_wrap=True)
     table.add_column("Действие", style="white")
@@ -1987,12 +2397,15 @@ def manage_website():
     table.add_row("4", "Остановить")
     table.add_row("5", "Обновить (пересборка + restart)")
     table.add_row("6", "Изменить настройки (.env)")
-    table.add_row("7", "Переустановить")
-    table.add_row("8", "Назад")
+    table.add_row("7", "Показать .env")
+    table.add_row("8", "Переустановить")
+    table.add_row("9", "[red]Удалить сайт[/red]")
+    table.add_row("10", "Назад")
     console.print(table)
 
     choice = safe_prompt(
-        "[bold blue]👉 Выберите действие[/bold blue]", choices=[str(i) for i in range(1, 9)], show_choices=False
+        "[bold blue]👉 Выберите действие[/bold blue]",
+        choices=[str(i) for i in range(1, 11)], show_choices=False,
     )
 
     if choice == "1":
@@ -2058,7 +2471,27 @@ def manage_website():
         if safe_confirm("[cyan]Перезапустить сайт с новыми настройками?[/cyan]", default=True):
             subprocess.run(["docker", "compose", "restart"], cwd=WEB_DIR)
     elif choice == "7":
+        env_path = os.path.join(WEB_DIR, ".env")
+        if not os.path.isfile(env_path):
+            console.print(f"[yellow].env не найден: {env_path}[/yellow]")
+        else:
+            try:
+                with open(env_path, encoding="utf-8") as f:
+                    content = f.read()
+                console.print(
+                    Panel(
+                        content or "[dim]пусто[/dim]",
+                        border_style="cyan",
+                        title=f"[bold cyan]{env_path}[/bold cyan]",
+                        padding=(1, 2),
+                    )
+                )
+            except Exception as e:
+                console.print(f"[red]Не удалось прочитать .env: {e}[/red]")
+    elif choice == "8":
         install_website()
+    elif choice == "9":
+        uninstall_website()
 
 
 def show_update_menu():
@@ -2181,16 +2614,24 @@ def show_website_version_banner():
 
 
 def show_menu():
+    bot_installed = has_project_code()
+    bot_runtime_ready = (
+        bot_installed and os.path.exists(VENV_PYTHON) and is_service_exists(SERVICE_NAME)
+    )
+
+    def fmt(text: str, enabled: bool) -> str:
+        return text if enabled else f"[dim]{text}  — нужен пункт 9[/dim]"
+
     table = Table(title="Solobot CLI v0.5.8", title_style="bold magenta", header_style="bold blue")
     table.add_column("№", justify="center", style="cyan", no_wrap=True)
     table.add_column("Операция", style="white")
-    table.add_row("1", "Запустить бота (systemd)")
-    table.add_row("2", "Запустить напрямую: venv/bin/python main.py")
-    table.add_row("3", "Перезапустить бота (systemd)")
-    table.add_row("4", "Остановить бота (systemd)")
-    table.add_row("5", "Показать логи (80 строк)")
-    table.add_row("6", "Показать статус")
-    table.add_row("7", "Обновить Solobot")
+    table.add_row("1", fmt("Запустить бота (systemd)", bot_runtime_ready))
+    table.add_row("2", fmt("Запустить напрямую: venv/bin/python main.py", bot_installed and os.path.exists(VENV_PYTHON)))
+    table.add_row("3", fmt("Перезапустить бота (systemd)", bot_runtime_ready))
+    table.add_row("4", fmt("Остановить бота (systemd)", bot_runtime_ready))
+    table.add_row("5", fmt("Показать логи (80 строк)", bot_runtime_ready))
+    table.add_row("6", fmt("Показать статус", bot_runtime_ready))
+    table.add_row("7", fmt("Обновить Solobot", bot_installed))
     table.add_row("8", "Восстановить из бэкапа")
     table.add_row("9", "Установить / переустановить бота")
     table.add_row("10", "🌐 Веб-сайт (установка / управление)")
@@ -2227,6 +2668,19 @@ def main():
                     ):
                         install_bot()
                     continue
+                try:
+                    ver_out = subprocess.run(
+                        [VENV_PYTHON, "-c", "import sys; print(sys.version_info[:2])"],
+                        capture_output=True, text=True, timeout=5,
+                    )
+                    if not any(v in ver_out.stdout for v in ("(3, 12)", "(3, 13)", "(3, 14)")):
+                        console.print(
+                            f"[yellow]⚠ venv использует Python {ver_out.stdout.strip()} — ожидается 3.12+.[/yellow]"
+                        )
+                        if not safe_confirm("[cyan]Запустить всё равно?[/cyan]", default=False):
+                            continue
+                except Exception:
+                    pass
                 if safe_confirm("[green]Вы действительно хотите запустить main.py вручную?[/green]"):
                     subprocess.run(["venv/bin/python", "main.py"])
             elif choice == "3":
