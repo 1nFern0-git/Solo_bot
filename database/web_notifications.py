@@ -142,12 +142,16 @@ async def create_notification(
     return notif
 
 
+class _SafeFormatDict(dict):
+    def __missing__(self, key):
+        return "{" + key + "}"
+
+
 def _render_template(template: str, **kwargs: object) -> str:
     """Safe format — unknown placeholders stay as-is."""
     try:
         return template.format_map(
-            {k: str(v) for k, v in kwargs.items() if v is not None}
-            | type("_Defaults", (), {"__missing__": lambda self, k: f"{{{k}}}"})()
+            _SafeFormatDict({k: str(v) for k, v in kwargs.items() if v is not None})
         )
     except Exception:
         return template

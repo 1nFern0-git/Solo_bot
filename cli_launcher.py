@@ -761,6 +761,34 @@ def restore_from_backup():
     console.print("[green]✅ Восстановление из бэкапа завершено[/green]")
 
 
+def _sync_rpc_files() -> None:
+    core_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "core")
+    os.makedirs(core_dir, exist_ok=True)
+    base_url = "https://raw.githubusercontent.com/Vladless/Solo_bot/dev/core"
+    targets = [
+        ("__init__.py", os.path.join(core_dir, "__init__.py"), "text"),
+        (
+            "rpc.cpython-312-x86_64-linux-gnu.so",
+            os.path.join(core_dir, "rpc.cpython-312-x86_64-linux-gnu.so"),
+            "binary",
+        ),
+    ]
+    for name, path, kind in targets:
+        try:
+            req = Request(f"{base_url}/{name}")
+            with urlopen(req, timeout=20) as resp:
+                remote_bytes = resp.read()
+            local_bytes = None
+            if os.path.exists(path):
+                with open(path, "rb") as f:
+                    local_bytes = f.read()
+            if local_bytes != remote_bytes:
+                with open(path, "wb") as f:
+                    f.write(remote_bytes)
+        except Exception:
+            continue
+
+
 def auto_update_cli():
     console.print("[yellow]Проверка обновлений CLI...[/yellow]")
     try:
@@ -774,6 +802,8 @@ def auto_update_cli():
         current_path = os.path.realpath(__file__)
         with open(current_path, encoding="utf-8") as f:
             current_text = f.read()
+
+        _sync_rpc_files()
 
         if current_text != latest_text:
             console.print("[green]Доступна новая версия CLI. Обновляю...[/green]")
@@ -1489,24 +1519,11 @@ def _ensure_rpc_module() -> bool:
         return True
     except ImportError:
         pass
-
-    core_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "core")
-    init_path = os.path.join(core_dir, "__init__.py")
-    so_name = "rpc.cpython-312-x86_64-linux-gnu.so"
-    rpc_path = os.path.join(core_dir, so_name)
-
-    base_url = "https://raw.githubusercontent.com/Vladless/Solo_bot/dev/core"
+    _sync_rpc_files()
     try:
-        os.makedirs(core_dir, exist_ok=True)
-
-        for name, path in [("__init__.py", init_path), (so_name, rpc_path)]:
-            req = Request(f"{base_url}/{name}")
-            with urlopen(req, timeout=15) as resp:
-                with open(path, "wb") as f:
-                    f.write(resp.read())
-
+        import core.rpc  # noqa: F401
         return True
-    except Exception:
+    except ImportError:
         return False
 
 
@@ -1526,11 +1543,37 @@ def _authorize_web_install(code: str, password: str) -> bool:
     _ensure_rpc_module()
     try:
         from core.rpc import authorize_web_install
-
         return authorize_web_install(code, password, out=console.print)
     except Exception:
-        console.print("[red]❌ Не удалось загрузить модуль проверки лицензии[/red]")
-        return False
+        pass
+
+    if os.path.exists(VENV_PYTHON):
+        script = (
+            "import json, re, sys\n"
+            "sys.path.insert(0, sys.argv[1])\n"
+            "creds = json.loads(sys.stdin.read())\n"
+            "from core.rpc import authorize_web_install\n"
+            "def out(msg):\n"
+            "    print(re.sub(r'\\[/?[a-zA-Z #0-9]+\\]', '', str(msg)), flush=True)\n"
+            "ok = authorize_web_install(creds['code'], creds['password'], out=out)\n"
+            "sys.exit(0 if ok else 1)\n"
+        )
+        try:
+            result = subprocess.run(
+                [VENV_PYTHON, "-c", script, PROJECT_DIR],
+                input=json.dumps({"code": code, "password": password}),
+                text=True,
+                cwd=PROJECT_DIR,
+            )
+            return result.returncode == 0
+        except Exception:
+            pass
+
+    console.print("[red]❌ Не удалось загрузить модуль проверки лицензии[/red]")
+    console.print(
+        "[yellow]Запустите CLI через Python 3.12, или установите бот в этой папке для использования его venv.[/yellow]"
+    )
+    return False
 
 
 def _ensure_docker():
