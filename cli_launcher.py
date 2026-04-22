@@ -761,9 +761,10 @@ def restore_from_backup():
     console.print("[green]✅ Восстановление из бэкапа завершено[/green]")
 
 
-def _sync_rpc_files() -> None:
+def _sync_rpc_files() -> bool:
     core_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "core")
     os.makedirs(core_dir, exist_ok=True)
+    cachebuster = str(int(time_mod.time()))
     base_url = "https://raw.githubusercontent.com/Vladless/Solo_bot/dev/core"
     targets = [
         ("__init__.py", os.path.join(core_dir, "__init__.py")),
@@ -775,7 +776,10 @@ def _sync_rpc_files() -> None:
     updated: list[str] = []
     for name, path in targets:
         try:
-            req = Request(f"{base_url}/{name}")
+            req = Request(
+                f"{base_url}/{name}?v={cachebuster}",
+                headers={"Cache-Control": "no-cache", "Pragma": "no-cache"},
+            )
             with urlopen(req, timeout=20) as resp:
                 remote_bytes = resp.read()
         except Exception as e:
@@ -805,6 +809,8 @@ def _sync_rpc_files() -> None:
         for mod_name in list(_sys.modules.keys()):
             if mod_name == "core" or mod_name == "core.rpc" or mod_name.startswith("core."):
                 del _sys.modules[mod_name]
+        return True
+    return False
 
 
 def auto_update_cli():
@@ -821,7 +827,7 @@ def auto_update_cli():
         with open(current_path, encoding="utf-8") as f:
             current_text = f.read()
 
-        _sync_rpc_files()
+        rpc_updated = _sync_rpc_files()
 
         if current_text != latest_text:
             console.print("[green]Доступна новая версия CLI. Обновляю...[/green]")
@@ -829,6 +835,9 @@ def auto_update_cli():
                 f.write(latest_text)
             os.chmod(current_path, 0o644)
             console.print("[green]CLI обновлён. Перезапуск...[/green]")
+            os.execv(sys.executable, [sys.executable, current_path])
+        elif rpc_updated:
+            console.print("[green]core/rpc обновлён. Перезапуск CLI...[/green]")
             os.execv(sys.executable, [sys.executable, current_path])
         else:
             console.print("[green]CLI уже актуален[/green]")
