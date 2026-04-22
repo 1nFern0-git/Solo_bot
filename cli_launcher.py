@@ -766,27 +766,45 @@ def _sync_rpc_files() -> None:
     os.makedirs(core_dir, exist_ok=True)
     base_url = "https://raw.githubusercontent.com/Vladless/Solo_bot/dev/core"
     targets = [
-        ("__init__.py", os.path.join(core_dir, "__init__.py"), "text"),
+        ("__init__.py", os.path.join(core_dir, "__init__.py")),
         (
             "rpc.cpython-312-x86_64-linux-gnu.so",
             os.path.join(core_dir, "rpc.cpython-312-x86_64-linux-gnu.so"),
-            "binary",
         ),
     ]
-    for name, path, kind in targets:
+    updated: list[str] = []
+    for name, path in targets:
         try:
             req = Request(f"{base_url}/{name}")
             with urlopen(req, timeout=20) as resp:
                 remote_bytes = resp.read()
-            local_bytes = None
-            if os.path.exists(path):
+        except Exception as e:
+            console.print(f"[red]Не удалось скачать core/{name}: {e}[/red]")
+            continue
+        if not remote_bytes:
+            console.print(f"[red]core/{name}: пустой ответ от GitHub[/red]")
+            continue
+        local_bytes = None
+        if os.path.exists(path):
+            try:
                 with open(path, "rb") as f:
                     local_bytes = f.read()
-            if local_bytes != remote_bytes:
-                with open(path, "wb") as f:
-                    f.write(remote_bytes)
-        except Exception:
+            except Exception:
+                local_bytes = None
+        if local_bytes == remote_bytes:
             continue
+        try:
+            with open(path, "wb") as f:
+                f.write(remote_bytes)
+            updated.append(f"core/{name}")
+        except Exception as e:
+            console.print(f"[red]Не удалось записать core/{name}: {e}[/red]")
+    if updated:
+        console.print(f"[green]Обновлены: {', '.join(updated)}[/green]")
+        import sys as _sys
+        for mod_name in list(_sys.modules.keys()):
+            if mod_name == "core" or mod_name == "core.rpc" or mod_name.startswith("core."):
+                del _sys.modules[mod_name]
 
 
 def auto_update_cli():
@@ -2048,38 +2066,35 @@ def install_website():
             vapid_pub, vapid_priv = pair
             vapid_key = vapid_pub
             vapid_file = os.path.expanduser(f"~/.solobot_vapid_{domain}.txt")
+            py_snippet = (
+                f'VAPID_PUBLIC_KEY = "{vapid_pub}"\n'
+                f'VAPID_PRIVATE_KEY = "{vapid_priv}"\n'
+                f'VAPID_CLAIMS_EMAIL = "mailto:admin@{domain}"\n'
+            )
             vapid_saved = True
             try:
                 with open(vapid_file, "w", encoding="utf-8") as f:
                     f.write(
-                        f"VAPID keypair for {domain}\n"
-                        f"Сгенерировано: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-                        f"VAPID_PUBLIC_KEY  = {vapid_pub}\n"
-                        f"VAPID_PRIVATE_KEY = {vapid_priv}\n"
-                        f"VAPID_CLAIMS_EMAIL = mailto:admin@{domain}\n\n"
-                        "Вставьте VAPID_PRIVATE_KEY и VAPID_CLAIMS_EMAIL в config.py бота и перезапустите.\n"
+                        f"# VAPID keypair for {domain}\n"
+                        f"# Сгенерировано: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                        f"# Вставьте эти строки КАК ЕСТЬ в config.py бота и перезапустите.\n\n"
+                        + py_snippet
                     )
                 os.chmod(vapid_file, 0o600)
             except Exception:
                 vapid_saved = False
             saved_hint = (
-                f"[green]✓ Ключи сохранены в файл:[/green] [bold]{vapid_file}[/bold] [dim](chmod 600)[/dim]\n"
+                f"[green]✓ Ключи сохранены в файл:[/green] [bold]{vapid_file}[/bold] [dim](chmod 600)[/dim]"
                 if vapid_saved
-                else "[red]⚠ Не удалось записать файл — скопируйте ключи из этой панели СЕЙЧАС.[/red]\n"
+                else "[red]⚠ Не удалось записать файл — скопируйте строки ниже СЕЙЧАС.[/red]"
             )
+            console.print("\n[bold yellow]VAPID keypair[/bold yellow]")
+            console.print(saved_hint)
+            console.print("[dim]Скопируйте строки ниже КАК ЕСТЬ (с кавычками) в config.py бота:[/dim]\n")
+            console.print(py_snippet)
             console.print(
-                Panel(
-                    f"[bold]VAPID_PUBLIC_KEY[/bold]  = {vapid_pub}\n"
-                    f"[bold]VAPID_PRIVATE_KEY[/bold] = {vapid_priv}\n"
-                    f"[bold]VAPID_CLAIMS_EMAIL[/bold] = mailto:admin@{domain}\n\n"
-                    f"{saved_hint}"
-                    "[yellow]Публичный ключ CLI пропишет в web .env автоматически.\n"
-                    "Приватный ключ и email добавьте в config.py бота (VAPID_PRIVATE_KEY, VAPID_CLAIMS_EMAIL)\n"
-                    "и перезапустите бота.[/yellow]",
-                    border_style="yellow",
-                    title="[bold yellow]VAPID keypair[/bold yellow]",
-                    padding=(1, 2),
-                )
+                "[yellow]Публичный ключ CLI пропишет в web .env автоматически.\n"
+                "Приватный ключ и email добавьте в config.py бота и перезапустите.[/yellow]\n"
             )
     elif vapid_action == "2":
         vapid_key = safe_prompt("[cyan]VAPID Public Key[/cyan]", default="")
