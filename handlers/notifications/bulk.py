@@ -58,15 +58,21 @@ async def execute_bulk_updates(session: AsyncSession, bulk_updates: dict[str, An
 
         to_add = bulk_updates.get("notifications_to_add") or []
         if to_add:
-            await bulk_add_notifications(session, to_add)
+            await bulk_add_notifications(session, to_add, commit=False)
 
         to_delete = bulk_updates.get("notifications_to_delete") or []
         if to_delete:
-            await bulk_delete_notifications(session, to_delete)
+            await bulk_delete_notifications(session, to_delete, commit=False)
 
         if to_add or to_delete:
             logger.info(f"Bulk: {len(to_add)} добавлений, {len(to_delete)} удалений уведомлений")
 
+        await session.commit()
+
     except Exception as error:
         logger.error(f"Ошибка в bulk-обновлениях: {error}")
+        try:
+            await session.rollback()
+        except Exception:
+            pass
         raise

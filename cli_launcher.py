@@ -453,7 +453,8 @@ def build_systemd_service() -> str:
         "RestartSec=10\n"
         "TimeoutStopSec=10\n"
         "KillMode=control-group\n"
-        'Environment="PYTHONUNBUFFERED=1"\n\n'
+        'Environment="PYTHONUNBUFFERED=1"\n'
+        'LimitNOFILE=65536\n\n'
         "[Install]\n"
         "WantedBy=multi-user.target\n"
     )

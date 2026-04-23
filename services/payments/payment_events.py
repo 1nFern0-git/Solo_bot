@@ -1,6 +1,4 @@
-import json
-
-from config import REDIS_URL
+from core.redis_cache import cache_publish
 from logger import logger
 
 
@@ -16,24 +14,19 @@ async def publish_payment_event(
     amount: float | int | None = None,
 ) -> None:
     try:
-        from redis.asyncio import from_url
-
         payload: dict[str, str | float | int] = {"status": str(status)}
         if flow:
             payload["flow"] = str(flow)
         if amount is not None:
             payload["amount"] = float(amount)
-        client = from_url(REDIS_URL, encoding="utf-8", decode_responses=True, max_connections=8)
-        try:
-            subscribers = await client.publish(
-                payment_events_channel(int(legacy_user_ref)),
-                json.dumps(payload, ensure_ascii=False),
-            )
-            logger.info(
-                f"[Payments] Event published: user_ref={legacy_user_ref}, status={status}, "
-                f"flow={flow}, subscribers={subscribers}"
-            )
-        finally:
-            await client.aclose()
+
+        subscribers = await cache_publish(
+            payment_events_channel(int(legacy_user_ref)),
+            payload,
+        )
+        logger.info(
+            f"[Payments] Event published: user_ref={legacy_user_ref}, status={status}, "
+            f"flow={flow}, subscribers={subscribers}"
+        )
     except Exception as e:
         logger.warning(f"[Payments] publish_payment_event failed: {e}")

@@ -288,5 +288,17 @@ async def cache_lmove_batch(source: str, destination: str, count: int) -> list[A
         return []
 
 
+async def cache_publish(channel: str, payload: Any) -> int:
+    client = await _get_redis()
+    if client is None:
+        return 0
+    try:
+        raw = json.dumps(payload, ensure_ascii=False) if not isinstance(payload, (str, bytes)) else payload
+        return int(await client.publish(channel, raw))
+    except Exception as exc:
+        logger.warning(f"[Redis] publish({channel}) не удался: {exc}")
+        return 0
+
+
 async def redis_connection_ok() -> bool:
     return await _get_redis() is not None

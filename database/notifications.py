@@ -43,7 +43,13 @@ async def _map_legacy_refs_to_user_ids(session: AsyncSession, refs: list[int]) -
     return {ref: m[ref] for ref in uniq if ref in m}
 
 
-async def add_notification(session: AsyncSession, legacy_user_ref: int, notification_type: str):
+async def add_notification(
+    session: AsyncSession,
+    legacy_user_ref: int,
+    notification_type: str,
+    *,
+    commit: bool = True,
+):
     u = await resolve_user_optional(session, legacy_user_ref)
     if u is None:
         return
@@ -61,10 +67,23 @@ async def add_notification(session: AsyncSession, legacy_user_ref: int, notifica
         },
     )
     await session.execute(stmt)
+    if commit:
+        try:
+            await session.commit()
+        except Exception as e:
+            logger.error(f"❌ Ошибка commit add_notification {notification_type} для {u.id}: {e}")
+            await session.rollback()
+            return
     logger.info(f"✅ Добавлено уведомление {notification_type} для пользователя {u.id}")
 
 
-async def delete_notification(session: AsyncSession, legacy_user_ref: int, notification_type: str):
+async def delete_notification(
+    session: AsyncSession,
+    legacy_user_ref: int,
+    notification_type: str,
+    *,
+    commit: bool = True,
+):
     u = await resolve_user_optional(session, legacy_user_ref)
     if u is None:
         return
@@ -75,10 +94,22 @@ async def delete_notification(session: AsyncSession, legacy_user_ref: int, notif
             Notification.notification_type == notification_type,
         )
     )
+    if commit:
+        try:
+            await session.commit()
+        except Exception as e:
+            logger.error(f"❌ Ошибка commit delete_notification {notification_type} для {uid}: {e}")
+            await session.rollback()
+            return
     logger.debug(f"🗑 Уведомление {notification_type} для пользователя {uid} удалено")
 
 
-async def bulk_add_notifications(session: AsyncSession, items: list[tuple[int, str]]) -> None:
+async def bulk_add_notifications(
+    session: AsyncSession,
+    items: list[tuple[int, str]],
+    *,
+    commit: bool = False,
+) -> None:
     """Вставка/обновление многих (legacy_user_ref, notification_type) батчами (лимит параметров PostgreSQL)."""
     if not items:
         return
@@ -111,13 +142,25 @@ async def bulk_add_notifications(session: AsyncSession, items: list[tuple[int, s
         )
         await session.execute(stmt)
         total += len(batch)
+    if commit:
+        try:
+            await session.commit()
+        except Exception as e:
+            logger.error(f"❌ Ошибка commit bulk_add_notifications: {e}")
+            await session.rollback()
+            return
     logger.info(f"✅ Bulk: добавлено/обновлено {total} уведомлений")
 
 
 INACTIVE_TRIAL_REGISTERED_TYPE = "inactive_trial_registered"
 
 
-async def bulk_delete_notifications(session: AsyncSession, items: list[tuple[int, str]]) -> None:
+async def bulk_delete_notifications(
+    session: AsyncSession,
+    items: list[tuple[int, str]],
+    *,
+    commit: bool = False,
+) -> None:
     """Удаление многих (legacy_user_ref, notification_type) батчами (лимит параметров PostgreSQL)."""
     if not items:
         return
@@ -131,6 +174,13 @@ async def bulk_delete_notifications(session: AsyncSession, items: list[tuple[int
         stmt = delete(Notification).where(tuple_(Notification.user_id, Notification.notification_type).in_(batch))
         await session.execute(stmt)
         total += len(batch)
+    if commit:
+        try:
+            await session.commit()
+        except Exception as e:
+            logger.error(f"❌ Ошибка commit bulk_delete_notifications: {e}")
+            await session.rollback()
+            return
     logger.debug(f"🗑 Bulk: удалено {total} уведомлений")
 
 
@@ -357,6 +407,7 @@ async def check_notifications_bulk(
                     await bulk_add_notifications(
                         session,
                         [(uid, INACTIVE_TRIAL_REGISTERED_TYPE) for uid in batch],
+                        commit=True,
                     )
                 logger.info(f"Зарегистрировано как неактивные (шаг 1): {len(to_register)} пользователей.")
 
