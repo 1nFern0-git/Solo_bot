@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.depends import get_session, verify_identity_admin
+from api.depends import _identity_from_cookie, get_session, verify_identity_admin
 from database.site_revision import bump_site_revision
 from api.v2.schemas import WebBlockResponse, WebPageResponse, WebPageUpdate, WebTheme
 from api.v2.schemas.web import (
@@ -721,6 +721,29 @@ async def delete_custom_element_build(
 # ── Flow Analytics ──
 
 
+_SENSITIVE_KEY_RE = re.compile(
+    r"(token|password|secret|api[_-]?key|authorization|cookie|session|auth|credential|bearer|pass|passwd|access[_-]?token|refresh[_-]?token|phone|email|hash|private|pin)",
+    re.IGNORECASE,
+)
+_REDACTED = "[redacted]"
+_MAX_REDACT_DEPTH = 6
+
+
+def _redact_sensitive(value, depth: int = 0):
+    if depth >= _MAX_REDACT_DEPTH:
+        return _REDACTED
+    if isinstance(value, dict):
+        return {
+            k: (_REDACTED if isinstance(k, str) and _SENSITIVE_KEY_RE.search(k) else _redact_sensitive(v, depth + 1))
+            for k, v in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_sensitive(v, depth + 1) for v in value[:100]]
+    if isinstance(value, str) and len(value) > 2000:
+        return value[:2000] + "…"
+    return value
+
+
 class FlowEventBatch(BaseModel):
     events: list[dict]
 
@@ -745,24 +768,31 @@ async def ingest_flow_events(
         raise
     except Exception:
         pass
+    server_identity = await _identity_from_cookie(session, request)
+    server_authenticated = server_identity is not None
     created = 0
     for raw in body.events[:100]:
-        flow_id = str(raw.get("flowId", ""))
-        node_id = str(raw.get("nodeId", ""))
-        event_type = str(raw.get("eventType", ""))
+        flow_id = str(raw.get("flowId", ""))[:64]
+        node_id = str(raw.get("nodeId", ""))[:64]
+        event_type = str(raw.get("eventType", ""))[:32]
         if not flow_id or not node_id or not event_type:
             continue
+        metadata = raw.get("collectedDataSnapshot")
+        if isinstance(metadata, dict):
+            metadata = _redact_sensitive(metadata)
+        else:
+            metadata = None
         ev = WebFlowEvent(
             id=str(uuid.uuid4()),
             flow_id=flow_id,
             node_id=node_id,
-            node_type=str(raw.get("nodeType", "")),
+            node_type=str(raw.get("nodeType", ""))[:32],
             event_type=event_type,
-            ab_variant=raw.get("abVariant") or None,
-            device=raw.get("device") or None,
-            locale=raw.get("locale") or None,
-            authenticated=raw.get("authenticated"),
-            event_metadata=raw.get("collectedDataSnapshot") or None,
+            ab_variant=(str(raw.get("abVariant"))[:16] if raw.get("abVariant") else None),
+            device=(str(raw.get("device"))[:16] if raw.get("device") else None),
+            locale=(str(raw.get("locale"))[:8] if raw.get("locale") else None),
+            authenticated=server_authenticated,
+            event_metadata=metadata,
         )
         session.add(ev)
         created += 1
@@ -841,13 +871,24 @@ def _error_signature(name: str, message: str, stack: str | None, url: str | None
     return hashlib.sha256(key.encode("utf-8")).hexdigest()[:32]
 
 
+def _sanitize_http_url(value: str | None) -> str | None:
+    if not value:
+        return None
+    trimmed = str(value).strip()
+    if not trimmed:
+        return None
+    lowered = trimmed.lower()
+    if not (lowered.startswith("http://") or lowered.startswith("https://") or lowered.startswith("/")):
+        return None
+    return trimmed[:500]
+
+
 class ErrorReportIngest(BaseModel):
     name: str = ""
     message: str
     stack: str | None = None
     url: str | None = None
     userAgent: str | None = None
-    identityId: str | None = None
     tag: str | None = None
     context: dict | None = None
 
@@ -873,7 +914,16 @@ async def ingest_error_report(
     except Exception:
         pass
 
-    signature = _error_signature(body.name, body.message, body.stack, body.url)
+    server_identity = await _identity_from_cookie(session, request)
+    server_identity_id = getattr(server_identity, "id", None) if server_identity else None
+
+    safe_context = None
+    if isinstance(body.context, dict):
+        safe_context = _redact_sensitive(body.context)
+
+    safe_url = _sanitize_http_url(body.url)
+
+    signature = _error_signature(body.name, body.message, body.stack, safe_url)
 
     existing = (
         await session.execute(select(WebErrorReport).where(WebErrorReport.signature == signature))
@@ -883,11 +933,27 @@ async def ingest_error_report(
         existing.count += 1
         existing.last_seen_at = datetime.now(timezone.utc)
         existing.resolved = False
-        if body.context:
-            existing.last_context = body.context
-        if body.identityId:
-            existing.last_identity_id = body.identityId
+        if safe_context is not None:
+            existing.last_context = safe_context
+        if server_identity_id:
+            existing.last_identity_id = server_identity_id[:36]
         return {"ok": True, "id": existing.id, "count": existing.count, "deduplicated": True}
+
+    try:
+        from api.v2.routes.auth._fallback_limiter import check_and_increment as _sig_check
+        from core.redis_cache import cache_incr_checked as _sig_cache
+
+        ip = (request.client.host if request.client else "") or "unknown"
+        unique_key = f"error_sig_unique:{ip}"
+        count_uniq, redis_ok = await _sig_cache(unique_key, 3600)
+        if not redis_ok:
+            count_uniq = _sig_check(unique_key, 20, 3600)
+        if count_uniq > 20:
+            raise HTTPException(status_code=429, detail="Too many distinct errors")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
 
     report = WebErrorReport(
         id=str(uuid.uuid4()),
@@ -895,11 +961,11 @@ async def ingest_error_report(
         error_name=body.name[:255] if body.name else "",
         error_message=body.message[:4000] if body.message else "",
         stack=body.stack[:16000] if body.stack else None,
-        url=body.url[:500] if body.url else None,
+        url=safe_url,
         user_agent=body.userAgent[:500] if body.userAgent else None,
         tag=body.tag[:64] if body.tag else None,
-        last_identity_id=body.identityId[:36] if body.identityId else None,
-        last_context=body.context,
+        last_identity_id=server_identity_id[:36] if server_identity_id else None,
+        last_context=safe_context,
         count=1,
         resolved=False,
     )

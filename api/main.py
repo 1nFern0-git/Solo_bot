@@ -45,6 +45,19 @@ app.add_middleware(
 
 app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
 
+
+@app.exception_handler(Exception)
+async def _generic_exception_handler(request: Request, exc: Exception):
+    from audit import ensure_api_context
+
+    context = ensure_api_context(request)
+    logger.exception("[API] Unhandled exception at {} {}: {}", request.method, request.url.path, exc)
+    return ORJSONResponse(
+        status_code=500,
+        content={"detail": "Внутренняя ошибка сервера", "request_id": context.request_id},
+    )
+
+
 _ETAG_MAX_BODY_BYTES = 256 * 1024
 
 

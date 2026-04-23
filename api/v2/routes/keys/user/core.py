@@ -146,6 +146,8 @@ async def user_key_qr(
     session: AsyncSession = Depends(get_session),
     identity=Depends(verify_identity_token),
 ):
+    from api.ratelimit import enforce_rate_limit
+    await enforce_rate_limit(request, session, bucket="key_qr", max_per_window=30, window_sec=60)
     actions = _key_actions_config()
     if not force_web and not actions.qr_enabled:
         raise HTTPException(status_code=403, detail="QR для подписок отключен в настройках")
@@ -181,6 +183,8 @@ async def user_key_update_alias(
     session: AsyncSession = Depends(get_session),
     identity=Depends(verify_identity_token),
 ):
+    from api.ratelimit import enforce_rate_limit
+    await enforce_rate_limit(request, session, bucket="key_alias", max_per_window=20, window_sec=60)
     alias = str(body.alias or "").strip()
     if not alias:
         raise HTTPException(status_code=400, detail="Укажите alias")
@@ -217,6 +221,8 @@ async def user_key_delete(
     session: AsyncSession = Depends(get_session),
     identity=Depends(verify_identity_token),
 ):
+    from api.ratelimit import enforce_rate_limit
+    await enforce_rate_limit(request, session, bucket="key_delete", max_per_window=10, window_sec=60)
     actions = _key_actions_config()
     if not force_web and not actions.delete_enabled:
         raise HTTPException(status_code=403, detail="Удаление подписки отключено в настройках")

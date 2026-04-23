@@ -27,12 +27,16 @@ async def user_key_renew(
     session: AsyncSession = Depends(get_session),
     identity=Depends(verify_identity_token),
 ):
+    from api.ratelimit import enforce_rate_limit
     from services.errors import ServiceError
     from services.keys import (
         calculate_renewal_pricing,
         execute_renewal,
         normalize_expiry_ms as _svc_normalize_expiry,
     )
+
+    if not preview:
+        await enforce_rate_limit(request, session, bucket="key_renew", max_per_window=10, window_sec=60)
 
     actions = _key_actions_config()
     if not force_web and not actions.renew_enabled:

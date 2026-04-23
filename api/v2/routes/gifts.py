@@ -60,6 +60,9 @@ async def create_gift_for_user(
     session: AsyncSession = Depends(get_session),
     identity=Depends(verify_identity_token),
 ):
+    from api.ratelimit import enforce_rate_limit
+    if not preview:
+        await enforce_rate_limit(request, session, bucket="gift_create", max_per_window=10, window_sec=60)
     _check_gifts_enabled()
     actor = get_request_actor(request)
     billing_user_id = actor.billing_user_id if actor and actor.billing_user_id is not None else None
@@ -266,6 +269,8 @@ async def redeem_gift(
     session: AsyncSession = Depends(get_session),
     identity=Depends(verify_identity_token),
 ):
+    from api.ratelimit import enforce_rate_limit
+    await enforce_rate_limit(request, session, bucket="gift_redeem", max_per_window=10, window_sec=60)
     _check_gifts_enabled()
     actor = get_request_actor(request)
     billing_user_id = actor.billing_user_id if actor and actor.billing_user_id is not None else None

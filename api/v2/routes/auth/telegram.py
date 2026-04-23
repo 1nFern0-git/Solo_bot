@@ -124,7 +124,8 @@ async def login_telegram_oidc(
 
     client_id, client_secret = _get_oidc_credentials()
     if not client_id or not client_secret:
-        raise HTTPException(status_code=503, detail="Telegram OIDC не настроен: отсутствуют TELEGRAM_CLIENT_ID / TELEGRAM_CLIENT_SECRET")
+        logger.warning("[Auth] Telegram OIDC credentials missing in config")
+        raise HTTPException(status_code=503, detail="Вход через Telegram временно недоступен")
 
     token_data = {
         "grant_type": "authorization_code",
@@ -186,9 +187,12 @@ async def login_telegram_oidc(
     if not tg_id:
         raise HTTPException(status_code=401, detail="Не удалось определить пользователя из id_token")
 
-    tg_id_int = int(tg_id)
-    if tg_id_int > 2**53:
-        raise HTTPException(status_code=401, detail=f"Некорректный Telegram ID: {tg_id}")
+    try:
+        tg_id_int = int(tg_id)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=401, detail="Не удалось определить пользователя") from None
+    if tg_id_int <= 0 or tg_id_int > 2**53:
+        raise HTTPException(status_code=401, detail="Не удалось определить пользователя")
 
     identity = await idb.get_or_create_identity_for_tg(session, tg_id_int)
     await bind_identity_actor(request, session, identity)
