@@ -119,7 +119,16 @@ async def redeem_gift(
 
     existing_referral = await get_referral_by_referred_id(session, wu.id)
     if not existing_referral and gift_info.sender_user_id:
-        await add_referral(session, wu.id, gift_info.sender_user_id)
+        created_at = getattr(wu, "created_at", None)
+        if created_at is not None:
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+            is_fresh_user = (datetime.now(timezone.utc) - created_at) <= timedelta(minutes=5)
+        else:
+            is_fresh_user = False
+        trial_value = int(getattr(wu, "trial", 0) or 0)
+        if is_fresh_user and trial_value == 0:
+            await add_referral(session, wu.id, gift_info.sender_user_id)
 
     await update_trial(session, wu.id, 1)
 
