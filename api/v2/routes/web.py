@@ -117,6 +117,20 @@ class WebPagesListResponse(BaseModel):
     slugs: list[str]
 
 
+class WebPageCreateBody(BaseModel):
+    slug: str
+    title: str | None = None
+
+
+CORE_PAGE_SLUGS = frozenset({
+    "landing",
+    "dashboard",
+    "login",
+    "checkout",
+    "tariffs",
+})
+
+
 KNOWN_PAGE_SLUGS = [
     "landing",
     "tariffs",
@@ -171,10 +185,72 @@ async def list_web_pages(
     return WebPagesListResponse(slugs=slugs)
 
 
+@router.post("/api/web/pages", response_model=WebPagesListResponse)
+async def create_web_page(
+    body: WebPageCreateBody,
+    session: AsyncSession = Depends(get_session),
+    identity=Depends(verify_identity_admin),
+):
+    slug = (body.slug or "").strip().lower()
+    if not _SLUG_RE.match(slug) or len(slug) > 64:
+        raise HTTPException(status_code=400, detail="invalid_slug")
+    existing = await session.execute(select(WebPage).where(WebPage.slug == slug))
+    if existing.scalar_one_or_none() is not None:
+        raise HTTPException(status_code=409, detail="slug_already_exists")
+    title = (body.title or slug).strip()[:255] or slug
+    page = WebPage(slug=slug, title=title)
+    session.add(page)
+    await session.flush()
+    variant = WebPageVariant(
+        page_slug=slug,
+        variant_key=DEFAULT_VARIANT_KEY,
+        name=DEFAULT_VARIANT_NAME,
+        is_active=True,
+        theme_tokens={},
+    )
+    session.add(variant)
+    await session.flush()
+    await bump_site_revision(session)
+    result = await session.execute(select(WebPage.slug).order_by(WebPage.slug))
+    from_db = {row[0] for row in result.fetchall()}
+    slugs = sorted(from_db | set(KNOWN_PAGE_SLUGS))
+    return WebPagesListResponse(slugs=slugs)
+
+
+@router.delete("/api/web/pages/{slug}", response_model=WebPagesListResponse)
+async def delete_web_page(
+    slug: str,
+    session: AsyncSession = Depends(get_session),
+    identity=Depends(verify_identity_admin),
+):
+    if slug in CORE_PAGE_SLUGS:
+        raise HTTPException(status_code=403, detail="core_page_protected")
+    page_q = await session.execute(select(WebPage).where(WebPage.slug == slug))
+    page = page_q.scalar_one_or_none()
+    if page is None:
+        raise HTTPException(status_code=404, detail="page_not_found")
+    variants_q = await session.execute(select(WebPageVariant.id).where(WebPageVariant.page_slug == slug))
+    variant_ids = [row[0] for row in variants_q.fetchall()]
+    if variant_ids:
+        await session.execute(delete(WebPageVariantBlock).where(WebPageVariantBlock.variant_id.in_(variant_ids)))
+        await session.execute(delete(WebPageVariant).where(WebPageVariant.page_slug == slug))
+    await session.execute(delete(WebBlock).where(WebBlock.page_slug == slug))
+    await session.execute(delete(WebThemeModel).where(WebThemeModel.page_slug == slug))
+    await session.delete(page)
+    await session.flush()
+    await bump_site_revision(session)
+    result = await session.execute(select(WebPage.slug).order_by(WebPage.slug))
+    from_db = {row[0] for row in result.fetchall()}
+    slugs = sorted(from_db | set(KNOWN_PAGE_SLUGS))
+    return WebPagesListResponse(slugs=slugs)
+
+
 async def get_or_create_page(session: AsyncSession, slug: str) -> WebPage:
     result = await session.execute(select(WebPage).where(WebPage.slug == slug))
     page = result.scalar_one_or_none()
     if page is None:
+        if slug not in KNOWN_PAGE_SLUGS:
+            raise HTTPException(status_code=404, detail="page_not_found")
         page = WebPage(slug=slug, title=slug)
         session.add(page)
         await session.flush()
