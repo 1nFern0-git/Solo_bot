@@ -73,7 +73,7 @@ async def security_and_cache_middleware(request: Request, call_next):
     path = request.url.path
 
     if path.startswith("/api/web/uploads/") and request.method == "GET" and response.status_code == 200:
-        response.headers.setdefault("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400")
+        response.headers.setdefault("Cache-Control", "public, max-age=31536000, immutable")
         return response
 
     if request.method == "GET" and response.status_code == 200 and "application/json" in content_type:

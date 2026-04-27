@@ -36,6 +36,8 @@ from database.models import (
 )
 from logger import logger
 
+from api.v2.routes._data_uri_migration import migrate_json_data_uris
+
 
 UPLOAD_DIR = Path("static/web_uploads")
 ALLOWED_EXTENSIONS = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".mp4", ".webm"})
@@ -427,7 +429,10 @@ async def update_web_page_theme(
     if not slug or len(slug) > 64 or not _SLUG_RE.match(slug):
         raise HTTPException(400, "Некорректный slug страницы")
     current, _ = await _resolve_variant(session, slug, variant)
-    current.theme_tokens = body.tokens
+    cleaned_tokens, replaced = migrate_json_data_uris(body.tokens)
+    if replaced:
+        logger.info("[web] theme PUT slug={} replaced {} data: URI(s)", slug, replaced)
+    current.theme_tokens = cleaned_tokens
     await session.flush()
     await bump_site_revision(session)
     return WebPageThemeResponse(
@@ -449,18 +454,26 @@ async def update_web_page(
     current, _ = await _resolve_variant(session, slug, variant)
     await session.execute(delete(WebPageVariantBlock).where(WebPageVariantBlock.variant_id == current.id))
 
+    total_replaced = 0
     for block in body.blocks:
+        cleaned_data, replaced = migrate_json_data_uris(block.data)
+        total_replaced += replaced
         session.add(
             WebPageVariantBlock(
                 variant_id=current.id,
                 order=block.order,
                 type=block.type,
-                data=block.data,
+                data=cleaned_data,
             )
         )
 
     if body.theme is not None:
-        current.theme_tokens = body.theme.tokens
+        cleaned_theme, theme_replaced = migrate_json_data_uris(body.theme.tokens)
+        total_replaced += theme_replaced
+        current.theme_tokens = cleaned_theme
+
+    if total_replaced:
+        logger.info("[web] page PUT slug={} replaced {} data: URI(s)", slug, total_replaced)
 
     await session.flush()
     await bump_site_revision(session)

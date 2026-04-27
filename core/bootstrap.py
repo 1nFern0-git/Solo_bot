@@ -1,3 +1,5 @@
+from logger import logger
+
 from database import async_session_maker
 from database.db import warm_pool
 from database.settings_cache import settings_cache
@@ -31,3 +33,48 @@ async def bootstrap() -> None:
         await session.commit()
         await settings_cache.load(session)
         await publish_runtime_snapshot()
+
+    try:
+        from api.v2.routes._data_uri_migration import run_startup_data_uri_migration
+
+        async with async_session_maker() as session:
+            rows_updated, uris_replaced = await run_startup_data_uri_migration(session)
+            if uris_replaced:
+                await session.commit()
+                logger.info(
+                    "[bootstrap] data: URI migration: rows_updated={} uris_replaced={}",
+                    rows_updated,
+                    uris_replaced,
+                )
+    except Exception as exc:
+        logger.warning("[bootstrap] data: URI migration failed: {}", exc)
+
+    try:
+        from config import API_TOKEN_TTL_DAYS
+        from database.identity_sessions import cleanup_expired_sessions
+
+        async with async_session_maker() as session:
+            if API_TOKEN_TTL_DAYS is None:
+                from sqlalchemy import delete
+
+                from database.models import IdentitySession
+
+                result = await session.execute(delete(IdentitySession))
+                removed = int(result.rowcount or 0)
+                if removed:
+                    await session.commit()
+                    logger.info(
+                        "[bootstrap] API_TOKEN_TTL_DAYS=None → identity sessions wiped on restart: {}",
+                        removed,
+                    )
+            else:
+                removed = await cleanup_expired_sessions(session)
+                if removed:
+                    await session.commit()
+                    logger.info(
+                        "[bootstrap] expired identity sessions removed (TTL={}d): {}",
+                        API_TOKEN_TTL_DAYS,
+                        removed,
+                    )
+    except Exception as exc:
+        logger.warning("[bootstrap] identity-session cleanup failed: {}", exc)
