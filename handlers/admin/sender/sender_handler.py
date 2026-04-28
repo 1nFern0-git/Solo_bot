@@ -47,7 +47,7 @@ from .sender_states import AdminSender
 from .sender_utils import get_recipients, parse_message_buttons
 
 
-def _broadcast_progress_text(completed: int, total: int, sent: int, failed: int) -> str:
+def _broadcast_progress_text(completed: int, total: int, sent: int, failed: int, pending: int = 0) -> str:
     """Формирует текст статус-бара рассылки."""
     if total <= 0:
         pct = 0
@@ -56,7 +56,10 @@ def _broadcast_progress_text(completed: int, total: int, sent: int, failed: int)
         pct = min(100, int(100 * completed / total))
         bar_filled = min(10, int(10 * completed / total))
     bar = "█" * bar_filled + "░" * (10 - bar_filled)
-    return f"📤 <b>Рассылка...</b>\n\n[{bar}] <b>{pct}%</b> ({completed}/{total})\n✅ {sent}   ❌ {failed}"
+    base = f"📤 <b>Рассылка...</b>\n\n[{bar}] <b>{pct}%</b> ({completed}/{total})\n✅ {sent}   ❌ {failed}"
+    if pending > 0:
+        base += f"   🔄 {pending}"
+    return base
 
 
 def _compose_message_text() -> str:
@@ -359,8 +362,8 @@ async def handle_broadcast_confirm(callback_query: CallbackQuery, state: FSMCont
     if should_run_heavy_tasks_separately():
         main_loop = asyncio.get_running_loop()
 
-        async def _edit_progress(completed: int, total: int, sent: int, failed: int) -> None:
-            text = _broadcast_progress_text(completed, total, sent, failed)
+        async def _edit_progress(completed: int, total: int, sent: int, failed: int, pending: int) -> None:
+            text = _broadcast_progress_text(completed, total, sent, failed, pending)
             try:
                 await bot.edit_message_text(
                     chat_id=status_message.chat.id,
@@ -371,10 +374,10 @@ async def handle_broadcast_confirm(callback_query: CallbackQuery, state: FSMCont
                 if "message is not modified" not in str(e).lower():
                     logger.debug(f"[Sender] Обновление прогресса: {e}")
 
-        def progress_cb(completed: int, total: int, sent: int, failed: int) -> None:
+        def progress_cb(completed: int, total: int, sent: int, failed: int, pending: int) -> None:
             main_loop.call_soon_threadsafe(
-                lambda c=completed, t=total, s=sent, f=failed: asyncio.ensure_future(
-                    _edit_progress(c, t, s, f), loop=main_loop
+                lambda c=completed, t=total, s=sent, f=failed, p=pending: asyncio.ensure_future(
+                    _edit_progress(c, t, s, f, p), loop=main_loop
                 )
             )
 
@@ -398,8 +401,8 @@ async def handle_broadcast_confirm(callback_query: CallbackQuery, state: FSMCont
             message_data = {"tg_id": tg_id, "text": text_message, "photo": photo, "keyboard": keyboard}
             messages.append(message_data)
 
-        async def on_progress(completed: int, total: int, sent: int, failed: int) -> None:
-            text = _broadcast_progress_text(completed, total, sent, failed)
+        async def on_progress(completed: int, total: int, sent: int, failed: int, pending: int) -> None:
+            text = _broadcast_progress_text(completed, total, sent, failed, pending)
             try:
                 await bot.edit_message_text(
                     chat_id=status_message.chat.id,
@@ -410,7 +413,7 @@ async def handle_broadcast_confirm(callback_query: CallbackQuery, state: FSMCont
                 if "message is not modified" not in str(e).lower():
                     logger.debug(f"[Sender] Обновление прогресса: {e}")
 
-        broadcast_service = BroadcastService(bot=bot, session=session, messages_per_second=30)
+        broadcast_service = BroadcastService(bot=bot, session=session)
         stats = await broadcast_service.broadcast(
             messages,
             workers=5,
@@ -464,7 +467,7 @@ async def handle_schedule_datetime_input(message: Message, state: FSMContext, se
         keyboard_json=data.get("keyboard"),
         scheduled_for=scheduled_for,
         workers=5,
-        messages_per_second=30,
+        messages_per_second=25,
     )
     await state.clear()
     await message.answer(

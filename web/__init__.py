@@ -2,16 +2,19 @@ from aiohttp.web_urldispatcher import UrlDispatcher
 
 from services.payments.heleket.webhook import heleket_webhook
 from services.payments.kassai.webhook import kassai_webhook
+from services.payments.wata.webhook import wata_webhook
 from utils.modules_loader import load_module_webhooks
 
 
 KASSAI_WEBHOOK_PATH = "/kassai/webhook"
 HELEKET_WEBHOOK_PATH = "/heleket/webhook"
+WATA_WEBHOOK_PATH = "/wata/webhook"
 
 
 async def register_web_routes(router: UrlDispatcher) -> None:
     router.add_post(KASSAI_WEBHOOK_PATH, kassai_webhook)
     router.add_post(HELEKET_WEBHOOK_PATH, heleket_webhook)
+    router.add_post(WATA_WEBHOOK_PATH, wata_webhook)
 
     try:
         module_webhooks = load_module_webhooks()

@@ -36,6 +36,13 @@ PROVIDERS_BASE: dict[str, dict[str, Any]] = {
         "module": "kassai",
         "order": 50,
     },
+    "WATA_RU": {
+        "currency": "RUB",
+        "value": "pay_wata_ru",
+        "fast": "handle_custom_amount_input_wata_ru",
+        "module": "wata",
+        "order": 55,
+    },
     "TRIBUTE": {
         "currency": "RUB+USD",
         "value": "pay_tribute",
@@ -47,6 +54,13 @@ PROVIDERS_BASE: dict[str, dict[str, Any]] = {
         "value": "pay_heleket_crypto",
         "fast": "handle_custom_amount_input_heleket",
         "order": 70,
+    },
+    "WATA_INT": {
+        "currency": "USD",
+        "value": "pay_wata_int",
+        "fast": "handle_custom_amount_input_wata_int",
+        "module": "wata",
+        "order": 75,
     },
     "CRYPTOBOT": {
         "currency": "USD",
@@ -74,6 +88,8 @@ WEB_LINK_PROVIDER_IDS = (
     "ROBOKASSA",
     "KASSAI_CARDS",
     "KASSAI_SBP",
+    "WATA_RU",
+    "WATA_INT",
     "HELEKET",
     "FREEKASSA",
     "CRYPTOBOT",

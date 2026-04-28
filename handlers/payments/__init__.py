@@ -27,6 +27,7 @@ from .pay import router as pay_router
 from .robokassa import router as robokassa_router
 from .stars import router as stars_router
 from .tribute import router as tribute_router
+from .wata import router as wata_router
 from .yookassa import router as yookassa_router
 from .yoomoney import router as yoomoney_router
 
@@ -51,6 +52,8 @@ if PROVIDERS.get("KASSAI_CARDS", {}).get("enabled") or PROVIDERS.get("KASSAI_SBP
     router.include_router(kassai_router)
 if PROVIDERS.get("HELEKET", {}).get("enabled"):
     router.include_router(heleket_router)
+if PROVIDERS.get("WATA_RU", {}).get("enabled") or PROVIDERS.get("WATA_INT", {}).get("enabled"):
+    router.include_router(wata_router)
 
 router.include_router(tribute_router)
 router.include_router(gift_router)
