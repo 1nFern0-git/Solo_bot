@@ -389,6 +389,12 @@ async def build_key_view_payload(session: AsyncSession, tg_id: int, key_ref_or_e
                     traffic_limit_gb = int(traffic_limit_bytes_actual / GB) if traffic_limit_bytes_actual > 0 else 0
                 except (TypeError, ValueError):
                     pass
+            hwid_device_limit_actual = profile.get("hwid_device_limit")
+            if hwid_device_limit_actual is not None:
+                try:
+                    device_limit = int(hwid_device_limit_actual)
+                except (TypeError, ValueError):
+                    pass
 
     country_selection_enabled = bool(MODES_CONFIG.get("COUNTRY_SELECTION_ENABLED", USE_COUNTRY_SELECTION))
     remnawave_webapp_enabled = bool(MODES_CONFIG.get("REMNAWAVE_WEBAPP_ENABLED", REMNAWAVE_WEBAPP))
