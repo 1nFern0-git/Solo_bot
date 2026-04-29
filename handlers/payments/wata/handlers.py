@@ -16,6 +16,7 @@ from ..constants import ALLOWED_TEMP_PAYMENT_STATES
 from .service import (
     WATA_METHODS,
     WATA_MIN_AMOUNTS,
+    _wata_method_enabled,
     generate_wata_payment_link,
     process_callback_pay_wata,
     router as service_router,
@@ -72,7 +73,7 @@ async def _handle_custom_amount_input_wata(
         return
 
     method = WATA_METHODS.get(method_name)
-    if not method or not method["enable"]:
+    if not method or not _wata_method_enabled(method):
         await edit_or_send_message(
             target_message=message,
             text="❌ Этот способ оплаты Wata временно недоступен.",

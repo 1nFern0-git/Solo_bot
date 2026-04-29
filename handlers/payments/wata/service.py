@@ -13,12 +13,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import (
-    PROVIDERS_ENABLED,
     WATA_FAIL_URL,
     WATA_INT_TOKEN,
     WATA_RU_TOKEN,
     WATA_SUCCESS_URL,
 )
+from core.bootstrap import PAYMENTS_CONFIG
 from database import register_pending_payment
 from database.models import User
 from handlers.buttons import BACK, PAY_2, WATA_INT, WATA_RU
@@ -60,20 +60,24 @@ class ReplenishBalanceWata(StatesGroup):
 
 WATA_METHODS = {
     "ru": {
-        "enable": PROVIDERS_ENABLED.get("WATA_RU", False),
+        "provider_key": "WATA_RU",
         "currency": "RUB",
         "token": WATA_RU_TOKEN,
         "button": WATA_RU,
         "desc": WATA_RU_DESCRIPTION,
     },
     "int": {
-        "enable": PROVIDERS_ENABLED.get("WATA_INT", False),
+        "provider_key": "WATA_INT",
         "currency": "USD",
         "token": WATA_INT_TOKEN,
         "button": WATA_INT,
         "desc": WATA_INT_DESCRIPTION,
     },
 }
+
+
+def _wata_method_enabled(method: dict) -> bool:
+    return bool(PAYMENTS_CONFIG.get(method["provider_key"], False))
 
 
 async def get_user_language(session: AsyncSession, tg_id: int) -> str | None:
@@ -95,7 +99,7 @@ async def process_callback_pay_wata(
 
         if method_name:
             method = WATA_METHODS.get(method_name)
-            if not method or not method["enable"]:
+            if not method or not _wata_method_enabled(method):
                 await edit_or_send_message(
                     target_message=callback_query.message,
                     text="Ошибка: выбранный способ оплаты недоступен.",
@@ -133,7 +137,7 @@ async def process_callback_pay_wata(
 
         builder = InlineKeyboardBuilder()
         for name, method in WATA_METHODS.items():
-            if method["enable"]:
+            if _wata_method_enabled(method):
                 builder.row(
                     InlineKeyboardButton(
                         text=method["button"],
@@ -166,7 +170,7 @@ async def process_method_selection(callback_query: types.CallbackQuery, state: F
     method_name = callback_query.data.split("|")[1]
     method = WATA_METHODS.get(method_name)
 
-    if not method or not method["enable"]:
+    if not method or not _wata_method_enabled(method):
         await edit_or_send_message(
             target_message=callback_query.message,
             text="Ошибка: выбранный способ оплаты недоступен.",
@@ -227,7 +231,7 @@ async def handle_custom_amount_input(message: types.Message, state: FSMContext, 
     method_name = data.get("wata_method")
     method = WATA_METHODS.get(method_name)
 
-    if not method or not method["enable"]:
+    if not method or not _wata_method_enabled(method):
         await edit_or_send_message(
             target_message=message,
             text="Ошибка: выбранный способ оплаты недоступен.",
@@ -311,7 +315,7 @@ async def process_amount_selection(callback_query: types.CallbackQuery, state: F
     method_name = "ru" if callback_query.data.startswith("wata_ru") else "int"
     method = WATA_METHODS.get(method_name)
 
-    if not method or not method["enable"]:
+    if not method or not _wata_method_enabled(method):
         await edit_or_send_message(
             target_message=callback_query.message,
             text="Ошибка: выбранный способ оплаты недоступен.",
@@ -464,7 +468,7 @@ def create_link_factory(method_name: str):
         metadata: dict | None,
     ) -> tuple[str, str | None]:
         method = WATA_METHODS.get(method_name)
-        if not method or not method.get("enable"):
+        if not method or not _wata_method_enabled(method):
             raise ValueError("Способ оплаты Wata недоступен")
 
         amount_int = int(amount)
