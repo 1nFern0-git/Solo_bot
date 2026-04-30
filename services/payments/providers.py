@@ -43,6 +43,13 @@ PROVIDERS_BASE: dict[str, dict[str, Any]] = {
         "module": "wata",
         "order": 55,
     },
+    "PARITYPAY_SBP": {
+        "currency": "RUB",
+        "value": "pay_paritypay_sbp",
+        "fast": "handle_custom_amount_input_paritypay_sbp",
+        "module": "paritypay",
+        "order": 57,
+    },
     "TRIBUTE": {
         "currency": "RUB+USD",
         "value": "pay_tribute",
@@ -90,6 +97,7 @@ WEB_LINK_PROVIDER_IDS = (
     "KASSAI_SBP",
     "WATA_RU",
     "WATA_INT",
+    "PARITYPAY_SBP",
     "HELEKET",
     "FREEKASSA",
     "CRYPTOBOT",

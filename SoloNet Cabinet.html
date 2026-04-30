@@ -1,0 +1,805 @@
+<!doctype html>
+<html lang="ru" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<title>SoloNet — Кабинет</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  *,*::before,*::after{box-sizing:border-box}
+  html,body{margin:0;padding:0;height:100%}
+  :root{
+    --bg:#0A0A0A; --bg-2:#111; --bg-3:#181818;
+    --fg:#F2F2F2; --fg-dim:#7A7A7A; --fg-mute:#3A3A3A;
+    --line:#1F1F1F; --line-2:#2A2A2A;
+    --red:#FF2D2D; --green:#2DD46F; --yellow:#FFC107;
+    --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  body{background:var(--bg);color:var(--fg);font-family:var(--mono);font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  ::selection{background:var(--red);color:#fff}
+  button{font-family:inherit;cursor:pointer}
+
+  .app{display:grid;grid-template-columns:240px 1fr;min-height:100vh}
+
+  /* sidebar */
+  aside{border-right:1px solid var(--line);background:var(--bg);display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
+  .brand{display:flex;align-items:center;gap:10px;padding:18px 20px;border-bottom:1px solid var(--line);font-weight:700;letter-spacing:.02em}
+  .brand-mark{width:18px;height:18px;border:1.5px solid var(--fg);position:relative;flex-shrink:0}
+  .brand-mark::before{content:"";position:absolute;inset:2.5px;background:var(--red)}
+  .brand-name{font-size:14px;letter-spacing:.04em}
+  .brand-ver{font-size:9px;color:var(--fg-dim);letter-spacing:.16em;margin-left:auto}
+
+  .conn-card{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:6px}
+  .conn-row{display:flex;justify-content:space-between;align-items:center;font-size:10px;color:var(--fg-dim);letter-spacing:.14em;text-transform:uppercase}
+  .conn-status{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--green);font-weight:600;letter-spacing:.04em}
+  .conn-dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 0 0 var(--green);animation:pulse 1.6s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(45,212,111,.6)}70%{box-shadow:0 0 0 8px transparent}100%{box-shadow:0 0 0 0 transparent}}
+  .conn-loc{font-size:11px;color:var(--fg-dim);font-variant-numeric:tabular-nums}
+
+  nav.tabs{flex:1;padding:14px 8px;display:flex;flex-direction:column;gap:1px;overflow-y:auto}
+  .tab{display:flex;align-items:center;gap:12px;padding:10px 12px;border:0;background:transparent;color:var(--fg-dim);font:inherit;text-align:left;border-left:2px solid transparent;letter-spacing:.02em;font-size:12px;text-transform:uppercase;letter-spacing:.08em}
+  .tab .num{font-size:9px;color:var(--fg-mute);width:18px}
+  .tab .ic{width:14px;height:14px;flex-shrink:0;stroke:currentColor;fill:none;stroke-width:1.4}
+  .tab .lbl{flex:1}
+  .tab .badge{font-size:9px;background:var(--red);color:#fff;padding:1px 6px;letter-spacing:.1em}
+  .tab:hover{color:var(--fg);background:var(--bg-2)}
+  .tab.active{color:var(--fg);background:var(--bg-2);border-left-color:var(--red)}
+  .tab.active .num{color:var(--red)}
+
+  .side-foot{padding:16px;border-top:1px solid var(--line);font-size:10px;color:var(--fg-dim);letter-spacing:.12em;display:flex;flex-direction:column;gap:8px}
+  .user{display:flex;align-items:center;gap:10px;text-transform:none;letter-spacing:0;font-size:12px;color:var(--fg)}
+  .avatar{width:28px;height:28px;border:1px solid var(--line-2);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--red);flex-shrink:0}
+  .user-meta{flex:1;min-width:0}
+  .user-name{font-weight:600;font-size:12px}
+  .user-plan{font-size:10px;color:var(--fg-dim);letter-spacing:.14em;text-transform:uppercase}
+  .icon-btn{width:24px;height:24px;border:1px solid var(--line-2);background:transparent;color:var(--fg-dim);display:inline-flex;align-items:center;justify-content:center;font-size:11px}
+  .icon-btn:hover{color:var(--fg);border-color:var(--fg-dim)}
+
+  /* main */
+  main{display:flex;flex-direction:column;min-width:0}
+  .topbar{display:flex;align-items:center;justify-content:space-between;padding:14px 28px;border-bottom:1px solid var(--line);position:sticky;top:0;background:color-mix(in oklab, var(--bg) 88%, transparent);backdrop-filter:blur(12px);z-index:10}
+  .crumbs{display:flex;align-items:center;gap:10px;font-size:11px;color:var(--fg-dim);letter-spacing:.14em;text-transform:uppercase}
+  .crumbs b{color:var(--fg);font-weight:600}
+  .crumbs .sep{color:var(--fg-mute)}
+  .top-actions{display:flex;align-items:center;gap:10px}
+  .search{display:flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid var(--line-2);background:var(--bg-2);font-size:11px;color:var(--fg-dim);min-width:240px}
+  .search input{background:transparent;border:0;color:var(--fg);font:inherit;outline:none;flex:1;font-size:12px}
+  .kbd{font-size:9px;border:1px solid var(--line-2);padding:1px 5px;color:var(--fg-dim);letter-spacing:.06em}
+
+  .btn{display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 14px;border:1px solid var(--fg);background:var(--fg);color:var(--bg);font-family:var(--mono);font-weight:600;font-size:11px;letter-spacing:.06em;text-transform:uppercase;border-radius:0;transition:transform .12s, box-shadow .18s}
+  .btn:hover{transform:translate(-1px,-1px);box-shadow:3px 3px 0 var(--red)}
+  .btn-ghost{background:transparent;color:var(--fg)}
+  .btn-ghost:hover{background:var(--fg);color:var(--bg);box-shadow:none;transform:none}
+  .btn-red{background:var(--red);border-color:var(--red);color:#fff}
+  .btn-red:hover{box-shadow:3px 3px 0 var(--fg)}
+  .btn-sm{height:26px;padding:0 10px;font-size:10px}
+
+  /* content area */
+  .content{padding:28px;display:flex;flex-direction:column;gap:24px;min-height:0}
+
+  /* page header */
+  .page-h{display:flex;justify-content:space-between;align-items:flex-end;gap:24px}
+  .eyebrow{font-size:10px;color:var(--red);letter-spacing:.22em;text-transform:uppercase;display:inline-flex;align-items:center;gap:8px}
+  .eyebrow::before{content:"";width:18px;height:1px;background:var(--red)}
+  .page-title{font-size:28px;line-height:1;letter-spacing:-.02em;font-weight:700;margin:8px 0 0;text-transform:uppercase}
+  .page-meta{font-size:11px;color:var(--fg-dim);letter-spacing:.14em;text-transform:uppercase;text-align:right}
+
+  /* grid panels */
+  .grid{display:grid;gap:16px}
+  .grid-3{grid-template-columns:1.4fr 1fr 1fr}
+  .grid-2{grid-template-columns:2fr 1fr}
+  .grid-4{grid-template-columns:repeat(4,1fr)}
+
+  .panel{border:1px solid var(--line);background:var(--bg);display:flex;flex-direction:column;min-height:0}
+  .panel-h{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line);font-size:10px;color:var(--fg-dim);letter-spacing:.16em;text-transform:uppercase}
+  .panel-h b{color:var(--fg);font-weight:600}
+  .panel-h .red{color:var(--red)}
+  .panel-b{padding:18px 16px;flex:1}
+
+  /* connect block */
+  .connect{padding:24px;display:grid;grid-template-columns:auto 1fr;gap:24px;align-items:center}
+  .conn-btn{width:120px;height:120px;border:2px solid var(--red);background:var(--red);color:#fff;font-family:var(--mono);font-weight:800;font-size:13px;letter-spacing:.12em;text-transform:uppercase;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;border-radius:0;position:relative;transition:all .15s}
+  .conn-btn::after{content:"";position:absolute;inset:-6px;border:1px solid var(--red);opacity:.4;pointer-events:none}
+  .conn-btn .ico{font-size:28px;line-height:1}
+  .conn-btn:hover{box-shadow:6px 6px 0 var(--fg)}
+  .conn-btn[data-on="0"]{background:transparent;color:var(--fg);border-color:var(--fg-dim)}
+  .conn-btn[data-on="0"]::after{border-color:var(--fg-dim)}
+  .conn-info{display:flex;flex-direction:column;gap:8px}
+  .conn-info .big{font-size:24px;font-weight:700;letter-spacing:-.01em;line-height:1;text-transform:uppercase}
+  .conn-info .big .accent{color:var(--green)}
+  .conn-info .row{display:flex;gap:24px;font-size:11px;color:var(--fg-dim);letter-spacing:.12em;text-transform:uppercase;margin-top:4px}
+  .conn-info .row .v{color:var(--fg);font-weight:600;margin-left:6px;font-variant-numeric:tabular-nums}
+  .conn-meta-line{font-size:10px;color:var(--fg-mute);letter-spacing:.16em;font-family:var(--mono)}
+
+  /* stats row */
+  .stat{padding:18px 16px}
+  .stat-k{font-size:10px;color:var(--fg-dim);letter-spacing:.14em;text-transform:uppercase}
+  .stat-v{font-size:28px;font-weight:700;letter-spacing:-.01em;margin-top:6px;font-variant-numeric:tabular-nums;line-height:1}
+  .stat-v .u{color:var(--red);font-size:14px;margin-left:4px}
+  .stat-d{font-size:10px;color:var(--green);margin-top:6px;letter-spacing:.1em}
+  .stat-d.down{color:var(--red)}
+
+  /* charts */
+  .chart{height:180px;width:100%}
+  .chart-foot{display:flex;justify-content:space-between;font-size:10px;color:var(--fg-dim);letter-spacing:.12em;padding:10px 16px;border-top:1px solid var(--line)}
+
+  /* server list */
+  .srv-list{display:flex;flex-direction:column}
+  .srv{display:grid;grid-template-columns:auto 1fr auto auto auto;gap:14px;align-items:center;padding:11px 16px;border-bottom:1px solid var(--line);font-size:12px}
+  .srv:last-child{border-bottom:0}
+  .srv:hover{background:var(--bg-2)}
+  .srv.active{background:var(--bg-2);border-left:2px solid var(--red);padding-left:14px}
+  .flag{width:22px;height:16px;border:1px solid var(--line-2);font-size:9px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;letter-spacing:.04em;color:var(--fg-dim)}
+  .srv .name{font-weight:600}
+  .srv .city{color:var(--fg-dim);font-size:11px;margin-left:8px}
+  .srv .ping{font-variant-numeric:tabular-nums;color:var(--fg-dim);font-size:11px;letter-spacing:.06em}
+  .srv .ping b{color:var(--fg)}
+  .load-bar{width:60px;height:4px;background:var(--line);position:relative}
+  .load-bar i{position:absolute;left:0;top:0;height:100%;background:var(--green)}
+  .load-bar i.med{background:var(--yellow)}
+  .load-bar i.high{background:var(--red)}
+  .srv .pick{font-size:10px;letter-spacing:.12em;color:var(--fg-dim);text-transform:uppercase}
+  .srv:hover .pick{color:var(--red)}
+  .srv.active .pick{color:var(--red)}
+
+  /* feed */
+  .feed{font-size:11px;font-family:var(--mono);padding:8px 16px;max-height:240px;overflow-y:auto}
+  .feed-line{display:flex;gap:10px;padding:4px 0;color:var(--fg-dim);font-variant-numeric:tabular-nums}
+  .feed-line .ts{color:var(--fg-mute);flex-shrink:0}
+  .feed-line .lvl{flex-shrink:0;width:48px;font-weight:700}
+  .feed-line .lvl.ok{color:var(--green)}
+  .feed-line .lvl.warn{color:var(--yellow)}
+  .feed-line .lvl.err{color:var(--red)}
+  .feed-line .msg{color:var(--fg)}
+
+  /* devices grid */
+  .dev{padding:16px;border:1px solid var(--line);background:var(--bg);display:flex;flex-direction:column;gap:10px}
+  .dev .top{display:flex;justify-content:space-between;align-items:flex-start}
+  .dev-name{font-size:13px;font-weight:600}
+  .dev-id{font-size:10px;color:var(--fg-dim);letter-spacing:.14em}
+  .dev .body{font-size:11px;color:var(--fg-dim);display:flex;flex-direction:column;gap:4px}
+  .dev .body b{color:var(--fg);font-weight:500}
+  .dev .foot{display:flex;justify-content:space-between;align-items:center;border-top:1px dashed var(--line-2);padding-top:10px}
+  .dev .pill{font-size:9px;letter-spacing:.14em;text-transform:uppercase;padding:3px 6px;border:1px solid var(--green);color:var(--green)}
+  .dev .pill.off{border-color:var(--fg-mute);color:var(--fg-dim)}
+
+  /* invoice list */
+  .inv{display:grid;grid-template-columns:120px 1fr auto auto auto;gap:16px;padding:11px 16px;border-bottom:1px solid var(--line);font-size:12px;align-items:center}
+  .inv:last-child{border-bottom:0}
+  .inv .date{font-variant-numeric:tabular-nums;color:var(--fg-dim);letter-spacing:.06em}
+  .inv .label{font-weight:500}
+  .inv .amount{font-variant-numeric:tabular-nums;font-weight:700}
+  .inv .pill{font-size:9px;letter-spacing:.14em;text-transform:uppercase;padding:3px 6px;border:1px solid var(--green);color:var(--green)}
+  .inv .pill.fail{border-color:var(--red);color:var(--red)}
+  .inv .dl{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--fg-dim)}
+  .inv .dl:hover{color:var(--red)}
+
+  /* settings rows */
+  .opt{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid var(--line);gap:16px}
+  .opt:last-child{border-bottom:0}
+  .opt .opt-l{display:flex;flex-direction:column;gap:2px}
+  .opt .opt-name{font-size:13px;font-weight:500}
+  .opt .opt-d{font-size:11px;color:var(--fg-dim);max-width:60ch}
+  .toggle{position:relative;width:36px;height:20px;border:0;border-radius:0;background:var(--line);transition:background .15s;padding:0;border:1px solid var(--line-2)}
+  .toggle[data-on="1"]{background:var(--red);border-color:var(--red)}
+  .toggle i{position:absolute;top:1px;left:1px;width:16px;height:16px;background:#fff;transition:transform .15s}
+  .toggle[data-on="1"] i{transform:translateX(16px)}
+  .seg{display:inline-flex;border:1px solid var(--line-2)}
+  .seg button{appearance:none;background:transparent;border:0;color:var(--fg-dim);padding:6px 10px;font:inherit;font-size:10px;letter-spacing:.14em;text-transform:uppercase;border-right:1px solid var(--line-2)}
+  .seg button:last-child{border-right:0}
+  .seg button.on{background:var(--fg);color:var(--bg)}
+
+  /* support */
+  .ticket{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:16px;align-items:center}
+  .ticket:last-child{border-bottom:0}
+  .ticket .meta{font-size:10px;color:var(--fg-dim);letter-spacing:.14em;text-transform:uppercase}
+  .ticket .subj{font-size:13px;margin-top:4px}
+  .ticket .right{text-align:right;font-size:11px;color:var(--fg-dim)}
+
+  /* security */
+  .sec-row{display:flex;align-items:center;gap:14px;padding:14px 16px;border-bottom:1px solid var(--line)}
+  .sec-row:last-child{border-bottom:0}
+  .sec-ico{width:32px;height:32px;border:1px solid var(--line-2);display:flex;align-items:center;justify-content:center;color:var(--green);flex-shrink:0}
+  .sec-ico.warn{color:var(--yellow);border-color:var(--yellow)}
+  .sec-ico svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.5}
+  .sec-row .body{flex:1}
+  .sec-row .body b{display:block;font-size:13px;margin-bottom:2px}
+  .sec-row .body span{font-size:11px;color:var(--fg-dim)}
+
+  /* referral */
+  .ref-card{padding:24px 20px;border:1px solid var(--red);background:linear-gradient(180deg, color-mix(in oklab, var(--red) 12%, transparent) 0%, transparent 100%)}
+  .ref-num{font-size:42px;font-weight:800;letter-spacing:-.02em;line-height:1}
+  .ref-num .u{color:var(--red);font-size:18px;margin-left:4px}
+  .ref-link{display:flex;align-items:center;border:1px solid var(--line-2);background:var(--bg-2);padding:10px 14px;margin-top:18px;font-size:12px;justify-content:space-between;gap:12px}
+  .ref-link code{color:var(--fg);font-family:var(--mono);font-size:12px;letter-spacing:0}
+
+  .empty{padding:40px 16px;text-align:center;color:var(--fg-dim);font-size:12px}
+  .empty-big{font-size:18px;color:var(--fg);margin-bottom:8px;letter-spacing:.04em;text-transform:uppercase}
+
+  @media (max-width: 1100px){
+    .grid-3{grid-template-columns:1fr 1fr}
+    .grid-4{grid-template-columns:repeat(2,1fr)}
+  }
+  @media (max-width: 760px){
+    .app{grid-template-columns:1fr}
+    aside{position:relative;height:auto}
+    .grid-3,.grid-4,.grid-2{grid-template-columns:1fr}
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" data-presets="env,react">
+const { useState, useEffect, useRef, useMemo } = React;
+
+// ───────────────────── Icons ─────────────────────
+const Ico = {
+  prof: <svg className="ic" viewBox="0 0 16 16"><circle cx="8" cy="5.5" r="2.6"/><path d="M2.5 14c.6-2.6 2.9-4.2 5.5-4.2S13 11.4 13.5 14"/></svg>,
+  bill: <svg className="ic" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10"/><path d="M2 6h12"/><path d="M5 10h2"/></svg>,
+  ref:  <svg className="ic" viewBox="0 0 16 16"><circle cx="5" cy="5" r="2"/><circle cx="11" cy="11" r="2"/><path d="M5 7v2a2 2 0 0 0 2 2h2"/></svg>,
+  gift: <svg className="ic" viewBox="0 0 16 16"><rect x="2" y="6" width="12" height="8"/><path d="M2 9h12M8 6v8"/><path d="M5 6c0-1.5 1-2.5 2-2.5S8 4 8 6c0-2 0-2.5 1-2.5S11 4.5 11 6"/></svg>,
+  bell: <svg className="ic" viewBox="0 0 16 16"><path d="M4 11V7a4 4 0 0 1 8 0v4l1 1.5H3z"/><path d="M6.5 13.5a1.5 1.5 0 0 0 3 0"/></svg>,
+};
+
+// ───────────────────── Tabs definition ─────────────────────
+const TABS = [
+  { id: 'prof', num: '01', label: 'Профиль', icon: Ico.prof },
+  { id: 'bill', num: '02', label: 'Подписки', icon: Ico.bill },
+  { id: 'ref',  num: '03', label: 'Партнёрка', icon: Ico.ref },
+  { id: 'gift', num: '04', label: 'Подарки', icon: Ico.gift, badge: '2' },
+  { id: 'note', num: '05', label: 'Уведомления', icon: Ico.bell, badge: '5' },
+];
+
+// ───────────────────── Server data ─────────────────────
+const SERVERS = [
+  { code:'NL', city:'Amsterdam', name:'AMS-03', ping:14, load:'low', loadV:22, hops:1 },
+  { code:'DE', city:'Frankfurt', name:'FRA-07', ping:18, load:'low', loadV:31 },
+  { code:'CH', city:'Zürich',    name:'ZRH-02', ping:24, load:'low', loadV:18 },
+  { code:'SE', city:'Stockholm', name:'STO-01', ping:32, load:'med', loadV:54 },
+  { code:'IS', city:'Reykjavík', name:'KEF-01', ping:48, load:'med', loadV:62 },
+  { code:'US', city:'New York',  name:'NYC-09', ping:74, load:'low', loadV:38 },
+  { code:'US', city:'Los Angeles', name:'LAX-04', ping:128, load:'high', loadV:84 },
+  { code:'JP', city:'Tokyo',     name:'TYO-02', ping:172, load:'med', loadV:48 },
+  { code:'SG', city:'Singapore', name:'SIN-03', ping:188, load:'low', loadV:24 },
+];
+
+// ───────────────────── Sparkline ─────────────────────
+function Sparkline({ data, color = 'var(--red)', fill = true, height = 180 }){
+  const ref = useRef(null);
+  useEffect(() => {
+    const c = ref.current; if (!c) return;
+    const ctx = c.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const w = c.clientWidth, h = c.clientHeight;
+    c.width = w*dpr; c.height = h*dpr; ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0,0,w,h);
+    // grid
+    ctx.strokeStyle = 'rgba(245,245,245,0.05)'; ctx.lineWidth = 1; ctx.beginPath();
+    for (let i=1;i<5;i++){ const y = (h/5)*i; ctx.moveTo(0,y); ctx.lineTo(w,y); }
+    ctx.stroke();
+    // data
+    const max = Math.max(...data) || 1;
+    const min = Math.min(...data);
+    const norm = data.map(v => (v - min) / (max - min || 1));
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = color;
+    if (fill){
+      const grad = ctx.createLinearGradient(0,0,0,h);
+      grad.addColorStop(0, color === 'var(--red)' ? 'rgba(255,45,45,0.35)' : 'rgba(45,212,111,0.35)');
+      grad.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.moveTo(0, h - norm[0]*(h-20) - 8);
+      for (let i=1;i<norm.length;i++){
+        const x = (i/(norm.length-1))*w;
+        const y = h - norm[i]*(h-20) - 8;
+        ctx.lineTo(x,y);
+      }
+      ctx.lineTo(w,h); ctx.lineTo(0,h); ctx.closePath(); ctx.fill();
+    }
+    ctx.beginPath();
+    for (let i=0;i<norm.length;i++){
+      const x = (i/(norm.length-1))*w;
+      const y = h - norm[i]*(h-20) - 8;
+      i===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+  }, [data, color, fill]);
+  return <canvas ref={ref} className="chart" style={{height}}/>;
+}
+
+// ───────────────────── Sidebar ─────────────────────
+function Sidebar({ active, setActive }){
+  return (
+    <aside>
+      <div className="brand">
+        <span className="brand-mark"></span>
+        <span className="brand-name">SOLONET</span>
+        <span className="brand-ver">v 4.2.0</span>
+      </div>
+
+      <div className="conn-card">
+        <div className="conn-row"><span>// TUNNEL</span><span>WG-01</span></div>
+        <div className="conn-status"><span className="conn-dot"></span> CONNECTED</div>
+        <div className="conn-loc">NL · AMS-03 · 14 ms</div>
+      </div>
+
+      <nav className="tabs">
+        {TABS.map(t => (
+          <button key={t.id} className={`tab ${active===t.id?'active':''}`} onClick={() => setActive(t.id)}>
+            <span className="num">{t.num}</span>
+            {t.icon}
+            <span className="lbl">{t.label}</span>
+            {t.badge && <span className="badge">{t.badge}</span>}
+          </button>
+        ))}
+      </nav>
+
+      <div className="side-foot">
+        <div className="user">
+          <div className="avatar">SK</div>
+          <div className="user-meta">
+            <div className="user-name">solo_kirill</div>
+            <div className="user-plan">PRIME · 247 дн</div>
+          </div>
+          <button className="icon-btn" title="Выйти">↗</button>
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+// ───────────────────── Topbar ─────────────────────
+function Topbar({ active }){
+  const tab = TABS.find(t => t.id === active);
+  return (
+    <div className="topbar">
+      <div className="crumbs">
+        <span>Кабинет</span><span className="sep">/</span>
+        <b>{tab.label}</b>
+        <span className="sep">·</span>
+        <span>NODE-AMS-03</span>
+      </div>
+      <div className="top-actions">
+        <div className="search">
+          <span>⌕</span>
+          <input placeholder="Поиск серверов, устройств…" />
+          <span className="kbd">⌘ K</span>
+        </div>
+        <button className="btn btn-sm btn-ghost">Помощь</button>
+        <button className="btn btn-sm btn-red">Купить трафик</button>
+      </div>
+    </div>
+  );
+}
+
+
+// ───────────────────── Page: Profile ─────────────────────
+function ProfilePage(){
+  const [twofa, setTwofa] = useState(false);
+  const [news, setNews] = useState(true);
+  return (
+    <>
+      <div className="page-h">
+        <div>
+          <span className="eyebrow">/// Личные данные</span>
+          <h1 className="page-title">Профиль</h1>
+        </div>
+        <div className="page-meta">ID · SK-9F3A2C</div>
+      </div>
+
+      <div className="grid grid-2">
+        <div className="panel">
+          <div className="panel-h"><b>// Учётная запись</b><span>аккаунт</span></div>
+          <div className="panel-b" style={{display:'flex',flexDirection:'column',gap:14}}>
+            <div style={{display:'flex',gap:14,alignItems:'center'}}>
+              <div className="avatar" style={{width:56,height:56,fontSize:18}}>SK</div>
+              <div>
+                <div style={{fontSize:16,fontWeight:600}}>solo_kirill</div>
+                <div style={{fontSize:11,color:'var(--fg-dim)',letterSpacing:'.12em',textTransform:'uppercase',marginTop:4}}>с 04 апр 2024 · 763 дня</div>
+              </div>
+              <button className="btn btn-sm btn-ghost" style={{marginLeft:'auto'}}>Сменить</button>
+            </div>
+            <div style={{height:1,background:'var(--line)'}}></div>
+            <Field k="E-mail" v="kirill@solonet.io" verified />
+            <Field k="Телефон" v="+7 ··· ··· 47-12" />
+            <Field k="Telegram" v="@solo_kirill" verified />
+            <Field k="Язык" v="Русский" />
+          </div>
+        </div>
+
+        <div className="panel">
+          <div className="panel-h"><b>// Безопасность</b><span>защита</span></div>
+          <div className="opt">
+            <div className="opt-l"><div className="opt-name">Двухфакторная (2FA)</div><div className="opt-d">Подтверждение по TOTP-коду из приложения. Рекомендуется.</div></div>
+            <button className="toggle" data-on={twofa?'1':'0'} onClick={()=>setTwofa(!twofa)}><i/></button>
+          </div>
+          <div className="opt">
+            <div className="opt-l"><div className="opt-name">Письма с новостями</div><div className="opt-d">Раз в месяц. Никакого спама — только важные обновления.</div></div>
+            <button className="toggle" data-on={news?'1':'0'} onClick={()=>setNews(!news)}><i/></button>
+          </div>
+          <div className="opt">
+            <div className="opt-l"><div className="opt-name">Сменить пароль</div><div className="opt-d">Последнее изменение — 47 дней назад.</div></div>
+            <button className="btn btn-sm btn-ghost">Изменить</button>
+          </div>
+          <div className="opt">
+            <div className="opt-l"><div className="opt-name" style={{color:'var(--red)'}}>Удалить аккаунт</div><div className="opt-d">Все данные стираются с RAM-серверов в течение 24 часов.</div></div>
+            <button className="btn btn-sm btn-ghost" style={{borderColor:'var(--red)',color:'var(--red)'}}>Удалить</button>
+          </div>
+        </div>
+      </div>
+
+      <div className="panel">
+        <div className="panel-h"><b>// История входов</b><span>последние 5</span></div>
+        <div className="srv-list">
+          {[
+            ['MBP-14 · macOS','198.51.100.91 · NL','сейчас'],
+            ['iPhone 15 Pro','198.51.100.42 · NL','12 мин назад'],
+            ['Web · Firefox','83.220.171.4 · RU','3 ч назад'],
+            ['Router OpenWrt','198.51.100.12 · DE','вчера'],
+            ['ThinkPad X1','—','5 дней назад'],
+          ].map(([n,ip,t],i)=>(
+            <div className="srv" key={i}>
+              <span className="flag">●</span>
+              <span><span className="name">{n}</span></span>
+              <span className="ping">{ip}</span>
+              <span></span>
+              <span className="pick">{t}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function Field({k,v,verified}){
+  return (
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,padding:'8px 0',borderBottom:'1px dashed var(--line)'}}>
+      <span style={{fontSize:11,color:'var(--fg-dim)',letterSpacing:'.12em',textTransform:'uppercase'}}>{k}</span>
+      <span style={{display:'flex',alignItems:'center',gap:8}}>
+        <b style={{fontSize:13,fontWeight:600}}>{v}</b>
+        {verified && <span style={{fontSize:9,letterSpacing:'.14em',color:'var(--green)',border:'1px solid var(--green)',padding:'2px 5px'}}>VERIFIED</span>}
+      </span>
+    </div>
+  );
+}
+
+// ───────────────────── Page: Subscriptions ─────────────────────
+function SubsPage(){
+  const invoices = [
+    { date:'2026-04-12', label:'PRIME · 12 мес', amount:'4 788 ₽', status:'PAID' },
+    { date:'2025-04-12', label:'PRIME · 12 мес', amount:'4 788 ₽', status:'PAID' },
+    { date:'2024-10-04', label:'CORE · 6 мес',  amount:'1 494 ₽', status:'PAID' },
+    { date:'2024-04-04', label:'PROBE · 1 мес', amount:'99 ₽',    status:'FAIL' },
+  ];
+  return (
+    <>
+      <div className="page-h">
+        <div>
+          <span className="eyebrow">/// Тарифы и платежи</span>
+          <h1 className="page-title">Подписки</h1>
+        </div>
+        <div className="page-meta">PRIME · ДО 12 АПР 2027</div>
+      </div>
+
+      <div className="grid grid-4">
+        <Stat k="До продления" v="347" u="дн" d="автопродление активно" />
+        <Stat k="Списание" v="4 788" u="₽" d="12 апр 2027" />
+        <Stat k="Сэкономлено" v="3 624" u="₽" d="скидка за год · 39%" />
+        <Stat k="Бонусных дней" v="+210" d="7 рефералов" />
+      </div>
+
+      <div className="grid grid-2">
+        <div className="panel">
+          <div className="panel-h"><b>// Текущий тариф</b><span className="red">PRIME</span></div>
+          <div className="panel-b" style={{display:'flex',flexDirection:'column',gap:18}}>
+            <div style={{fontSize:48,fontWeight:800,letterSpacing:'-.02em',lineHeight:1}}>399 <span style={{fontSize:18,color:'var(--fg-dim)'}}>₽ / мес</span></div>
+            <div style={{fontSize:11,color:'var(--fg-dim)',letterSpacing:'.14em',textTransform:'uppercase'}}>Списание 4 788 ₽ — 12 АПР 2027</div>
+            <div style={{height:1,background:'var(--line)'}}></div>
+            <ul style={{listStyle:'none',padding:0,margin:0,fontSize:12,display:'flex',flexDirection:'column',gap:8,color:'var(--fg-dim)'}}>
+              <li style={{display:'flex',justifyContent:'space-between'}}><span>Серверы</span><b style={{color:'var(--fg)'}}>412</b></li>
+              <li style={{display:'flex',justifyContent:'space-between'}}><span>Устройств</span><b style={{color:'var(--fg)'}}>10</b></li>
+              <li style={{display:'flex',justifyContent:'space-between'}}><span>Multi-hop</span><b style={{color:'var(--fg)'}}>2 узла</b></li>
+              <li style={{display:'flex',justifyContent:'space-between'}}><span>Поддержка</span><b style={{color:'var(--fg)'}}>Live · 24/7</b></li>
+            </ul>
+            <div style={{display:'flex',gap:10,marginTop:'auto',paddingTop:8}}>
+              <button className="btn btn-red">Перейти на SHADOW →</button>
+              <button className="btn btn-sm btn-ghost">Отменить</button>
+            </div>
+          </div>
+        </div>
+
+        <div className="panel">
+          <div className="panel-h"><b>// Метод оплаты</b><span>основной</span></div>
+          <div className="panel-b" style={{display:'flex',flexDirection:'column',gap:14}}>
+            <div style={{border:'1px solid var(--line-2)',padding:16,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <div>
+                <div style={{fontSize:13,fontWeight:600}}>•••• •••• •••• 4 829</div>
+                <div style={{fontSize:11,color:'var(--fg-dim)',marginTop:4,letterSpacing:'.1em'}}>VISA · ИСТЕКАЕТ 11/28</div>
+              </div>
+              <button className="btn btn-sm btn-ghost">Сменить</button>
+            </div>
+            <div style={{fontSize:11,color:'var(--fg-dim)',letterSpacing:'.12em',textTransform:'uppercase'}}>// Альтернативные методы</div>
+            <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+              <span style={{padding:'6px 10px',border:'1px solid var(--line-2)',fontSize:11,letterSpacing:'.08em'}}>SBP</span>
+              <span style={{padding:'6px 10px',border:'1px solid var(--line-2)',fontSize:11,letterSpacing:'.08em'}}>BTC</span>
+              <span style={{padding:'6px 10px',border:'1px solid var(--line-2)',fontSize:11,letterSpacing:'.08em'}}>USDT</span>
+              <span style={{padding:'6px 10px',border:'1px solid var(--line-2)',fontSize:11,letterSpacing:'.08em'}}>MONERO</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="panel">
+        <div className="panel-h"><b>// История платежей</b><span>{invoices.length} записей</span></div>
+        <div>
+          {invoices.map((inv,i) => (
+            <div className="inv" key={i}>
+              <span className="date">{inv.date}</span>
+              <span className="label">{inv.label}</span>
+              <span className="amount">{inv.amount}</span>
+              <span className={`pill ${inv.status==='FAIL'?'fail':''}`}>{inv.status}</span>
+              <a className="dl" href="#">↓ PDF</a>
+            </div>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ───────────────────── Page: Partner ─────────────────────
+function PartnerPage(){
+  return (
+    <>
+      <div className="page-h">
+        <div>
+          <span className="eyebrow">/// Приведи одного</span>
+          <h1 className="page-title">Партнёрка</h1>
+        </div>
+        <div className="page-meta">+30 ДНЕЙ + 30% за каждого</div>
+      </div>
+
+      <div className="grid grid-4">
+        <Stat k="Приведено" v="7" d="+2 за месяц" />
+        <Stat k="Бонус-дней" v="+210" d="к подписке" />
+        <Stat k="Кэшбек" v="1 050" u="₽" d="к выводу" />
+        <Stat k="Конверсия" v="58" u="%" d="переход → оплата" />
+      </div>
+
+      <div className="grid grid-2">
+        <div className="ref-card">
+          <div style={{fontSize:11,color:'var(--fg-dim)',letterSpacing:'.16em',textTransform:'uppercase',marginBottom:12}}>// твоя реферальная ссылка</div>
+          <div className="ref-num">SK<span className="u">-9F3A</span></div>
+          <div className="ref-link">
+            <code>solonet.io/r/SK-9F3A</code>
+            <button className="btn btn-sm">Копировать</button>
+          </div>
+          <div style={{display:'flex',gap:10,marginTop:18}}>
+            <button className="btn btn-sm btn-ghost">Поделиться</button>
+            <button className="btn btn-sm btn-ghost">QR-код</button>
+            <button className="btn btn-sm btn-ghost">UTM</button>
+          </div>
+        </div>
+        <div className="panel">
+          <div className="panel-h"><b>// Условия программы</b><span>tier · BRONZE</span></div>
+          <div className="panel-b" style={{display:'flex',flexDirection:'column',gap:12,fontSize:12,color:'var(--fg-dim)'}}>
+            <div style={{display:'flex',justifyContent:'space-between'}}><span>Друг получает</span><b style={{color:'var(--fg)'}}>−30% на 1-й платёж</b></div>
+            <div style={{display:'flex',justifyContent:'space-between'}}><span>Ты получаешь</span><b style={{color:'var(--fg)'}}>+30 дней + 30%</b></div>
+            <div style={{display:'flex',justifyContent:'space-between'}}><span>Активация</span><b style={{color:'var(--fg)'}}>после оплаты</b></div>
+            <div style={{display:'flex',justifyContent:'space-between'}}><span>Срок жизни ссылки</span><b style={{color:'var(--fg)'}}>30 дней</b></div>
+            <div style={{height:1,background:'var(--line)',margin:'4px 0'}}></div>
+            <div style={{fontSize:10,letterSpacing:'.16em',textTransform:'uppercase',color:'var(--fg-dim)'}}>// до SILVER · 13 рефералов</div>
+            <div style={{height:6,background:'var(--line)',position:'relative'}}><div style={{position:'absolute',left:0,top:0,bottom:0,width:'35%',background:'var(--red)'}}/></div>
+          </div>
+        </div>
+      </div>
+
+      <div className="panel">
+        <div className="panel-h"><b>// Приведённые друзья</b><span>7 человек</span></div>
+        <div className="srv-list">
+          {[
+            ['solo_anya','PRIME · 12 мес','+30 дн','2 дня назад'],
+            ['mr_quiet','CORE · 6 мес','+30 дн','1 нед назад'],
+            ['root@ghost','SHADOW · 12 мес','+30 дн','2 нед назад'],
+            ['ave','PROBE','—','1 мес назад'],
+            ['nox_4','CORE · 6 мес','+30 дн','1 мес назад'],
+            ['v.lonely','PRIME · 12 мес','+30 дн','2 мес назад'],
+            ['static_id','PRIME · 12 мес','+30 дн','3 мес назад'],
+          ].map(([n,p,b,t],i)=>(
+            <div className="srv" key={i}>
+              <span className="flag">@</span>
+              <span><span className="name">{n}</span><span className="city">· {p}</span></span>
+              <span className="ping" style={{color:'var(--green)'}}>{b}</span>
+              <span></span>
+              <span className="pick">{t}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ───────────────────── Page: Gifts ─────────────────────
+function GiftsPage(){
+  return (
+    <>
+      <div className="page-h">
+        <div>
+          <span className="eyebrow">/// Промо и бонусы</span>
+          <h1 className="page-title">Подарки</h1>
+        </div>
+        <div className="page-meta">2 АКТИВНЫХ · 1 НОВЫЙ</div>
+      </div>
+
+      <div className="grid grid-3">
+        {[
+          { tag:'NEW', t:'+30 дней SHADOW', d:'Активируй апгрейд за 7 дней — получи +30 дней триала премиум-уровня.', exp:'до 06 МАЯ', cta:'Активировать', red:true },
+          { tag:'ACTIVE', t:'−50% на год CORE', d:'Промо для друга. Один раз на новый аккаунт.', exp:'до 31 МАЯ', cta:'Скопировать код', code:'SOLO50-FRIEND' },
+          { tag:'ACTIVE', t:'+15 дней за 2FA', d:'Включи двухфакторку — получи дополнительные 15 дней к подписке.', exp:'бессрочно', cta:'Включить 2FA' },
+        ].map((g,i)=>(
+          <div className="panel" key={i} style={g.red?{borderColor:'var(--red)'}:{}}>
+            <div className="panel-h"><b className={g.red?'red':''}>// {g.tag}</b><span>{g.exp}</span></div>
+            <div className="panel-b" style={{display:'flex',flexDirection:'column',gap:12,minHeight:160}}>
+              <div style={{fontSize:22,fontWeight:700,letterSpacing:'-.01em',lineHeight:1.05,textTransform:'uppercase'}}>{g.t}</div>
+              <div style={{fontSize:12,color:'var(--fg-dim)'}}>{g.d}</div>
+              {g.code && <div style={{padding:'8px 10px',border:'1px dashed var(--line-2)',fontSize:13,fontWeight:600,letterSpacing:'.08em',color:'var(--red)'}}>{g.code}</div>}
+              <button className={`btn ${g.red?'btn-red':'btn-ghost'}`} style={{marginTop:'auto'}}>{g.cta} →</button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-2">
+        <div className="panel">
+          <div className="panel-h"><b>// Промо-код</b><span>введи и активируй</span></div>
+          <div className="panel-b" style={{display:'flex',gap:10,alignItems:'stretch'}}>
+            <input placeholder="PROMO-XXXX-XXXX" style={{flex:1,background:'var(--bg-2)',border:'1px solid var(--line-2)',color:'var(--fg)',font:'inherit',padding:'10px 14px',outline:'none',letterSpacing:'.08em'}}/>
+            <button className="btn btn-red">Активировать</button>
+          </div>
+        </div>
+        <div className="panel">
+          <div className="panel-h"><b>// История подарков</b><span>5 активаций</span></div>
+          <div className="srv-list">
+            {[
+              ['+30 дней триала PRIME','SOLO-FRIEND-9F3A','12 апр 2026'],
+              ['Кэшбек 1 050 ₽','REF-PROGRAM','01 апр 2026'],
+              ['+15 дней за 2FA','—','—'],
+              ['−50% на CORE','BLACKFRI-2025','24 ноя 2025'],
+            ].map(([t,c,d],i)=>(
+              <div className="srv" key={i}>
+                <span className="flag" style={{color:'var(--red)'}}>★</span>
+                <span><span className="name">{t}</span></span>
+                <span className="ping">{c}</span>
+                <span></span>
+                <span className="pick" style={{color:'var(--fg-dim)'}}>{d}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ───────────────────── Page: Notifications ─────────────────────
+function NotificationsPage(){
+  const [filter, setFilter] = useState('all');
+  const items = [
+    { lvl:'WARN', cls:'warn', t:'Замечена попытка входа из другой страны', d:'IP 213.180.42.8 · Германия · браузер Chrome. Если это не вы — смените пароль.', ts:'14:08 · сегодня', unread:true },
+    { lvl:'INFO', cls:'',     t:'Новый сервер в сети — Лиссабон (LIS-01)',  d:'Доступен в тарифах PRIME и SHADOW. Латентность из Москвы — 64 мс.', ts:'10 ч назад', unread:true },
+    { lvl:'OK',   cls:'ok',   t:'Платёж 4 788 ₽ прошёл успешно',           d:'Подписка PRIME продлена до 12 апреля 2027.', ts:'12 апр', unread:true },
+    { lvl:'INFO', cls:'',     t:'Друг solo_anya активировал PRIME · 12 мес', d:'+30 бонусных дней начислено к твоей подписке.', ts:'10 апр', unread:true },
+    { lvl:'WARN', cls:'warn', t:'2FA не включён',                          d:'Рекомендуем настроить — это даст +15 дней подписки в подарок.', ts:'05 апр', unread:true },
+    { lvl:'OK',   cls:'ok',   t:'Утечка данных не обнаружена',             d:'Авто-аудит DNS · IPv6 · WebRTC прошёл успешно.', ts:'02 апр' },
+    { lvl:'INFO', cls:'',     t:'Обновление клиента 4.2.0',                d:'Поддержка obfuscated протокола, починка автостарта на macOS Sonoma.', ts:'28 мар' },
+    { lvl:'INFO', cls:'',     t:'Сменили дизайн кабинета',                  d:'Добавили вкладки Подарки и Партнёрку — загляни.', ts:'15 мар' },
+  ];
+  const filtered = filter==='unread' ? items.filter(i=>i.unread) : filter==='warn' ? items.filter(i=>i.lvl==='WARN') : items;
+
+  return (
+    <>
+      <div className="page-h">
+        <div>
+          <span className="eyebrow">/// Системные события</span>
+          <h1 className="page-title">Уведомления</h1>
+        </div>
+        <div className="page-meta">5 НЕПРОЧИТАННЫХ</div>
+      </div>
+
+      <div className="panel">
+        <div className="panel-h" style={{justifyContent:'space-between'}}>
+          <b>// Лента событий</b>
+          <div style={{display:'flex',gap:10,alignItems:'center'}}>
+            <div className="seg">
+              {[['all','Все · 8'],['unread','Новые · 5'],['warn','Важные · 2']].map(([k,l]) => (
+                <button key={k} className={filter===k?'on':''} onClick={()=>setFilter(k)}>{l}</button>
+              ))}
+            </div>
+            <button className="btn btn-sm btn-ghost">Пометить как прочитанные</button>
+          </div>
+        </div>
+        <div>
+          {filtered.map((n,i)=>(
+            <div key={i} style={{display:'grid',gridTemplateColumns:'auto 60px 1fr auto',gap:14,alignItems:'flex-start',padding:'14px 16px',borderBottom:'1px solid var(--line)',background:n.unread?'var(--bg-2)':'transparent'}}>
+              <span style={{width:8,height:8,marginTop:6,background:n.unread?'var(--red)':'var(--fg-mute)',display:'inline-block',borderRadius:'50%'}}></span>
+              <span className={`lvl ${n.cls}`} style={{fontSize:10,fontWeight:700,letterSpacing:'.14em',marginTop:2,color:n.cls==='ok'?'var(--green)':n.cls==='warn'?'var(--yellow)':'var(--fg-dim)'}}>{n.lvl}</span>
+              <div>
+                <div style={{fontSize:13,fontWeight:600,marginBottom:3}}>{n.t}</div>
+                <div style={{fontSize:11,color:'var(--fg-dim)',lineHeight:1.5,maxWidth:'70ch'}}>{n.d}</div>
+              </div>
+              <span style={{fontSize:10,color:'var(--fg-dim)',letterSpacing:'.12em',textTransform:'uppercase',whiteSpace:'nowrap',marginTop:2}}>{n.ts}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="panel">
+        <div className="panel-h"><b>// Каналы доставки</b><span>куда присылать</span></div>
+        <NotifChannel name="E-mail" v="kirill@solonet.io" on={true}/>
+        <NotifChannel name="Telegram" v="@solo_kirill" on={true}/>
+        <NotifChannel name="Push в приложении" v="3 устройства" on={true}/>
+        <NotifChannel name="SMS" v="+7 ··· ··· 47-12" on={false}/>
+      </div>
+    </>
+  );
+}
+
+function NotifChannel({name,v,on:onInit}){
+  const [on,setOn] = useState(onInit);
+  return (
+    <div className="opt">
+      <div className="opt-l"><div className="opt-name">{name}</div><div className="opt-d">{v}</div></div>
+      <button className="toggle" data-on={on?'1':'0'} onClick={()=>setOn(!on)}><i/></button>
+    </div>
+  );
+}
+
+function Stat({ k, v, u, d, down }){
+  return (
+    <div className="panel stat">
+      <div className="stat-k">{k}</div>
+      <div className="stat-v">{v}{u && <span className="u">{u}</span>}</div>
+      {d && <div className={`stat-d ${down?'down':''}`}>{down?'↓':'↑'} {d}</div>}
+    </div>
+  );
+}
+
+// ───────────────────── App ─────────────────────
+const PAGES = {
+  prof: ProfilePage,
+  bill: SubsPage,
+  ref:  PartnerPage,
+  gift: GiftsPage,
+  note: NotificationsPage,
+};
+
+function App(){
+  const [active, setActive] = useState('prof');
+  const Page = PAGES[active];
+  return (
+    <div className="app" data-screen-label={`Cabinet · ${active}`}>
+      <Sidebar active={active} setActive={setActive}/>
+      <main>
+        <Topbar active={active}/>
+        <div className="content">
+          <Page />
+        </div>
+      </main>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

@@ -46,6 +46,7 @@ PAYMENT_PROVIDER_TITLES: Final[dict[str, str]] = {
     "KASSAI_SBP": "KassaAI СБП",
     "WATA_RU": "WATA карты РФ / СБП",
     "WATA_INT": "WATA международные",
+    "PARITYPAY_SBP": "ParityPay СБП",
     "TRIBUTE": "Tribute",
     "HELEKET": "Heleket",
     "CRYPTOBOT": "CryptoBot",

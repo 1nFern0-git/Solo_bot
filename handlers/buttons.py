@@ -85,6 +85,7 @@ WATA_INT = "🌍 WATA: Международные карты"
 KASSAI = "💳 KassaAI"
 KASSAI_CARDS = "💳 KassaAI: Карты РФ"
 KASSAI_SBP = "🏦 KassaAI: СБП"
+PARITYPAY_SBP = "🏦 ParityPay: СБП"
 TRIBUTE = "💳 Tribute"
 HELEKET = "Heleket Crypto"
 

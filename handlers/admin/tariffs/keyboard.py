@@ -86,7 +86,7 @@ def build_tariffs_arrangement_kb(group_code: str, tariffs: list) -> InlineKeyboa
                     callback_data=AdminTariffCallback(action=f"quick_move_up|{t.get('id')}|{group_code}").pack(),
                 ),
                 InlineKeyboardButton(
-                    text=f"  {t.get('name')}  ", callback_data=AdminTariffCallback(action=f"view|{t.get('id')}").pack()
+                    text=f"  #{t.get('id')} · {t.get('name')}  ", callback_data=AdminTariffCallback(action=f"view|{t.get('id')}").pack()
                 ),
                 InlineKeyboardButton(
                     text="⬇️",
@@ -178,7 +178,7 @@ def build_tariff_list_kb(tariffs: list[dict]) -> InlineKeyboardMarkup:
         )
 
     for t in grouped.get(None, []):
-        title = f"{t['name']} — {t['price_rub']}₽"
+        title = f"#{t['id']} · {t['name']} — {t['price_rub']}₽"
         builder.row(
             InlineKeyboardButton(
                 text=title,

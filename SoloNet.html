@@ -1,0 +1,1154 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<title>SoloNet — VPN</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  *,*::before,*::after{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  :root{
+    --bg:#0A0A0A;
+    --bg-2:#111111;
+    --fg:#F2F2F2;
+    --fg-dim:#7A7A7A;
+    --fg-mute:#3A3A3A;
+    --line:#1F1F1F;
+    --line-2:#2A2A2A;
+    --red:#FF2D2D;
+    --red-deep:#C81E1E;
+    --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+    --display:'JetBrains Mono',ui-monospace,monospace;
+  }
+  [data-theme="light"]{
+    --bg:#F5F4F1;
+    --bg-2:#EDEBE6;
+    --fg:#0A0A0A;
+    --fg-dim:#5A5A5A;
+    --fg-mute:#BEBCB6;
+    --line:#D9D6CF;
+    --line-2:#C7C3BB;
+  }
+  html,body{background:var(--bg);color:var(--fg);font-family:var(--mono);font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+  a{color:inherit;text-decoration:none}
+  button{font-family:inherit}
+  ::selection{background:var(--red);color:#fff}
+
+  /* layout */
+  .wrap{max-width:1320px;margin:0 auto;padding:0 32px}
+  .rule{height:1px;background:var(--line);width:100%}
+
+  /* nav */
+  .nav{position:sticky;top:0;z-index:50;backdrop-filter:blur(14px);background:color-mix(in oklab, var(--bg) 78%, transparent);border-bottom:1px solid var(--line)}
+  .nav-inner{display:flex;align-items:center;justify-content:space-between;height:64px}
+  .logo{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:.02em}
+  .logo-mark{width:22px;height:22px;border:1.5px solid var(--fg);position:relative;display:inline-block}
+  .logo-mark::before{content:"";position:absolute;inset:3px;background:var(--red)}
+  .logo-mark::after{content:"";position:absolute;width:6px;height:6px;background:var(--bg);right:-3px;top:-3px;border:1.5px solid var(--fg)}
+  .nav-links{display:flex;gap:28px;font-size:12px;color:var(--fg-dim);text-transform:uppercase;letter-spacing:.12em}
+  .nav-links a:hover{color:var(--fg)}
+  .nav-cta{display:flex;gap:10px;align-items:center}
+  .status-dot{display:inline-flex;align-items:center;gap:8px;font-size:11px;color:var(--fg-dim);text-transform:uppercase;letter-spacing:.14em}
+  .status-dot::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--red);box-shadow:0 0 0 0 var(--red);animation:pulse 1.6s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in oklab,var(--red) 60%,transparent)}70%{box-shadow:0 0 0 8px transparent}100%{box-shadow:0 0 0 0 transparent}}
+
+  /* buttons */
+  .btn{display:inline-flex;align-items:center;gap:10px;height:44px;padding:0 18px;border:1px solid var(--fg);background:var(--fg);color:var(--bg);font-family:var(--mono);font-weight:600;font-size:13px;letter-spacing:.04em;text-transform:uppercase;cursor:pointer;transition:transform .12s ease, background .18s ease;border-radius:0;position:relative}
+  .btn:hover{transform:translate(-2px,-2px);box-shadow:6px 6px 0 var(--red)}
+  .btn-red{background:var(--red);border-color:var(--red);color:#fff}
+  .btn-red:hover{box-shadow:6px 6px 0 var(--fg)}
+  .btn-ghost{background:transparent;color:var(--fg)}
+  .btn-ghost:hover{background:var(--fg);color:var(--bg);box-shadow:none;transform:none}
+  .btn-sm{height:36px;padding:0 14px;font-size:11px}
+  .btn .arr{display:inline-block;transition:transform .2s}
+  .btn:hover .arr{transform:translateX(3px)}
+
+  /* hero */
+  .hero{position:relative;padding:64px 0 72px;border-bottom:1px solid var(--line);overflow:hidden}
+  .hero-grid{position:absolute;inset:0;pointer-events:none;opacity:.55}
+  .hero-meta{display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--fg-dim);text-transform:uppercase;letter-spacing:.18em;margin-bottom:32px}
+  .hero-meta span{display:inline-flex;gap:8px;align-items:center}
+  .hero-meta .sep{color:var(--fg-mute)}
+  h1.hero-title{font-family:var(--display);font-weight:800;font-size:clamp(72px,15vw,232px);line-height:.86;letter-spacing:-.04em;margin:0;text-transform:uppercase;position:relative;z-index:2}
+  h1.hero-title .accent{color:var(--red)}
+  h1.hero-title .blink{display:inline-block;color:var(--red);animation:blink 1s steps(2) infinite}
+  @keyframes blink{50%{opacity:0}}
+  .hero-row{display:grid;grid-template-columns:1.4fr 1fr;gap:56px;margin-top:48px;align-items:end;position:relative;z-index:2}
+  .hero-tag{font-size:14px;color:var(--fg-dim);max-width:42ch}
+  .hero-tag b{color:var(--fg);font-weight:600}
+  .hero-actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:24px}
+  .hero-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;border:1px solid var(--line);padding:20px;background:color-mix(in oklab, var(--bg-2) 70%, transparent)}
+  .stat-k{font-size:11px;color:var(--fg-dim);letter-spacing:.14em;text-transform:uppercase}
+  .stat-v{font-size:30px;font-weight:700;letter-spacing:-.02em;margin-top:4px;font-variant-numeric:tabular-nums}
+  .stat-u{color:var(--red);font-size:16px;margin-left:4px}
+
+  /* tag-line ascii */
+  .ascii-rule{font-family:var(--mono);color:var(--fg-mute);overflow:hidden;white-space:nowrap;font-size:12px;line-height:1.2;letter-spacing:0;user-select:none}
+
+  /* section */
+  section.s{padding:96px 0;border-bottom:1px solid var(--line);position:relative}
+  .s-head{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;margin-bottom:48px}
+  .s-eyebrow{font-size:11px;color:var(--red);letter-spacing:.22em;text-transform:uppercase;display:inline-flex;align-items:center;gap:10px}
+  .s-eyebrow::before{content:"";width:24px;height:1px;background:var(--red)}
+  .s-title{font-family:var(--display);font-size:clamp(40px,5vw,72px);line-height:.95;letter-spacing:-.025em;font-weight:700;margin:14px 0 0;max-width:18ch;text-transform:uppercase}
+  .s-num{font-family:var(--mono);font-size:11px;color:var(--fg-dim);letter-spacing:.18em}
+
+  /* features */
+  .features{display:grid;grid-template-columns:repeat(3,1fr);gap:0;border:1px solid var(--line)}
+  .feat{padding:32px;border-right:1px solid var(--line);position:relative;min-height:340px;display:flex;flex-direction:column;justify-content:space-between;background:var(--bg);transition:background .2s}
+  .feat:last-child{border-right:0}
+  .feat:hover{background:var(--bg-2)}
+  .feat-top{display:flex;justify-content:space-between;align-items:flex-start}
+  .feat-id{font-size:11px;color:var(--fg-dim);letter-spacing:.14em}
+  .feat-icon{width:64px;height:64px;border:1px solid var(--line-2);position:relative;display:flex;align-items:center;justify-content:center}
+  .feat-icon svg{width:32px;height:32px;stroke:var(--fg);fill:none;stroke-width:1.4}
+  .feat:hover .feat-icon{border-color:var(--red)}
+  .feat:hover .feat-icon svg{stroke:var(--red)}
+  .feat-title{font-family:var(--display);font-size:34px;font-weight:700;letter-spacing:-.02em;line-height:1;margin:32px 0 12px;text-transform:uppercase}
+  .feat-desc{font-size:13px;color:var(--fg-dim);line-height:1.55;max-width:34ch}
+  .feat-metric{display:flex;align-items:baseline;gap:6px;margin-top:24px;border-top:1px dashed var(--line-2);padding-top:14px}
+  .feat-metric .v{font-size:24px;font-weight:700;color:var(--fg);font-variant-numeric:tabular-nums}
+  .feat-metric .v .red{color:var(--red)}
+  .feat-metric .l{font-size:10px;color:var(--fg-dim);letter-spacing:.16em;text-transform:uppercase}
+
+  /* plans carousel */
+  .plans-wrap{position:relative}
+  .plans-rail{display:flex;gap:0;overflow:hidden;border:1px solid var(--line)}
+  .plans-track{display:flex;transition:transform .55s cubic-bezier(.7,.04,.16,1);width:100%}
+  .plan{flex:0 0 calc(100% / 3);padding:36px 32px 32px;border-right:1px solid var(--line);min-height:520px;display:flex;flex-direction:column;position:relative;background:var(--bg)}
+  .plan.featured{background:var(--bg-2)}
+  .plan.featured::after{content:"";position:absolute;inset:0;border:1px solid var(--red);pointer-events:none}
+  .plan-tag{position:absolute;top:0;right:0;background:var(--red);color:#fff;font-size:10px;letter-spacing:.16em;padding:6px 10px;text-transform:uppercase;font-weight:700}
+  .plan-id{font-size:11px;color:var(--fg-dim);letter-spacing:.14em;text-transform:uppercase}
+  .plan-name{font-family:var(--display);font-size:40px;font-weight:700;letter-spacing:-.02em;line-height:1;margin:14px 0 6px;text-transform:uppercase}
+  .plan-sub{font-size:12px;color:var(--fg-dim);max-width:30ch}
+  .plan-price{display:flex;align-items:baseline;gap:6px;margin:28px 0 4px}
+  .plan-price .num{font-family:var(--display);font-size:64px;font-weight:800;line-height:.9;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+  .plan-price .cur{font-size:20px;color:var(--fg-dim)}
+  .plan-period{font-size:11px;color:var(--fg-dim);letter-spacing:.12em;text-transform:uppercase}
+  .plan-feats{list-style:none;padding:0;margin:24px 0 0;border-top:1px solid var(--line);font-size:13px}
+  .plan-feats li{padding:10px 0;border-bottom:1px dashed var(--line);display:flex;justify-content:space-between;gap:12px;color:var(--fg-dim)}
+  .plan-feats li b{color:var(--fg);font-weight:600}
+  .plan-cta{margin-top:auto;padding-top:24px}
+  .plan-cta .btn{width:100%;justify-content:space-between}
+
+  .plans-controls{display:flex;justify-content:space-between;align-items:center;margin-top:24px;gap:24px}
+  .plans-arrows{display:flex;gap:0;border:1px solid var(--fg)}
+  .arrow-btn{width:48px;height:48px;border:0;background:transparent;color:var(--fg);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;border-right:1px solid var(--fg);font-size:18px;transition:background .15s}
+  .arrow-btn:last-child{border-right:0}
+  .arrow-btn:hover{background:var(--fg);color:var(--bg)}
+  .arrow-btn:disabled{opacity:.25;cursor:not-allowed}
+  .arrow-btn:disabled:hover{background:transparent;color:var(--fg)}
+  .plans-progress{flex:1;height:1px;background:var(--line);position:relative;overflow:hidden}
+  .plans-progress-bar{height:100%;background:var(--red);transition:width .4s ease, transform .4s ease}
+  .plans-counter{font-size:11px;letter-spacing:.16em;color:var(--fg-dim);font-variant-numeric:tabular-nums;text-transform:uppercase}
+
+  /* faq */
+  .faq{border-top:1px solid var(--line)}
+  .faq-item{border-bottom:1px solid var(--line)}
+  .faq-q{display:flex;justify-content:space-between;align-items:center;width:100%;padding:24px 0;background:transparent;border:0;color:inherit;font-family:var(--mono);font-size:18px;text-align:left;cursor:pointer;letter-spacing:-.005em;font-weight:500}
+  .faq-q:hover{color:var(--red)}
+  .faq-q .qid{color:var(--fg-dim);font-size:12px;width:60px;flex-shrink:0;letter-spacing:.16em}
+  .faq-q .qtxt{flex:1;padding-right:24px}
+  .faq-q .qtoggle{width:32px;height:32px;border:1px solid var(--line-2);display:inline-flex;align-items:center;justify-content:center;font-size:14px;transition:all .2s;flex-shrink:0}
+  .faq-item.open .qtoggle{background:var(--red);border-color:var(--red);color:#fff}
+  .faq-a{max-height:0;overflow:hidden;transition:max-height .35s ease;padding:0 0 0 60px}
+  .faq-item.open .faq-a{max-height:300px}
+  .faq-a-inner{padding:0 24px 28px 0;color:var(--fg-dim);font-size:14px;max-width:62ch}
+
+  /* CTA */
+  .cta{padding:120px 0;background:var(--red);color:#fff;border-bottom:1px solid var(--red);position:relative;overflow:hidden}
+  .cta::before{content:"";position:absolute;inset:0;background-image:linear-gradient(0deg,transparent 0,transparent calc(100% - 1px),rgba(255,255,255,.08) 100%),linear-gradient(90deg,transparent 0,transparent calc(100% - 1px),rgba(255,255,255,.08) 100%);background-size:40px 40px;pointer-events:none}
+  .cta-inner{position:relative;display:grid;grid-template-columns:1.2fr 1fr;gap:48px;align-items:end}
+  .cta h2{font-family:var(--display);font-size:clamp(48px,8vw,128px);line-height:.86;letter-spacing:-.03em;margin:0;font-weight:800;text-transform:uppercase}
+  .cta p{font-size:16px;max-width:38ch;color:rgba(255,255,255,.85);margin:0 0 24px}
+  .cta .btn{background:#fff;border-color:#fff;color:var(--red);height:56px;padding:0 24px;font-size:14px}
+  .cta .btn:hover{box-shadow:6px 6px 0 #000;transform:translate(-2px,-2px)}
+  .cta .btn.btn-ghost{background:transparent;color:#fff;border-color:#fff}
+  .cta .btn.btn-ghost:hover{background:#fff;color:var(--red);box-shadow:none;transform:none}
+
+  /* footer */
+  footer{padding:48px 0 56px;font-size:12px;color:var(--fg-dim)}
+  .foot-row{display:flex;justify-content:space-between;flex-wrap:wrap;gap:24px;margin-top:24px}
+  .foot-row span{letter-spacing:.14em;text-transform:uppercase}
+
+  /* hero canvas */
+  .grid-canvas{position:absolute;inset:0;width:100%;height:100%}
+
+  /* responsive-ish */
+  @media (max-width: 980px){
+    .features{grid-template-columns:1fr}
+    .feat{border-right:0;border-bottom:1px solid var(--line)}
+    .plan{flex:0 0 100%}
+    .hero-row{grid-template-columns:1fr}
+    .cta-inner{grid-template-columns:1fr}
+    .nav-links{display:none}
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" data-presets="env,react">
+
+// tweaks-panel.jsx
+// Reusable Tweaks shell + form-control helpers.
+//
+// Owns the host protocol (listens for __activate_edit_mode / __deactivate_edit_mode,
+// posts __edit_mode_available / __edit_mode_set_keys / __edit_mode_dismissed) so
+// individual prototypes don't re-roll it. Ships a consistent set of controls so you
+// don't hand-draw <input type="range">, segmented radios, steppers, etc.
+//
+// Usage (in an HTML file that loads React + Babel):
+//
+//   const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+//     "primaryColor": "#D97757",
+//     "fontSize": 16,
+//     "density": "regular",
+//     "dark": false
+//   }/*EDITMODE-END*/;
+//
+//   function App() {
+//     const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+//     return (
+//       <div style={{ fontSize: t.fontSize, color: t.primaryColor }}>
+//         Hello
+//         <TweaksPanel>
+//           <TweakSection label="Typography" />
+//           <TweakSlider label="Font size" value={t.fontSize} min={10} max={32} unit="px"
+//                        onChange={(v) => setTweak('fontSize', v)} />
+//           <TweakRadio  label="Density" value={t.density}
+//                        options={['compact', 'regular', 'comfy']}
+//                        onChange={(v) => setTweak('density', v)} />
+//           <TweakSection label="Theme" />
+//           <TweakColor  label="Primary" value={t.primaryColor}
+//                        onChange={(v) => setTweak('primaryColor', v)} />
+//           <TweakToggle label="Dark mode" value={t.dark}
+//                        onChange={(v) => setTweak('dark', v)} />
+//         </TweaksPanel>
+//       </div>
+//     );
+//   }
+//
+// ─────────────────────────────────────────────────────────────────────────────
+
+const __TWEAKS_STYLE = `
+  .twk-panel{position:fixed;right:16px;bottom:16px;z-index:2147483646;width:280px;
+    max-height:calc(100vh - 32px);display:flex;flex-direction:column;
+    background:rgba(250,249,247,.78);color:#29261b;
+    -webkit-backdrop-filter:blur(24px) saturate(160%);backdrop-filter:blur(24px) saturate(160%);
+    border:.5px solid rgba(255,255,255,.6);border-radius:14px;
+    box-shadow:0 1px 0 rgba(255,255,255,.5) inset,0 12px 40px rgba(0,0,0,.18);
+    font:11.5px/1.4 ui-sans-serif,system-ui,-apple-system,sans-serif;overflow:hidden}
+  .twk-hd{display:flex;align-items:center;justify-content:space-between;
+    padding:10px 8px 10px 14px;cursor:move;user-select:none}
+  .twk-hd b{font-size:12px;font-weight:600;letter-spacing:.01em}
+  .twk-x{appearance:none;border:0;background:transparent;color:rgba(41,38,27,.55);
+    width:22px;height:22px;border-radius:6px;cursor:default;font-size:13px;line-height:1}
+  .twk-x:hover{background:rgba(0,0,0,.06);color:#29261b}
+  .twk-body{padding:2px 14px 14px;display:flex;flex-direction:column;gap:10px;
+    overflow-y:auto;overflow-x:hidden;min-height:0;
+    scrollbar-width:thin;scrollbar-color:rgba(0,0,0,.15) transparent}
+  .twk-body::-webkit-scrollbar{width:8px}
+  .twk-body::-webkit-scrollbar-track{background:transparent;margin:2px}
+  .twk-body::-webkit-scrollbar-thumb{background:rgba(0,0,0,.15);border-radius:4px;
+    border:2px solid transparent;background-clip:content-box}
+  .twk-body::-webkit-scrollbar-thumb:hover{background:rgba(0,0,0,.25);
+    border:2px solid transparent;background-clip:content-box}
+  .twk-row{display:flex;flex-direction:column;gap:5px}
+  .twk-row-h{flex-direction:row;align-items:center;justify-content:space-between;gap:10px}
+  .twk-lbl{display:flex;justify-content:space-between;align-items:baseline;
+    color:rgba(41,38,27,.72)}
+  .twk-lbl>span:first-child{font-weight:500}
+  .twk-val{color:rgba(41,38,27,.5);font-variant-numeric:tabular-nums}
+
+  .twk-sect{font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+    color:rgba(41,38,27,.45);padding:10px 0 0}
+  .twk-sect:first-child{padding-top:0}
+
+  .twk-field{appearance:none;width:100%;height:26px;padding:0 8px;
+    border:.5px solid rgba(0,0,0,.1);border-radius:7px;
+    background:rgba(255,255,255,.6);color:inherit;font:inherit;outline:none}
+  .twk-field:focus{border-color:rgba(0,0,0,.25);background:rgba(255,255,255,.85)}
+  select.twk-field{padding-right:22px;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='rgba(0,0,0,.5)' d='M0 0h10L5 6z'/></svg>");
+    background-repeat:no-repeat;background-position:right 8px center}
+
+  .twk-slider{appearance:none;-webkit-appearance:none;width:100%;height:4px;margin:6px 0;
+    border-radius:999px;background:rgba(0,0,0,.12);outline:none}
+  .twk-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;
+    width:14px;height:14px;border-radius:50%;background:#fff;
+    border:.5px solid rgba(0,0,0,.12);box-shadow:0 1px 3px rgba(0,0,0,.2);cursor:default}
+  .twk-slider::-moz-range-thumb{width:14px;height:14px;border-radius:50%;
+    background:#fff;border:.5px solid rgba(0,0,0,.12);box-shadow:0 1px 3px rgba(0,0,0,.2);cursor:default}
+
+  .twk-seg{position:relative;display:flex;padding:2px;border-radius:8px;
+    background:rgba(0,0,0,.06);user-select:none}
+  .twk-seg-thumb{position:absolute;top:2px;bottom:2px;border-radius:6px;
+    background:rgba(255,255,255,.9);box-shadow:0 1px 2px rgba(0,0,0,.12);
+    transition:left .15s cubic-bezier(.3,.7,.4,1),width .15s}
+  .twk-seg.dragging .twk-seg-thumb{transition:none}
+  .twk-seg button{appearance:none;position:relative;z-index:1;flex:1;border:0;
+    background:transparent;color:inherit;font:inherit;font-weight:500;min-height:22px;
+    border-radius:6px;cursor:default;padding:4px 6px;line-height:1.2;
+    overflow-wrap:anywhere}
+
+  .twk-toggle{position:relative;width:32px;height:18px;border:0;border-radius:999px;
+    background:rgba(0,0,0,.15);transition:background .15s;cursor:default;padding:0}
+  .twk-toggle[data-on="1"]{background:#34c759}
+  .twk-toggle i{position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;
+    background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .15s}
+  .twk-toggle[data-on="1"] i{transform:translateX(14px)}
+
+  .twk-num{display:flex;align-items:center;height:26px;padding:0 0 0 8px;
+    border:.5px solid rgba(0,0,0,.1);border-radius:7px;background:rgba(255,255,255,.6)}
+  .twk-num-lbl{font-weight:500;color:rgba(41,38,27,.6);cursor:ew-resize;
+    user-select:none;padding-right:8px}
+  .twk-num input{flex:1;min-width:0;height:100%;border:0;background:transparent;
+    font:inherit;font-variant-numeric:tabular-nums;text-align:right;padding:0 8px 0 0;
+    outline:none;color:inherit;-moz-appearance:textfield}
+  .twk-num input::-webkit-inner-spin-button,.twk-num input::-webkit-outer-spin-button{
+    -webkit-appearance:none;margin:0}
+  .twk-num-unit{padding-right:8px;color:rgba(41,38,27,.45)}
+
+  .twk-btn{appearance:none;height:26px;padding:0 12px;border:0;border-radius:7px;
+    background:rgba(0,0,0,.78);color:#fff;font:inherit;font-weight:500;cursor:default}
+  .twk-btn:hover{background:rgba(0,0,0,.88)}
+  .twk-btn.secondary{background:rgba(0,0,0,.06);color:inherit}
+  .twk-btn.secondary:hover{background:rgba(0,0,0,.1)}
+
+  .twk-swatch{appearance:none;-webkit-appearance:none;width:56px;height:22px;
+    border:.5px solid rgba(0,0,0,.1);border-radius:6px;padding:0;cursor:default;
+    background:transparent;flex-shrink:0}
+  .twk-swatch::-webkit-color-swatch-wrapper{padding:0}
+  .twk-swatch::-webkit-color-swatch{border:0;border-radius:5.5px}
+  .twk-swatch::-moz-color-swatch{border:0;border-radius:5.5px}
+`;
+
+// ── useTweaks ───────────────────────────────────────────────────────────────
+// Single source of truth for tweak values. setTweak persists via the host
+// (__edit_mode_set_keys → host rewrites the EDITMODE block on disk).
+function useTweaks(defaults) {
+  const [values, setValues] = React.useState(defaults);
+  // Accepts either setTweak('key', value) or setTweak({ key: value, ... }) so a
+  // useState-style call doesn't write a "[object Object]" key into the persisted
+  // JSON block.
+  const setTweak = React.useCallback((keyOrEdits, val) => {
+    const edits = typeof keyOrEdits === 'object' && keyOrEdits !== null
+      ? keyOrEdits : { [keyOrEdits]: val };
+    setValues((prev) => ({ ...prev, ...edits }));
+    window.parent.postMessage({ type: '__edit_mode_set_keys', edits }, '*');
+  }, []);
+  return [values, setTweak];
+}
+
+// ── TweaksPanel ─────────────────────────────────────────────────────────────
+// Floating shell. Registers the protocol listener BEFORE announcing
+// availability — if the announce ran first, the host's activate could land
+// before our handler exists and the toolbar toggle would silently no-op.
+// The close button posts __edit_mode_dismissed so the host's toolbar toggle
+// flips off in lockstep; the host echoes __deactivate_edit_mode back which
+// is what actually hides the panel.
+function TweaksPanel({ title = 'Tweaks', children }) {
+  const [open, setOpen] = React.useState(false);
+  const dragRef = React.useRef(null);
+  const offsetRef = React.useRef({ x: 16, y: 16 });
+  const PAD = 16;
+
+  const clampToViewport = React.useCallback(() => {
+    const panel = dragRef.current;
+    if (!panel) return;
+    const w = panel.offsetWidth, h = panel.offsetHeight;
+    const maxRight = Math.max(PAD, window.innerWidth - w - PAD);
+    const maxBottom = Math.max(PAD, window.innerHeight - h - PAD);
+    offsetRef.current = {
+      x: Math.min(maxRight, Math.max(PAD, offsetRef.current.x)),
+      y: Math.min(maxBottom, Math.max(PAD, offsetRef.current.y)),
+    };
+    panel.style.right = offsetRef.current.x + 'px';
+    panel.style.bottom = offsetRef.current.y + 'px';
+  }, []);
+
+  React.useEffect(() => {
+    if (!open) return;
+    clampToViewport();
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', clampToViewport);
+      return () => window.removeEventListener('resize', clampToViewport);
+    }
+    const ro = new ResizeObserver(clampToViewport);
+    ro.observe(document.documentElement);
+    return () => ro.disconnect();
+  }, [open, clampToViewport]);
+
+  React.useEffect(() => {
+    const onMsg = (e) => {
+      const t = e?.data?.type;
+      if (t === '__activate_edit_mode') setOpen(true);
+      else if (t === '__deactivate_edit_mode') setOpen(false);
+    };
+    window.addEventListener('message', onMsg);
+    window.parent.postMessage({ type: '__edit_mode_available' }, '*');
+    return () => window.removeEventListener('message', onMsg);
+  }, []);
+
+  const dismiss = () => {
+    setOpen(false);
+    window.parent.postMessage({ type: '__edit_mode_dismissed' }, '*');
+  };
+
+  const onDragStart = (e) => {
+    const panel = dragRef.current;
+    if (!panel) return;
+    const r = panel.getBoundingClientRect();
+    const sx = e.clientX, sy = e.clientY;
+    const startRight = window.innerWidth - r.right;
+    const startBottom = window.innerHeight - r.bottom;
+    const move = (ev) => {
+      offsetRef.current = {
+        x: startRight - (ev.clientX - sx),
+        y: startBottom - (ev.clientY - sy),
+      };
+      clampToViewport();
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  };
+
+  if (!open) return null;
+  return (
+    <>
+      <style>{__TWEAKS_STYLE}</style>
+      <div ref={dragRef} className="twk-panel"
+           style={{ right: offsetRef.current.x, bottom: offsetRef.current.y }}>
+        <div className="twk-hd" onMouseDown={onDragStart}>
+          <b>{title}</b>
+          <button className="twk-x" aria-label="Close tweaks"
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={dismiss}>✕</button>
+        </div>
+        <div className="twk-body">{children}</div>
+      </div>
+    </>
+  );
+}
+
+// ── Layout helpers ──────────────────────────────────────────────────────────
+
+function TweakSection({ label, children }) {
+  return (
+    <>
+      <div className="twk-sect">{label}</div>
+      {children}
+    </>
+  );
+}
+
+function TweakRow({ label, value, children, inline = false }) {
+  return (
+    <div className={inline ? 'twk-row twk-row-h' : 'twk-row'}>
+      <div className="twk-lbl">
+        <span>{label}</span>
+        {value != null && <span className="twk-val">{value}</span>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+// ── Controls ────────────────────────────────────────────────────────────────
+
+function TweakSlider({ label, value, min = 0, max = 100, step = 1, unit = '', onChange }) {
+  return (
+    <TweakRow label={label} value={`${value}${unit}`}>
+      <input type="range" className="twk-slider" min={min} max={max} step={step}
+             value={value} onChange={(e) => onChange(Number(e.target.value))} />
+    </TweakRow>
+  );
+}
+
+function TweakToggle({ label, value, onChange }) {
+  return (
+    <div className="twk-row twk-row-h">
+      <div className="twk-lbl"><span>{label}</span></div>
+      <button type="button" className="twk-toggle" data-on={value ? '1' : '0'}
+              role="switch" aria-checked={!!value}
+              onClick={() => onChange(!value)}><i /></button>
+    </div>
+  );
+}
+
+function TweakRadio({ label, value, options, onChange }) {
+  const trackRef = React.useRef(null);
+  const [dragging, setDragging] = React.useState(false);
+  const opts = options.map((o) => (typeof o === 'object' ? o : { value: o, label: o }));
+  const idx = Math.max(0, opts.findIndex((o) => o.value === value));
+  const n = opts.length;
+
+  // The active value is read by pointer-move handlers attached for the lifetime
+  // of a drag — ref it so a stale closure doesn't fire onChange for every move.
+  const valueRef = React.useRef(value);
+  valueRef.current = value;
+
+  const segAt = (clientX) => {
+    const r = trackRef.current.getBoundingClientRect();
+    const inner = r.width - 4;
+    const i = Math.floor(((clientX - r.left - 2) / inner) * n);
+    return opts[Math.max(0, Math.min(n - 1, i))].value;
+  };
+
+  const onPointerDown = (e) => {
+    setDragging(true);
+    const v0 = segAt(e.clientX);
+    if (v0 !== valueRef.current) onChange(v0);
+    const move = (ev) => {
+      if (!trackRef.current) return;
+      const v = segAt(ev.clientX);
+      if (v !== valueRef.current) onChange(v);
+    };
+    const up = () => {
+      setDragging(false);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+
+  return (
+    <TweakRow label={label}>
+      <div ref={trackRef} role="radiogroup" onPointerDown={onPointerDown}
+           className={dragging ? 'twk-seg dragging' : 'twk-seg'}>
+        <div className="twk-seg-thumb"
+             style={{ left: `calc(2px + ${idx} * (100% - 4px) / ${n})`,
+                      width: `calc((100% - 4px) / ${n})` }} />
+        {opts.map((o) => (
+          <button key={o.value} type="button" role="radio" aria-checked={o.value === value}>
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </TweakRow>
+  );
+}
+
+function TweakSelect({ label, value, options, onChange }) {
+  return (
+    <TweakRow label={label}>
+      <select className="twk-field" value={value} onChange={(e) => onChange(e.target.value)}>
+        {options.map((o) => {
+          const v = typeof o === 'object' ? o.value : o;
+          const l = typeof o === 'object' ? o.label : o;
+          return <option key={v} value={v}>{l}</option>;
+        })}
+      </select>
+    </TweakRow>
+  );
+}
+
+function TweakText({ label, value, placeholder, onChange }) {
+  return (
+    <TweakRow label={label}>
+      <input className="twk-field" type="text" value={value} placeholder={placeholder}
+             onChange={(e) => onChange(e.target.value)} />
+    </TweakRow>
+  );
+}
+
+function TweakNumber({ label, value, min, max, step = 1, unit = '', onChange }) {
+  const clamp = (n) => {
+    if (min != null && n < min) return min;
+    if (max != null && n > max) return max;
+    return n;
+  };
+  const startRef = React.useRef({ x: 0, val: 0 });
+  const onScrubStart = (e) => {
+    e.preventDefault();
+    startRef.current = { x: e.clientX, val: value };
+    const decimals = (String(step).split('.')[1] || '').length;
+    const move = (ev) => {
+      const dx = ev.clientX - startRef.current.x;
+      const raw = startRef.current.val + dx * step;
+      const snapped = Math.round(raw / step) * step;
+      onChange(clamp(Number(snapped.toFixed(decimals))));
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+  return (
+    <div className="twk-num">
+      <span className="twk-num-lbl" onPointerDown={onScrubStart}>{label}</span>
+      <input type="number" value={value} min={min} max={max} step={step}
+             onChange={(e) => onChange(clamp(Number(e.target.value)))} />
+      {unit && <span className="twk-num-unit">{unit}</span>}
+    </div>
+  );
+}
+
+function TweakColor({ label, value, onChange }) {
+  return (
+    <div className="twk-row twk-row-h">
+      <div className="twk-lbl"><span>{label}</span></div>
+      <input type="color" className="twk-swatch" value={value}
+             onChange={(e) => onChange(e.target.value)} />
+    </div>
+  );
+}
+
+function TweakButton({ label, onClick, secondary = false }) {
+  return (
+    <button type="button" className={secondary ? 'twk-btn secondary' : 'twk-btn'}
+            onClick={onClick}>{label}</button>
+  );
+}
+
+Object.assign(window, {
+  useTweaks, TweaksPanel, TweakSection, TweakRow,
+  TweakSlider, TweakToggle, TweakRadio, TweakSelect,
+  TweakText, TweakNumber, TweakColor, TweakButton,
+});
+
+</script>
+<script type="text/babel" data-presets="env,react">
+// SoloNet — landing app
+const { useState, useEffect, useRef, useCallback } = React;
+
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "dark": true
+}/*EDITMODE-END*/;
+
+// ──────────────────────────── Hero canvas ────────────────────────────
+function HeroGrid({ dark }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    let raf, w, h, dpr;
+    const dot = dark ? 'rgba(245,245,245,0.55)' : 'rgba(10,10,10,0.55)';
+    const lineSoft = dark ? 'rgba(245,245,245,0.06)' : 'rgba(10,10,10,0.06)';
+    const accent = '#FF2D2D';
+
+    const nodes = [];
+    const COLS = 18, ROWS = 9;
+
+    function resize() {
+      dpr = window.devicePixelRatio || 1;
+      w = canvas.clientWidth;
+      h = canvas.clientHeight;
+      canvas.width = w * dpr;
+      canvas.height = h * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      // build node grid
+      nodes.length = 0;
+      const padX = 40, padY = 40;
+      for (let y = 0; y < ROWS; y++) {
+        for (let x = 0; x < COLS; x++) {
+          const px = padX + (x / (COLS - 1)) * (w - padX * 2);
+          const py = padY + (y / (ROWS - 1)) * (h - padY * 2);
+          nodes.push({ x: px, y: py, ox: px, oy: py, phase: Math.random() * Math.PI * 2, hot: Math.random() < 0.04 });
+        }
+      }
+    }
+
+    let t = 0;
+    function frame() {
+      t += 0.012;
+      ctx.clearRect(0, 0, w, h);
+
+      // soft grid lines
+      ctx.strokeStyle = lineSoft;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      const stepX = w / 24, stepY = h / 12;
+      for (let x = 0; x <= 24; x++) { ctx.moveTo(x * stepX, 0); ctx.lineTo(x * stepX, h); }
+      for (let y = 0; y <= 12; y++) { ctx.moveTo(0, y * stepY); ctx.lineTo(w, y * stepY); }
+      ctx.stroke();
+
+      // wandering pulse line
+      const wave = Math.sin(t * 0.6) * 80;
+      const pulseY = h * 0.5 + wave;
+
+      // dots with subtle motion
+      for (let i = 0; i < nodes.length; i++) {
+        const n = nodes[i];
+        n.x = n.ox + Math.cos(t + n.phase) * 1.2;
+        n.y = n.oy + Math.sin(t * 0.8 + n.phase) * 1.2;
+
+        const distToPulse = Math.abs(n.y - pulseY);
+        const isPulse = distToPulse < 8;
+
+        ctx.fillStyle = n.hot ? accent : (isPulse ? accent : dot);
+        const r = n.hot ? 1.8 : (isPulse ? 1.6 : 0.9);
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // connecting lines from a "hub" node to nearest hot ones
+      const hub = nodes[Math.floor(nodes.length / 2) + 4];
+      ctx.strokeStyle = accent;
+      ctx.lineWidth = 1;
+      ctx.globalAlpha = 0.35 + Math.sin(t * 2) * 0.15;
+      for (const n of nodes) {
+        if (!n.hot) continue;
+        const d = Math.hypot(n.x - hub.x, n.y - hub.y);
+        if (d < 260) {
+          ctx.beginPath();
+          ctx.moveTo(hub.x, hub.y);
+          ctx.lineTo(n.x, n.y);
+          ctx.stroke();
+        }
+      }
+      ctx.globalAlpha = 1;
+
+      // hub ring
+      ctx.strokeStyle = accent;
+      ctx.lineWidth = 1.2;
+      const ringR = 12 + Math.sin(t * 2.4) * 4;
+      ctx.beginPath();
+      ctx.arc(hub.x, hub.y, ringR, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = accent;
+      ctx.beginPath();
+      ctx.arc(hub.x, hub.y, 2.2, 0, Math.PI * 2);
+      ctx.fill();
+
+      raf = requestAnimationFrame(frame);
+    }
+
+    resize();
+    frame();
+    window.addEventListener('resize', resize);
+    return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', resize); };
+  }, [dark]);
+  return <canvas ref={ref} className="grid-canvas" />;
+}
+
+// ──────────────────────────── Hero ────────────────────────────
+function Hero({ dark }) {
+  const [now, setNow] = useState('');
+  useEffect(() => {
+    const tick = () => {
+      const d = new Date();
+      const pad = (n) => String(n).padStart(2, '0');
+      setNow(`${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())} UTC`);
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const asciiLine = '── ─ ── ── ─── ── ── ─ ──── ── ── ─ ── ─── ── ─ ── ── ──── ── ── ─ ── ── ── ── ─── ── ── ─ ── ── ── ─ ─── ──';
+
+  return (
+    <header className="hero">
+      <HeroGrid dark={dark} />
+      <div className="wrap">
+        <div className="hero-meta">
+          <span><span className="status-dot">SYS // ONLINE</span></span>
+          <span><span className="sep">/</span> NODE_47 <span className="sep">·</span> AMS-03 <span className="sep">·</span> {now}</span>
+          <span>v 4.2.0 — STABLE</span>
+        </div>
+
+        <h1 className="hero-title">
+          SOLO<span className="accent">/</span>NET<span className="blink">_</span>
+        </h1>
+
+        <div className="ascii-rule" style={{marginTop:24}}>{asciiLine}{asciiLine}</div>
+
+        <div className="hero-row">
+          <div>
+            <p className="hero-tag">
+              <b>VPN для одиночек.</b> Шифрование уровня военных протоколов, нулевые логи и защита от утечек DNS / WebRTC. Никаких компромиссов, никакой телеметрии — только ты и сеть.
+            </p>
+            <div className="hero-actions">
+              <button className="btn btn-red">
+                Попробовать 7 дней бесплатно <span className="arr">→</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="hero-stats">
+            <div>
+              <div className="stat-k">Скорость</div>
+              <div className="stat-v">10<span className="stat-u">Gbps</span></div>
+            </div>
+            <div>
+              <div className="stat-k">Серверов</div>
+              <div className="stat-v">412</div>
+            </div>
+            <div>
+              <div className="stat-k">Логов</div>
+              <div className="stat-v">0<span className="stat-u">.00</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+// ──────────────────────────── Features ────────────────────────────
+const FEATURES = [
+  {
+    id: '01',
+    code: 'SEC-01',
+    title: 'ШИФРОВАНИЕ',
+    desc: 'AES-256-GCM поверх WireGuard®. Perfect Forward Secrecy при каждом подключении — ключи живут минуты, не дни.',
+    metric: { v: 'AES-256', l: 'GCM / X25519' },
+    icon: (
+      <svg viewBox="0 0 32 32"><rect x="6" y="14" width="20" height="14"/><path d="M10 14V10a6 6 0 0 1 12 0v4"/><circle cx="16" cy="21" r="1.5"/></svg>
+    ),
+  },
+  {
+    id: '02',
+    code: 'SEC-02',
+    title: 'ZERO LEAK',
+    desc: 'Killswitch на ядре. Утечки DNS, IPv6 и WebRTC заблокированы по умолчанию — даже если туннель упадёт, трафик встанет вместе с ним.',
+    metric: { v: '0.000%', l: 'leak rate / 90d' },
+    icon: (
+      <svg viewBox="0 0 32 32"><path d="M16 4l10 4v8c0 6-4 10-10 12C10 26 6 22 6 16V8l10-4z"/><path d="M11 16l4 4 7-7"/></svg>
+    ),
+  },
+  {
+    id: '03',
+    code: 'PRF-01',
+    title: 'СКОРОСТЬ',
+    desc: 'Магистрали 10G в каждом регионе. Multi-hop без потери пакетов, реальные 940+ Mbps на гигабитном канале.',
+    metric: { v: '940 / Mbps', l: 'p50 across regions' },
+    icon: (
+      <svg viewBox="0 0 32 32"><path d="M4 24h24"/><path d="M8 20l4-6 4 4 6-10 4 6"/><circle cx="22" cy="8" r="1.5"/></svg>
+    ),
+  },
+];
+
+function Features() {
+  return (
+    <section className="s" id="features">
+      <div className="wrap">
+        <div className="s-head">
+          <div>
+            <span className="s-eyebrow">/// Что внутри</span>
+            <h2 className="s-title">Три кита,<br/>на которых стоит SoloNet</h2>
+          </div>
+          <span className="s-num">[ 01 / 04 ]</span>
+        </div>
+
+        <div className="features">
+          {FEATURES.map((f) => (
+            <article className="feat" key={f.id}>
+              <div className="feat-top">
+                <span className="feat-id">// {f.code}</span>
+                <div className="feat-icon">{f.icon}</div>
+              </div>
+              <div>
+                <div className="feat-title">{f.title}</div>
+                <div className="feat-desc">{f.desc}</div>
+                <div className="feat-metric">
+                  <div className="v"><span className="red">▍</span> {f.metric.v}</div>
+                  <div className="l">— {f.metric.l}</div>
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ──────────────────────────── Plans carousel ────────────────────────────
+const PLANS = [
+  {
+    id: '01', code: 'SOLO/01', name: 'PROBE', sub: 'Для разовых сессий и теста скорости.',
+    price: 99, period: '/ 1 месяц',
+    feats: [
+      ['Серверы', '40+'],
+      ['Устройств', '2'],
+      ['Скорость', 'до 1 Gbps'],
+      ['Поддержка', 'Email · 48h'],
+    ],
+    cta: 'Начать',
+  },
+  {
+    id: '02', code: 'SOLO/02', name: 'CORE', sub: 'Базовая защита для одного устройства класса.', tag: 'BASIC',
+    price: 249, period: '/ 6 месяцев',
+    feats: [
+      ['Серверы', '180+'],
+      ['Устройств', '5'],
+      ['Скорость', 'до 5 Gbps'],
+      ['Killswitch', 'Да'],
+      ['Поддержка', 'Email · 24h'],
+    ],
+    cta: 'Подписаться',
+  },
+  {
+    id: '03', code: 'SOLO/03', name: 'PRIME', sub: 'Самый ходовой. Multi-hop и приоритет в очереди.', tag: 'POPULAR', featured: true,
+    price: 399, period: '/ 12 месяцев',
+    feats: [
+      ['Серверы', '412'],
+      ['Устройств', '10'],
+      ['Скорость', 'до 10 Gbps'],
+      ['Multi-hop', '2 узла'],
+      ['Killswitch', 'Да'],
+      ['Поддержка', 'Live · 24/7'],
+    ],
+    cta: 'Выбрать PRIME',
+  },
+  {
+    id: '04', code: 'SOLO/04', name: 'SHADOW', sub: 'Triple-hop, выделенный IP, обфускация трафика.',
+    price: 899, period: '/ 12 месяцев',
+    feats: [
+      ['Серверы', '412 + dedicated'],
+      ['Устройств', '∞'],
+      ['Скорость', 'до 10 Gbps'],
+      ['Triple-hop', 'Да'],
+      ['Obfuscation', 'XOR + TLS'],
+      ['Выделенный IP', 'Да'],
+      ['Поддержка', 'Live · 24/7'],
+    ],
+    cta: 'Получить SHADOW',
+  },
+];
+
+function Plans() {
+  const [idx, setIdx] = useState(0);
+  const [perView, setPerView] = useState(3);
+  const trackRef = useRef(null);
+
+  useEffect(() => {
+    const calc = () => {
+      const w = window.innerWidth;
+      if (w < 760) setPerView(1);
+      else if (w < 1080) setPerView(2);
+      else setPerView(3);
+    };
+    calc();
+    window.addEventListener('resize', calc);
+    return () => window.removeEventListener('resize', calc);
+  }, []);
+
+  const maxIdx = Math.max(0, PLANS.length - perView);
+  const safeIdx = Math.min(idx, maxIdx);
+
+  const go = (delta) => setIdx((i) => Math.max(0, Math.min(maxIdx, i + delta)));
+
+  // dynamic flex-basis based on perView
+  const basis = `${100 / perView}%`;
+  const offset = `-${(100 / perView) * safeIdx}%`;
+
+  return (
+    <section className="s" id="plans">
+      <div className="wrap">
+        <div className="s-head">
+          <div>
+            <span className="s-eyebrow">/// Тарифы</span>
+            <h2 className="s-title">Выбери свой<br/>уровень дисциплины</h2>
+          </div>
+          <span className="s-num">[ 02 / 04 ]</span>
+        </div>
+
+        <div className="plans-wrap">
+          <div className="plans-rail">
+            <div className="plans-track" ref={trackRef} style={{ transform: `translateX(${offset})` }}>
+              {PLANS.map((p) => (
+                <article className={`plan ${p.featured ? 'featured' : ''}`} key={p.id} style={{ flex: `0 0 ${basis}` }}>
+                  {p.tag && <div className="plan-tag">{p.tag}</div>}
+                  <div className="plan-id">// {p.code}</div>
+                  <div className="plan-name">{p.name}</div>
+                  <div className="plan-sub">{p.sub}</div>
+
+                  <div className="plan-price">
+                    <span className="num">{p.price}</span>
+                    <span className="cur">₽</span>
+                  </div>
+                  <div className="plan-period">{p.period}</div>
+
+                  <ul className="plan-feats">
+                    {p.feats.map(([k, v], i) => (
+                      <li key={i}><span>{k}</span><b>{v}</b></li>
+                    ))}
+                  </ul>
+
+                  <div className="plan-cta">
+                    <button className={`btn ${p.featured ? 'btn-red' : ''}`}>
+                      {p.cta} <span className="arr">→</span>
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </div>
+
+          <div className="plans-controls">
+            <div className="plans-arrows">
+              <button className="arrow-btn" onClick={() => go(-1)} disabled={safeIdx === 0} aria-label="prev">←</button>
+              <button className="arrow-btn" onClick={() => go(1)} disabled={safeIdx >= maxIdx} aria-label="next">→</button>
+            </div>
+            <div className="plans-progress">
+              <div className="plans-progress-bar" style={{ width: `${((safeIdx + perView) / PLANS.length) * 100}%` }} />
+            </div>
+            <div className="plans-counter">
+              {String(safeIdx + 1).padStart(2,'0')} — {String(Math.min(safeIdx + perView, PLANS.length)).padStart(2,'0')} / {String(PLANS.length).padStart(2,'0')}
+            </div>
+          </div>
+
+          <div style={{marginTop:24,display:'flex',gap:12,flexWrap:'wrap'}}>
+            <button className="btn btn-red">7 дней бесплатно — без карты <span className="arr">→</span></button>
+            <button className="btn btn-ghost">Сравнить все тарифы</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ──────────────────────────── FAQ ────────────────────────────
+const FAQ = [
+  { q: 'Действительно ли SoloNet не ведёт логи?',
+    a: 'Да. Архитектура построена на RAM-only серверах: при перезагрузке всё стирается. Аудит проводила независимая фирма Cure53 — отчёт открыт.' },
+  { q: 'Что произойдёт после 7 дней пробного периода?',
+    a: 'Ничего. Карта не нужна для активации триала, поэтому списания не произойдёт. Если захочешь продолжить — оформишь любой тариф.' },
+  { q: 'Будет ли работать в странах с жёсткими ограничениями?',
+    a: 'Да. У нас собственный обфускационный слой Stealth, маскирующий трафик под обычный TLS. Тариф SHADOW добавляет дополнительный XOR-шифр поверх.' },
+  { q: 'Сколько устройств можно подключить одновременно?',
+    a: 'От 2 на PROBE до неограниченного числа на SHADOW. PRIME покрывает 10 устройств — обычно этого хватает с запасом.' },
+  { q: 'Поддерживаются ли роутеры и Linux?',
+    a: 'Да. Есть нативные клиенты для Windows, macOS, iOS, Android, Linux (deb/rpm/AUR), а также прошивки OpenWrt и конфиги WireGuard для роутеров.' },
+];
+
+function FAQSection() {
+  const [open, setOpen] = useState(0);
+  return (
+    <section className="s" id="faq">
+      <div className="wrap">
+        <div className="s-head">
+          <div>
+            <span className="s-eyebrow">/// Вопросы</span>
+            <h2 className="s-title">Часто спрашивают</h2>
+          </div>
+          <span className="s-num">[ 03 / 04 ]</span>
+        </div>
+
+        <div className="faq">
+          {FAQ.map((f, i) => (
+            <div key={i} className={`faq-item ${open === i ? 'open' : ''}`}>
+              <button className="faq-q" onClick={() => setOpen(open === i ? -1 : i)}>
+                <span className="qid">// {String(i+1).padStart(2,'0')}</span>
+                <span className="qtxt">{f.q}</span>
+                <span className="qtoggle">{open === i ? '−' : '+'}</span>
+              </button>
+              <div className="faq-a"><div className="faq-a-inner">{f.a}</div></div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ──────────────────────────── CTA ────────────────────────────
+function CTA() {
+  return (
+    <section className="cta">
+      <div className="wrap cta-inner">
+        <div>
+          <div style={{fontSize:11,letterSpacing:'.22em',marginBottom:24,opacity:.85}}>/// Финальный узел [ 04 / 04 ]</div>
+          <h2>ОДИН<br/>ПОЛЬЗОВАТЕЛЬ.<br/>ОДИН ТУННЕЛЬ.</h2>
+        </div>
+        <div>
+          <p>7 дней бесплатно. Без карты, без капчи, без e-mail подтверждения. Просто скачай, запусти и выбирай узел.</p>
+          <div style={{display:'flex',gap:12,flexWrap:'wrap'}}>
+            <button className="btn">Попробовать бесплатно <span className="arr">→</span></button>
+            <button className="btn btn-ghost">Документация</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ──────────────────────────── Footer ────────────────────────────
+function Footer() {
+  return (
+    <footer>
+      <div className="wrap">
+        <div className="rule" />
+        <div className="foot-row">
+          <span>© 2026 SoloNet · Built for those who go alone</span>
+          <span>NODE-AMS-03 · 47.61 ms · Stable</span>
+          <span>Privacy / Terms / Audit</span>
+        </div>
+      </div>
+    </footer>
+  );
+}
+
+// ──────────────────────────── Nav ────────────────────────────
+function Nav() {
+  return (
+    <nav className="nav">
+      <div className="wrap nav-inner">
+        <div className="logo"><span className="logo-mark"></span> SOLONET</div>
+        <div className="nav-links">
+          <a href="#features">Features</a>
+          <a href="#plans">Plans</a>
+          <a href="#faq">FAQ</a>
+          <a href="#download">Download</a>
+        </div>
+        <div className="nav-cta">
+          <span className="status-dot">412 NODES LIVE</span>
+          <button className="btn btn-red btn-sm">Try free <span className="arr">→</span></button>
+        </div>
+      </div>
+    </nav>
+  );
+}
+
+// ──────────────────────────── App ────────────────────────────
+function App() {
+  const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = t.dark ? 'dark' : 'light';
+  }, [t.dark]);
+
+  return (
+    <div data-screen-label="01 Landing">
+      <Nav />
+      <Hero dark={t.dark} />
+      <Features />
+      <Plans />
+      <FAQSection />
+      <CTA />
+      <Footer />
+
+      <TweaksPanel>
+        <TweakSection label="Theme" />
+        <TweakToggle label="Dark mode" value={t.dark} onChange={(v) => setTweak('dark', v)} />
+      </TweaksPanel>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+
+</script>
+</body>
+</html>

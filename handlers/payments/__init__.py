@@ -23,6 +23,7 @@ from .freekassa.freekassa_pay import router as freekassa_router
 from .gift import router as gift_router
 from .heleket import router as heleket_router
 from .kassai import router as kassai_router
+from .paritypay import router as paritypay_router
 from .pay import router as pay_router
 from .robokassa import router as robokassa_router
 from .stars import router as stars_router
@@ -54,6 +55,8 @@ if PROVIDERS.get("HELEKET", {}).get("enabled"):
     router.include_router(heleket_router)
 if PROVIDERS.get("WATA_RU", {}).get("enabled") or PROVIDERS.get("WATA_INT", {}).get("enabled"):
     router.include_router(wata_router)
+if PROVIDERS.get("PARITYPAY_SBP", {}).get("enabled"):
+    router.include_router(paritypay_router)
 
 router.include_router(tribute_router)
 router.include_router(gift_router)

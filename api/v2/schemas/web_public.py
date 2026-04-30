@@ -22,6 +22,7 @@ class AccountSummaryResponse(BaseModel):
     partner_percent: float = 0.0
     partner_percent_custom: bool = False
     partner_referred_total: int = 0
+    partner_referred_paid: int = 0
     partner_payout_method: str | None = None
     unread_notifications: int = 0
 

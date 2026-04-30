@@ -44,7 +44,8 @@ def render_tariff_card(tariff: Tariff) -> tuple[str, InlineKeyboardMarkup]:
     external_squad_text = getattr(tariff, "external_squad", None) or "Не задан"
 
     text = (
-        f"<b>📄 Тариф: {tariff.name}</b>\n\n"
+        f"<b>📄 Тариф: {tariff.name}</b>\n"
+        f"🆔 ID: <code>{tariff.id}</code>\n\n"
         f"📁 Группа: <code>{tariff.group_code}</code>\n"
         f"📅 Длительность: <b>{tariff.duration_days} дней</b>\n"
         f"💰 Стоимость: <b>{tariff.price_rub}₽</b>\n"

@@ -50,6 +50,7 @@ async def _resolve_partner_snapshot(session: AsyncSession, billing_user_id: int)
         "partner_percent": default_percent,
         "partner_percent_custom": False,
         "partner_referred_total": 0,
+        "partner_referred_paid": 0,
         "partner_payout_method": None,
     }
     try:
@@ -95,6 +96,7 @@ async def _resolve_partner_snapshot(session: AsyncSession, billing_user_id: int)
             logger.warning("[Auth] Ошибка сохранения partner_code для billing_user_id={}: {}", billing_user_id, e)
     payout_method = str(partner_row[5] or "").strip() or None
     referred_total = 0
+    referred_paid = 0
     if tg_id is not None:
         try:
             referred_total = int(
@@ -108,6 +110,27 @@ async def _resolve_partner_snapshot(session: AsyncSession, billing_user_id: int)
             )
         except Exception:
             referred_total = 0
+        try:
+            referred_paid = int(
+                (
+                    await session.execute(
+                        text(
+                            "SELECT COUNT(DISTINCT pr.joined_tg_id) "
+                            "FROM partners pr "
+                            "WHERE pr.partner_tg_id = :tg_id "
+                            "AND EXISTS ("
+                            "  SELECT 1 FROM payments pay "
+                            "  WHERE pay.tg_id = pr.joined_tg_id "
+                            "  AND lower(pay.status) = 'success'"
+                            ")"
+                        ),
+                        {"tg_id": int(tg_id)},
+                    )
+                ).scalar()
+                or 0
+            )
+        except Exception:
+            referred_paid = 0
     payload.update({
         "partner_enabled": bool(partner_feature_enabled or code or referred_total > 0 or balance > 0),
         "partner_code": code,
@@ -115,6 +138,7 @@ async def _resolve_partner_snapshot(session: AsyncSession, billing_user_id: int)
         "partner_percent": percent_value,
         "partner_percent_custom": percent_custom,
         "partner_referred_total": referred_total,
+        "partner_referred_paid": referred_paid,
         "partner_payout_method": payout_method,
     })
     return payload
