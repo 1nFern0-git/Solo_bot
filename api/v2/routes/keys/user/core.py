@@ -4,6 +4,8 @@
 из ``__init__.py`` запускает регистрацию декораторов.
 """
 
+import time
+
 from .._common import *  # noqa: F401,F403 — подтягиваем все имена для endpoints
 from .._common import (
     _key_actions_config,
@@ -58,6 +60,58 @@ async def user_keys_actions_config(
 ):
     _ = identity
     return _key_actions_config()
+
+
+@user_router.get("/{client_id}/connection", response_model=AccountKeyConnectionResponse)
+async def user_key_connection(
+    client_id: str,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    identity=Depends(verify_identity_token),
+):
+    """Лёгкая инфо о текущей подписке: онлайн/offline, сервер, протокол, дни до окончания."""
+    billing_user_id = await _resolve_billing_user_id(request, identity, session)
+    db_key = (
+        await session.execute(select(Key).where(Key.user_id == billing_user_id, Key.client_id == client_id).limit(1))
+    ).scalar_one_or_none()
+    if db_key is None:
+        raise HTTPException(status_code=404, detail="Подписка не найдена")
+    server_name = str(getattr(db_key, "server_id", "") or "")
+    cluster_name = ""
+    panel_type = ""
+    if server_name:
+        srv = (
+            await session.execute(
+                select(Server).where(Server.server_name == server_name).limit(1)
+            )
+        ).scalar_one_or_none()
+        if srv is not None:
+            cluster_name = str(getattr(srv, "cluster_name", "") or "")
+            panel_type = str(getattr(srv, "panel_type", "") or "").lower()
+    expiry_ms = int(getattr(db_key, "expiry_time", 0) or 0)
+    is_frozen = bool(getattr(db_key, "is_frozen", False))
+    now_ms = int(time.time() * 1000)
+    online = not is_frozen and expiry_ms > now_ms
+    expires_in_days = max(0, int((expiry_ms - now_ms) / (1000 * 60 * 60 * 24))) if expiry_ms > 0 else 0
+    if panel_type == "remnawave":
+        protocol = "VLESS"
+    elif panel_type == "marzban":
+        protocol = "VLESS"
+    elif panel_type == "3xui":
+        protocol = "VLESS"
+    else:
+        protocol = panel_type.upper() or "VLESS"
+    return AccountKeyConnectionResponse(
+        client_id=str(getattr(db_key, "client_id", "") or ""),
+        online=online,
+        is_frozen=is_frozen,
+        expiry_time=expiry_ms,
+        expires_in_days=expires_in_days,
+        server_name=server_name,
+        cluster_name=cluster_name,
+        panel_type=panel_type,
+        protocol=protocol,
+    )
 
 
 @user_router.get("/{client_id}/details", response_model=AccountKeyDetailsResponse)

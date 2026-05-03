@@ -35,6 +35,7 @@ from api.v2.schemas.web_public import (
     AccountKeyApplyAddonsResponse,
     AccountKeyChangeLocationRequest,
     AccountKeyChangeLocationResponse,
+    AccountKeyConnectionResponse,
     AccountKeyDetailsResponse,
     AccountKeyLocationOptionResponse,
     AccountKeyLocationsResponse,

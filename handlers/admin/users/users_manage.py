@@ -1,3 +1,5 @@
+import re
+
 import pytz
 
 from aiogram import F, Router, types
@@ -39,6 +41,7 @@ from .users_states import UserEditorState
 
 
 MOSCOW_TZ = pytz.timezone("Europe/Moscow")
+UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
 router = Router()
 
@@ -50,10 +53,11 @@ router = Router()
 async def handle_search_user(callback_query: CallbackQuery, state: FSMContext):
     text = (
         "<b>🔍 Поиск пользователя</b>"
-        "\n\n📌 Введите ID, Username, Email или перешлите сообщение пользователя."
+        "\n\n📌 Введите ID, Username, Email, UUID веб-аккаунта или перешлите сообщение пользователя."
         "\n\n🆔 ID - числовой айди"
         "\n📝 Username - юзернейм пользователя"
         "\n📧 Email - почта веб-кабинета"
+        "\n🧬 UUID - идентификатор веб-аккаунта (identity_id)"
         "\n\n<i>✉️ Для поиска, вы можете просто переслать сообщение от пользователя.</i>"
     )
 
@@ -111,6 +115,33 @@ async def handle_user_data_input(message: Message, state: FSMContext, session: A
 
     if raw.isdigit():
         tg_id = int(raw)
+    elif UUID_RE.match(raw):
+        identity_id = raw.lower()
+        ident = (
+            await session.execute(select(Identity).where(func.lower(Identity.id) == identity_id).limit(1))
+        ).scalar_one_or_none()
+
+        if ident is None:
+            await message.answer(
+                text="🚫 Веб-аккаунт с указанным UUID не найден!",
+                reply_markup=kb,
+            )
+            return
+
+        if ident.tg_id is not None:
+            tg_id = ident.tg_id
+        else:
+            user_id = (
+                await session.execute(select(User.id).where(User.identity_id == ident.id).limit(1))
+            ).scalar_one_or_none()
+            if user_id is None:
+                label = ident.email or ident.id
+                await message.answer(
+                    text=f"🚫 Веб-аккаунт <code>{label}</code> не имеет биллинг-профиля.",
+                    reply_markup=kb,
+                )
+                return
+            tg_id = user_id
     elif "@" in raw and "." in raw.split("@", 1)[-1]:
         email = raw.lower()
         ident = (

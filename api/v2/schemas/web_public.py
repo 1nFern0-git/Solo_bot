@@ -6,6 +6,8 @@ class AccountSummaryResponse(BaseModel):
     email: str | None = None
     tg_id: int | None = None
     linked_telegram: bool = False
+    created_at: str | None = None
+    password_set: bool = False
     referral_code: str = ""
     balance: float = 0.0
     trial_status: int = 0
@@ -196,6 +198,32 @@ class AccountKeyActionsConfigResponse(BaseModel):
     tv_connect_enabled: bool = False
 
 
+class AccountKeyConnectionResponse(BaseModel):
+    client_id: str
+    online: bool = False
+    is_frozen: bool = False
+    expiry_time: int = 0
+    expires_in_days: int = 0
+    server_name: str = ""
+    cluster_name: str = ""
+    panel_type: str = ""
+    protocol: str = ""
+
+
+class AccountSearchHit(BaseModel):
+    kind: str
+    label: str
+    sublabel: str = ""
+    href: str = ""
+    meta: str = ""
+
+
+class AccountSearchResponse(BaseModel):
+    query: str
+    hits: list[AccountSearchHit] = []
+    total: int = 0
+
+
 class TariffConfigPriceResponse(BaseModel):
     price_rub: int
 
@@ -325,6 +353,18 @@ class ReferralTopResponse(BaseModel):
     top: list[ReferralTopEntryResponse] = []
 
 
+class ReferralListEntry(BaseModel):
+    referred_user_id: int
+    referred_tg_id: int | None = None
+    display_id: str = ""
+    reward_issued: bool = False
+
+
+class ReferralListResponse(BaseModel):
+    total: int = 0
+    items: list[ReferralListEntry] = []
+
+
 class ReferralQrResponse(BaseModel):
     ok: bool = True
     link: str = ""
@@ -385,6 +425,19 @@ class PartnerTopResponse(BaseModel):
     user_referred_count: int = 0
     user_position: int | None = None
     top: list[PartnerTopEntryResponse] = []
+
+
+class PartnerInvitedEntry(BaseModel):
+    tg_id: int
+    joined_at: str | None = None
+    balance: float = 0.0
+    keys_count: int = 0
+    payments_count: int = 0
+
+
+class PartnerInvitedResponse(BaseModel):
+    total: int = 0
+    items: list[PartnerInvitedEntry] = []
 
 
 class CouponApplyRequest(BaseModel):

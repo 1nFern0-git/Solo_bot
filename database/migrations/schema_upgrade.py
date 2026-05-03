@@ -1266,6 +1266,25 @@ async def _migration_v27_add_admins_permissions(conn: AsyncConnection) -> None:
         )
 
 
+async def _migration_v28_add_identity_notif_prefs(conn: AsyncConnection) -> None:
+    logger.info("[schema_upgrade] v28: таблица identity_notif_prefs (toggle каналов уведомлений)")
+    if not await _table_exists(conn, "identities"):
+        return
+    if not await _table_exists(conn, "identity_notif_prefs"):
+        await _exec_ignore(
+            conn,
+            """
+            CREATE TABLE identity_notif_prefs (
+                identity_id VARCHAR(36) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+                channel VARCHAR(32) NOT NULL,
+                enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (identity_id, channel)
+            )
+            """,
+        )
+
+
 async def _migration_v24_add_identity_sessions(conn: AsyncConnection) -> None:
     logger.info("[schema_upgrade] v24: таблица identity_sessions + перенос существующих токенов")
     if not await _table_exists(conn, "identities"):
@@ -1346,6 +1365,7 @@ _MIGRATIONS = [
     (25, "индексы на partners(partner_tg_id/joined_tg_id)", _migration_v25_add_partners_indexes),
     (26, "индексы keys(expiry_time/server_id/tariff_id)", _migration_v26_add_keys_indexes),
     (27, "admins.permissions (JSONB per-admin permissions)", _migration_v27_add_admins_permissions),
+    (28, "таблица identity_notif_prefs (toggle каналов)", _migration_v28_add_identity_notif_prefs),
 ]
 
 

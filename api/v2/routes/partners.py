@@ -18,6 +18,8 @@ from api.v2.schemas.web_public import (
     PartnerApplyRequest,
     PartnerApplyResponse,
     PartnerConditionsResponse,
+    PartnerInvitedEntry,
+    PartnerInvitedResponse,
     PartnerPayoutEntryResponse,
     PartnerPayoutHistoryResponse,
     PartnerPayoutRequestCreate,
@@ -236,6 +238,41 @@ async def partner_apply(
         joined_user_id=int(joined_user_id),
         joined_tg_id=int(joined_tg_id),
     )
+
+
+@router.get("/invited/me", response_model=PartnerInvitedResponse)
+async def partner_me_invited(
+    request: Request,
+    limit: int = Query(50, ge=1, le=200),
+    session: AsyncSession = Depends(get_session),
+    identity=Depends(verify_identity_token),
+):
+    _, tg_id = await _resolve_partner_user(session, request, identity)
+    invited_sql = text(
+        """
+        SELECT pr.joined_tg_id, pr.created_at, COALESCE(u.balance, 0),
+            (SELECT COUNT(*) FROM keys k WHERE k.tg_id = pr.joined_tg_id),
+            (SELECT COUNT(*) FROM payments pay WHERE pay.tg_id = pr.joined_tg_id AND lower(pay.status) = 'success')
+        FROM partners pr
+        LEFT JOIN users u ON u.tg_id = pr.joined_tg_id
+        WHERE pr.partner_tg_id = :tg_id
+        ORDER BY pr.created_at DESC
+        LIMIT :limit
+        """
+    )
+    result = await session.execute(invited_sql, {"tg_id": tg_id, "limit": limit})
+    rows = result.fetchall()
+    items = [
+        PartnerInvitedEntry(
+            tg_id=int(row[0]),
+            joined_at=row[1].isoformat() if isinstance(row[1], datetime) else None,
+            balance=float(row[2] or 0),
+            keys_count=int(row[3] or 0),
+            payments_count=int(row[4] or 0),
+        )
+        for row in rows
+    ]
+    return PartnerInvitedResponse(total=len(items), items=items)
 
 
 @router.get("/qr", response_model=PartnerQrResponse)

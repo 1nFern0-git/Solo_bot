@@ -1,5 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from sqlalchemy import func, select
+import re
+
+from fastapi import APIRouter, Depends, HTTPException, Path, Request, Response
+from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
+from sqlalchemy import String, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.depends import (
@@ -19,7 +23,11 @@ from api.v2.schemas.identities import (
     IdentitySessionsResponse,
     SetPasswordRequest,
 )
-from api.v2.schemas.web_public import AccountSummaryResponse
+from api.v2.schemas.web_public import (
+    AccountSearchHit,
+    AccountSearchResponse,
+    AccountSummaryResponse,
+)
 from database import (
     get_balance,
     get_keys,
@@ -27,7 +35,7 @@ from database import (
     identities as idb,
     identity_sessions as idsess,
 )
-from database.models import CouponUsage, Gift, GiftUsage
+from database.models import CouponUsage, Gift, GiftUsage, IdentityNotifPref, Key, Payment, WebNotification
 from database.referrals import get_referral_stats
 from database.web_notifications import count_unread_for_identity
 from utils.referral_codes import encode_referral_code
@@ -208,6 +216,8 @@ async def auth_summary(
         email=identity.email,
         tg_id=identity.tg_id,
         linked_telegram=identity.tg_id is not None,
+        created_at=identity.created_at.isoformat() if identity.created_at else None,
+        password_set=bool(identity.password_set),
         referral_code=encode_referral_code(int(billing_user_id)),
         balance=balance,
         trial_status=int(trial_status),
@@ -228,6 +238,316 @@ async def auth_summary(
         partner_payout_method=partner.get("partner_payout_method"),
         unread_notifications=int(unread_notifications),
     )
+
+
+class MyPaymentItem(BaseModel):
+    id: int
+    amount: float
+    currency: str
+    status: str
+    provider: str
+    created_at: str | None
+    purpose: str | None
+
+
+class MyPaymentsResponse(BaseModel):
+    ok: bool = True
+    payments: list[MyPaymentItem]
+
+
+@router.get("/me/payments", response_model=MyPaymentsResponse)
+async def my_payments(
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    identity=Depends(verify_identity_token),
+    limit: int = 50,
+):
+    """История платежей текущего юзера. Привязка через Identity → User → Payment."""
+    actor = get_request_actor(request)
+    billing_user_id = actor.billing_user_id if actor and actor.billing_user_id is not None else None
+    if billing_user_id is None:
+        billing_user_id = await idb.ensure_billing_user_for_identity(session, identity)
+    if billing_user_id is None:
+        return MyPaymentsResponse(ok=True, payments=[])
+    safe_limit = max(1, min(200, int(limit) if limit else 50))
+    rows = await session.execute(
+        select(Payment)
+        .where(Payment.user_id == billing_user_id)
+        .order_by(Payment.created_at.desc())
+        .limit(safe_limit)
+    )
+    payments = rows.scalars().all()
+    items: list[MyPaymentItem] = []
+    for p in payments:
+        meta = p.metadata_ if isinstance(p.metadata_, dict) else None
+        purpose = None
+        if meta:
+            purpose = meta.get("purpose") or meta.get("description") or meta.get("tariff_name")
+            if purpose is not None:
+                purpose = str(purpose)
+        items.append(
+            MyPaymentItem(
+                id=int(p.id),
+                amount=float(p.amount or 0),
+                currency=str(p.currency or "RUB"),
+                status=str(p.status or ""),
+                provider=str(p.payment_system or ""),
+                created_at=p.created_at.isoformat() if p.created_at else None,
+                purpose=purpose,
+            )
+        )
+    return MyPaymentsResponse(ok=True, payments=items)
+
+
+def _esc(value: object) -> str:
+    s = "" if value is None else str(value)
+    return (
+        s.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&#39;")
+    )
+
+
+@router.get("/me/payments/{payment_id}/invoice", response_class=HTMLResponse)
+async def get_my_payment_invoice(
+    payment_id: int = Path(..., ge=1),
+    request: Request = None,  # type: ignore[assignment]
+    session: AsyncSession = Depends(get_session),
+    identity=Depends(verify_identity_token),
+):
+    """HTML-инвойс по конкретному платежу. Браузер может сохранить как PDF (Cmd+P → Save as PDF)."""
+    actor = get_request_actor(request) if request is not None else None
+    billing_user_id = actor.billing_user_id if actor and actor.billing_user_id is not None else None
+    if billing_user_id is None:
+        billing_user_id = await idb.ensure_billing_user_for_identity(session, identity)
+    if billing_user_id is None:
+        raise HTTPException(status_code=404, detail="Платёж не найден")
+    payment = (
+        await session.execute(
+            select(Payment).where(Payment.id == payment_id, Payment.user_id == billing_user_id).limit(1)
+        )
+    ).scalar_one_or_none()
+    if payment is None:
+        raise HTTPException(status_code=404, detail="Платёж не найден")
+    meta = payment.metadata_ if isinstance(payment.metadata_, dict) else {}
+    purpose = ""
+    if meta:
+        v = meta.get("purpose") or meta.get("description") or meta.get("tariff_name")
+        if v is not None:
+            purpose = str(v)
+    created = payment.created_at.strftime("%d.%m.%Y %H:%M") if payment.created_at else "—"
+    amount_value = float(payment.amount or 0)
+    currency = str(payment.currency or "RUB").upper()
+    status_raw = str(payment.status or "")
+    status_norm = status_raw.lower()
+    status_label = "ОПЛАЧЕН" if status_norm in {"completed", "success", "paid"} else "ОЖИДАЕТ" if status_norm in {"pending", "processing"} else "ОТКЛОНЁН"
+    provider = str(payment.payment_system or "").upper() or "—"
+    user_label = identity.email or (f"tg · {identity.tg_id}" if identity.tg_id else identity.id)
+    html = f"""<!DOCTYPE html>
+<html lang=\"ru\">
+<head>
+  <meta charset=\"utf-8\" />
+  <title>Квитанция #{_esc(payment.id)}</title>
+  <style>
+    @page {{ size: A4; margin: 18mm; }}
+    body {{ font-family: 'JetBrains Mono', ui-monospace, monospace; color: #111; background: #fff; max-width: 720px; margin: 0 auto; padding: 24px; }}
+    h1 {{ font-size: 24px; letter-spacing: -0.02em; margin: 0 0 4px; text-transform: uppercase; }}
+    .sub {{ color: #888; font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; margin-bottom: 32px; }}
+    table {{ width: 100%; border-collapse: collapse; font-size: 13px; }}
+    td {{ padding: 11px 0; border-bottom: 1px dashed #ddd; vertical-align: top; }}
+    td.k {{ color: #888; width: 35%; letter-spacing: 0.08em; text-transform: uppercase; font-size: 11px; }}
+    td.v {{ font-weight: 600; }}
+    .amount {{ font-size: 32px; font-weight: 800; letter-spacing: -0.02em; margin: 24px 0 8px; }}
+    .badge {{ display: inline-block; padding: 4px 10px; border: 1px solid #111; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; }}
+    .footer {{ margin-top: 48px; font-size: 10px; color: #aaa; letter-spacing: 0.12em; text-transform: uppercase; text-align: center; }}
+    @media print {{ .no-print {{ display: none; }} }}
+    .print-btn {{ position: fixed; top: 16px; right: 16px; padding: 10px 16px; background: #111; color: #fff; border: 0; cursor: pointer; font-family: inherit; font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; }}
+  </style>
+</head>
+<body>
+  <button class=\"print-btn no-print\" onclick=\"window.print()\">Сохранить PDF</button>
+  <h1>Квитанция #{_esc(payment.id)}</h1>
+  <div class=\"sub\">// {_esc(created)}</div>
+  <div class=\"amount\">{amount_value:,.2f} {_esc(currency)}</div>
+  <span class=\"badge\">{_esc(status_label)}</span>
+  <table>
+    <tr><td class=\"k\">Назначение</td><td class=\"v\">{_esc(purpose) or "—"}</td></tr>
+    <tr><td class=\"k\">Провайдер</td><td class=\"v\">{_esc(provider)}</td></tr>
+    <tr><td class=\"k\">Дата</td><td class=\"v\">{_esc(created)}</td></tr>
+    <tr><td class=\"k\">Получатель</td><td class=\"v\">{_esc(user_label)}</td></tr>
+    <tr><td class=\"k\">Идентификатор платежа</td><td class=\"v\" style=\"font-size:11px;color:#666\">{_esc(payment.id)}</td></tr>
+  </table>
+  <div class=\"footer\">Документ сгенерирован автоматически. Не требует подписи и печати.</div>
+</body>
+</html>"""
+    return HTMLResponse(content=html, status_code=200)
+
+
+class NotifChannelPref(BaseModel):
+    channel: str
+    enabled: bool
+
+
+class NotifChannelPrefsResponse(BaseModel):
+    ok: bool = True
+    channels: list[NotifChannelPref]
+
+
+class NotifChannelPrefsUpdateRequest(BaseModel):
+    channels: list[NotifChannelPref]
+
+
+_NOTIF_CHANNEL_RE = re.compile(r"^[a-zA-Z0-9_-]{1,32}$")
+
+
+@router.get("/me/notification-prefs", response_model=NotifChannelPrefsResponse)
+async def get_my_notification_prefs(
+    session: AsyncSession = Depends(get_session),
+    identity=Depends(verify_identity_token),
+):
+    rows = (
+        await session.execute(
+            select(IdentityNotifPref).where(IdentityNotifPref.identity_id == identity.id)
+        )
+    ).scalars().all()
+    return NotifChannelPrefsResponse(
+        ok=True,
+        channels=[NotifChannelPref(channel=str(r.channel), enabled=bool(r.enabled)) for r in rows],
+    )
+
+
+@router.put("/me/notification-prefs", response_model=NotifChannelPrefsResponse)
+async def set_my_notification_prefs(
+    body: NotifChannelPrefsUpdateRequest,
+    session: AsyncSession = Depends(get_session),
+    identity=Depends(verify_identity_token),
+):
+    for entry in body.channels:
+        channel = str(entry.channel or "").strip()
+        if not channel or not _NOTIF_CHANNEL_RE.match(channel):
+            raise HTTPException(status_code=422, detail=f"Некорректный канал: {channel!r}")
+        existing = (
+            await session.execute(
+                select(IdentityNotifPref).where(
+                    IdentityNotifPref.identity_id == identity.id,
+                    IdentityNotifPref.channel == channel,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing is None:
+            session.add(
+                IdentityNotifPref(identity_id=identity.id, channel=channel, enabled=bool(entry.enabled))
+            )
+        else:
+            existing.enabled = bool(entry.enabled)
+    await session.flush()
+    rows = (
+        await session.execute(
+            select(IdentityNotifPref).where(IdentityNotifPref.identity_id == identity.id)
+        )
+    ).scalars().all()
+    return NotifChannelPrefsResponse(
+        ok=True,
+        channels=[NotifChannelPref(channel=str(r.channel), enabled=bool(r.enabled)) for r in rows],
+    )
+
+
+@router.get("/me/search", response_model=AccountSearchResponse)
+async def my_search(
+    q: str,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    identity=Depends(verify_identity_token),
+    limit: int = 8,
+):
+    """Поиск по подпискам, платежам, уведомлениям текущего user'а. Простое ILIKE."""
+    query_raw = (q or "").strip()
+    if len(query_raw) < 2:
+        return AccountSearchResponse(query=query_raw, hits=[], total=0)
+    actor = get_request_actor(request)
+    billing_user_id = actor.billing_user_id if actor and actor.billing_user_id is not None else None
+    if billing_user_id is None:
+        billing_user_id = await idb.ensure_billing_user_for_identity(session, identity)
+    if billing_user_id is None:
+        return AccountSearchResponse(query=query_raw, hits=[], total=0)
+    safe_limit = max(1, min(20, int(limit) if limit else 8))
+    pattern = f"%{query_raw.lower()}%"
+    hits: list[AccountSearchHit] = []
+
+    # Keys: alias / email / server_id
+    keys_rows = (
+        await session.execute(
+            select(Key)
+            .where(Key.user_id == billing_user_id)
+            .where(
+                func.lower(func.coalesce(Key.alias, ""))
+                .like(pattern)
+                | func.lower(func.coalesce(Key.email, "")).like(pattern)
+                | func.lower(func.coalesce(Key.server_id, "")).like(pattern)
+                | func.lower(func.coalesce(Key.client_id, "")).like(pattern)
+            )
+            .limit(safe_limit)
+        )
+    ).scalars().all()
+    for k in keys_rows:
+        label = (k.alias or k.email or k.client_id or "").strip() or "—"
+        sublabel = (k.server_id or "").strip() or "—"
+        hits.append(AccountSearchHit(kind="subscription", label=label, sublabel=sublabel, href="/dashboard/keys", meta=str(k.client_id)))
+
+    # Payments: provider / metadata.purpose
+    payments_rows = (
+        await session.execute(
+            select(Payment)
+            .where(Payment.user_id == billing_user_id)
+            .where(
+                func.lower(func.coalesce(Payment.payment_system, "")).like(pattern)
+                | func.cast(Payment.metadata_, String).ilike(pattern)
+            )
+            .order_by(Payment.created_at.desc())
+            .limit(safe_limit)
+        )
+    ).scalars().all()
+    for p in payments_rows:
+        meta = p.metadata_ if isinstance(p.metadata_, dict) else None
+        purpose = ""
+        if meta:
+            v = meta.get("purpose") or meta.get("description") or meta.get("tariff_name")
+            if v is not None:
+                purpose = str(v)
+        amount_label = f"{float(p.amount or 0):,.0f} {(p.currency or 'RUB').upper()}"
+        hits.append(AccountSearchHit(
+            kind="payment",
+            label=purpose or amount_label,
+            sublabel=f"{(p.payment_system or '').upper()} · {amount_label}",
+            href="/dashboard",
+            meta=str(p.id),
+        ))
+
+    # Notifications: title / message
+    notif_rows = (
+        await session.execute(
+            select(WebNotification)
+            .where(WebNotification.identity_id == identity.id)
+            .where(
+                func.lower(WebNotification.title).like(pattern)
+                | func.lower(WebNotification.message).like(pattern)
+            )
+            .order_by(WebNotification.created_at.desc())
+            .limit(safe_limit)
+        )
+    ).scalars().all()
+    for n in notif_rows:
+        hits.append(AccountSearchHit(
+            kind="notification",
+            label=str(n.title or "—"),
+            sublabel=(str(n.message or "")[:80]),
+            href="/dashboard/notifications",
+            meta=str(n.id),
+        ))
+
+    return AccountSearchResponse(query=query_raw, hits=hits, total=len(hits))
 
 
 @router.post("/set-password")
