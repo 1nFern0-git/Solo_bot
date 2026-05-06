@@ -110,6 +110,41 @@ async def mark_all_read_for_identity(
     return result.rowcount
 
 
+async def mark_one_read_for_identity(
+    session: AsyncSession,
+    identity_id: str,
+    notification_id: str,
+) -> bool:
+    """Mark single notification as read. Returns True if updated."""
+    result = await session.execute(
+        update(WebNotification)
+        .where(
+            WebNotification.identity_id == identity_id,
+            WebNotification.id == notification_id,
+        )
+        .values(read=True)
+    )
+    return (result.rowcount or 0) > 0
+
+
+async def delete_one_for_identity(
+    session: AsyncSession,
+    identity_id: str,
+    notification_id: str,
+) -> bool:
+    """Delete single notification owned by identity. Returns True if deleted."""
+    from sqlalchemy import delete as sql_delete
+
+    result = await session.execute(
+        sql_delete(WebNotification)
+        .where(
+            WebNotification.identity_id == identity_id,
+            WebNotification.id == notification_id,
+        )
+    )
+    return (result.rowcount or 0) > 0
+
+
 async def resolve_identity_id_by_tg_id(
     session: AsyncSession,
     tg_id: int,

@@ -19,7 +19,7 @@ from config import (
     WATA_SUCCESS_URL,
 )
 from core.bootstrap import PAYMENTS_CONFIG
-from database import register_pending_payment
+from database import add_payment, async_session_maker
 from database.models import User
 from handlers.buttons import BACK, PAY_2, WATA_INT, WATA_RU
 from handlers.payments.keyboards import (
@@ -438,15 +438,27 @@ async def generate_wata_payment_link(
                     logger.error(f"[WATA] В ответе нет поля url: {resp_json}")
                     return None
 
-                await register_pending_payment(
-                    payment_id=unique_order_id,
-                    tg_id=tg_id,
-                    amount=float(int(amount)),
-                    payment_system="wata",
-                    currency="RUB",
-                    metadata=pending_metadata,
-                    original_amount=pending_original_amount,
-                )
+                async with async_session_maker() as db_session:
+                    try:
+                        await add_payment(
+                            session=db_session,
+                            tg_id=tg_id,
+                            amount=float(int(amount)),
+                            payment_system="wata",
+                            status="pending",
+                            currency="RUB",
+                            payment_id=unique_order_id,
+                            metadata=pending_metadata,
+                            original_amount=pending_original_amount,
+                        )
+                        await db_session.commit()
+                    except Exception as e:
+                        logger.error(
+                            f"[WATA] Не удалось записать pending платёж в БД "
+                            f"(order_id={unique_order_id}, tg_id={tg_id}): {e}"
+                        )
+                        await db_session.rollback()
+                        return None
                 logger.info(
                     f"[WATA] Ссылка создана: tg_id={tg_id}, order_id={unique_order_id}, "
                     f"rub_amount={amount}, api_amount={api_amount} {currency}"

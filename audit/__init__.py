@@ -11,6 +11,7 @@ from typing import Any
 
 from aiogram.types import CallbackQuery, InlineQuery, Message, TelegramObject, User
 from fastapi import Request
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.audit import (
@@ -1092,6 +1093,20 @@ async def drain_audit_redis_to_db(session_factory: Any) -> int:
                         session,
                         [str(rec.get("request_id")) for rec in batch if rec.get("request_id")],
                     )
+                    identity_ids_in_batch = {
+                        str(rec.get("actor_identity_id"))
+                        for rec in batch
+                        if rec.get("actor_identity_id")
+                    }
+                    if identity_ids_in_batch:
+                        from database.models import Identity
+
+                        rows = await session.execute(
+                            select(Identity.id).where(Identity.id.in_(identity_ids_in_batch))
+                        )
+                        existing_identity_ids = {row[0] for row in rows.all()}
+                    else:
+                        existing_identity_ids = set()
                     inserted_count = 0
                     seen_batch_request_ids: set[str] = set()
                     for rec in batch:
@@ -1100,6 +1115,9 @@ async def drain_audit_redis_to_db(session_factory: Any) -> int:
                             continue
                         if request_id:
                             seen_batch_request_ids.add(request_id)
+                        actor_identity_id = rec.get("actor_identity_id")
+                        if actor_identity_id and actor_identity_id not in existing_identity_ids:
+                            actor_identity_id = None
                         created = rec.get("created_at")
                         if isinstance(created, str):
                             try:
@@ -1115,7 +1133,7 @@ async def drain_audit_redis_to_db(session_factory: Any) -> int:
                             event_type=rec.get("event_type", "telegram_access"),
                             channel=rec.get("channel", "telegram"),
                             path_or_handler=rec.get("path_or_handler") or "telegram",
-                            actor_identity_id=rec.get("actor_identity_id"),
+                            actor_identity_id=actor_identity_id,
                             actor_tg_id=rec.get("actor_tg_id"),
                             entity_type=rec.get("entity_type"),
                             entity_id=rec.get("entity_id"),
