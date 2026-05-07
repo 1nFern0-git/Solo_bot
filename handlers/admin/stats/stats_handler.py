@@ -26,12 +26,14 @@ from database import (
     count_active_paid_keys,
     count_active_trial_keys,
     count_hot_leads,
+    count_identities_with_email,
     count_total_keys,
     count_total_referrals,
     count_total_users,
     count_users_registered_between,
     count_users_registered_since,
     count_users_updated_today,
+    count_users_with_tg_id,
     get_tariff_distribution,
     get_tariff_names_groups_subgroups_durations,
     sum_payments_between,
@@ -144,6 +146,8 @@ async def handle_stats(callback_query: CallbackQuery, session: AsyncSession):
         last_month_end_utc = last_month_end.astimezone(pytz.UTC).replace(tzinfo=None)
 
         total_users = await count_total_users(session)
+        users_with_tg = await count_users_with_tg_id(session)
+        identities_with_email = await count_identities_with_email(session)
         users_updated_today = await count_users_updated_today(session, today_start_utc)
         registrations_today = await count_users_registered_since(session, today_start_utc)
         registrations_yesterday = await count_users_registered_between(session, yesterday_start_utc, yesterday_end_utc)
@@ -269,6 +273,11 @@ async def handle_stats(callback_query: CallbackQuery, session: AsyncSession):
             f"├ 🗓️ За месяц: <b>{registrations_month}</b>\n"
             f"├ 📅 За прошлый месяц: <b>{registrations_last_month}</b>\n"
             f"└ 🌐 Всего: <b>{total_users}</b>\n"
+            f"</blockquote>\n"
+            f"🔗 <b>Связанные данные:</b>\n"
+            f"<blockquote>"
+            f"├ 📨 Учёток с e-mail: <b>{identities_with_email}</b>\n"
+            f"└ 💬 Привязанных Telegram: <b>{users_with_tg}</b>\n"
             f"</blockquote>\n"
             f"💡 <b>Активность:</b>\n"
             f"└ 👥 Сегодня были активны: <b>{users_updated_today}</b>\n\n"
