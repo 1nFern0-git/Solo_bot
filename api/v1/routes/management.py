@@ -58,6 +58,7 @@ class DomainChange(BaseModel):
 
 class BroadcastLaunchPayload(BaseModel):
     send_to: Literal["all", "subscribed", "unsubscribed", "untrial", "trial", "hotleads", "cluster"] = "all"
+    channel: Literal["bot", "site", "both"] = "both"
     text: str
     photo: str | None = None
     cluster_name: str | None = None
@@ -71,6 +72,7 @@ class ScheduledBroadcastCreatePayload(BroadcastLaunchPayload):
 
 class ScheduledBroadcastUpdatePayload(BaseModel):
     send_to: Literal["all", "subscribed", "unsubscribed", "untrial", "trial", "hotleads", "cluster"] | None = None
+    channel: Literal["bot", "site", "both"] | None = None
     text: str | None = None
     photo: str | None = None
     cluster_name: str | None = None
@@ -103,6 +105,7 @@ def _resolve_update_payload(
     fields = payload.model_fields_set
     text_changed = "text" in fields
     send_to = payload.send_to if "send_to" in fields else current.send_to
+    channel = payload.channel if "channel" in fields else current.channel
     text = payload.text if "text" in fields else current.text
     photo = payload.photo if "photo" in fields else current.photo
     cluster_name = payload.cluster_name if "cluster_name" in fields else current.cluster_name
@@ -117,6 +120,7 @@ def _resolve_update_payload(
         cluster_name=cluster_name,
         workers=workers,
         messages_per_second=messages_per_second,
+        channel=channel,
     )
     if not text_changed:
         prepared["text"] = current.text
@@ -252,6 +256,7 @@ async def launch_broadcast(
             cluster_name=payload.cluster_name,
             workers=payload.workers,
             messages_per_second=payload.messages_per_second,
+            channel=payload.channel,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -272,6 +277,7 @@ async def create_broadcast_schedule(
             cluster_name=payload.cluster_name,
             workers=payload.workers,
             messages_per_second=payload.messages_per_second,
+            channel=payload.channel,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -279,6 +285,7 @@ async def create_broadcast_schedule(
         session,
         created_by_tg_id=getattr(admin, "tg_id", None),
         send_to=prepared["send_to"],
+        channel=prepared["channel"],
         cluster_name=prepared["cluster_name"],
         text=prepared["text"],
         photo=prepared["photo"],

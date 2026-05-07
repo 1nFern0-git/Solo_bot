@@ -29,12 +29,15 @@ from logger import logger
 from ..panel.keyboard import AdminPanelCallback, build_admin_back_kb
 from .keyboard import (
     AdminSenderCallback,
+    AdminSenderChannelCallback,
     ScheduledBroadcastCallback,
     build_broadcast_preview_kb,
+    build_channel_kb,
     build_clusters_kb,
     build_scheduled_broadcast_detail_kb,
     build_scheduled_broadcasts_list_kb,
     build_sender_kb,
+    channel_label,
 )
 from .scheduled_service import (
     execute_scheduled_broadcast,
@@ -111,6 +114,7 @@ def _scheduled_broadcast_text(item) -> str:
         f"📌 <b>Статус:</b> {_scheduled_status_label(item.status)}",
         f"🕒 <b>Время:</b> {format_moscow_datetime(item.scheduled_for) or '-'}",
         f"👥 <b>Аудитория:</b> {target}",
+        f"📢 <b>Канал:</b> {channel_label(item.channel or 'both')}",
         f"🖼 <b>Фото:</b> {'Да' if item.photo else 'Нет'}",
         f"⌨️ <b>Кнопки:</b> {'Да' if item.keyboard_json else 'Нет'}",
         "",
@@ -234,6 +238,7 @@ async def handle_broadcast_type(
                 cluster_name=callback_data.data,
                 workers=item.workers,
                 messages_per_second=item.messages_per_second,
+                channel=item.channel,
             )
         except ValueError as exc:
             await callback_query.message.edit_text(str(exc), reply_markup=build_admin_back_kb("sender"))
@@ -258,11 +263,31 @@ async def handle_broadcast_type(
         )
         return
     await callback_query.message.edit_text(
+        text="📢 Куда отправить рассылку?",
+        reply_markup=build_channel_kb(),
+    )
+    await state.update_data(type=callback_data.type, cluster_name=callback_data.data)
+    await state.set_state(AdminSender.waiting_for_channel)
+
+
+@router.callback_query(
+    AdminSenderChannelCallback.filter(),
+    AdminSender.waiting_for_channel,
+    IsAdminFilter(),
+)
+async def handle_channel_select(
+    callback_query: CallbackQuery,
+    callback_data: AdminSenderChannelCallback,
+    state: FSMContext,
+):
+    if callback_data.channel not in ("bot", "site", "both"):
+        return
+    await state.update_data(channel=callback_data.channel)
+    await state.set_state(AdminSender.waiting_for_message)
+    await callback_query.message.edit_text(
         text=_compose_message_text(),
         reply_markup=build_admin_back_kb("sender"),
     )
-    await state.update_data(type=callback_data.type, cluster_name=callback_data.data)
-    await state.set_state(AdminSender.waiting_for_message)
 
 
 @router.message(AdminSender.waiting_for_message, IsAdminFilter())
@@ -284,6 +309,7 @@ async def handle_message_input(message: Message, state: FSMContext, session: Asy
     data = await state.get_data()
     send_to = data.get("type", "all")
     cluster_name = data.get("cluster_name")
+    channel = data.get("channel", "both")
     _, user_count = await get_recipients(session, send_to, cluster_name)
 
     if keyboard:
@@ -310,7 +336,9 @@ async def handle_message_input(message: Message, state: FSMContext, session: Asy
         await message.answer(text=clean_text, parse_mode="HTML", reply_markup=keyboard)
 
     await message.answer(
-        f"👀 Это предпросмотр рассылки.\n👥 Количество получателей: <b>{user_count}</b>\n\nОтправить?",
+        f"👀 Это предпросмотр рассылки.\n"
+        f"👥 Количество получателей: <b>{user_count}</b>\n"
+        f"📢 Канал: <b>{channel_label(channel)}</b>\n\nОтправить?",
         reply_markup=build_broadcast_preview_kb(),
     )
 
@@ -323,6 +351,7 @@ async def handle_broadcast_confirm(callback_query: CallbackQuery, state: FSMCont
     keyboard_data = data.get("keyboard")
     send_to = data.get("type", "all")
     cluster_name = data.get("cluster_name")
+    channel = data.get("channel", "both")
 
     keyboard = None
     if keyboard_data:
@@ -389,6 +418,7 @@ async def handle_broadcast_confirm(callback_query: CallbackQuery, state: FSMCont
             photo,
             state_keyboard_data,
             progress_cb,
+            channel,
         )
         if stats.get("blocked_user_ids"):
             try:
@@ -420,6 +450,7 @@ async def handle_broadcast_confirm(callback_query: CallbackQuery, state: FSMCont
             on_progress=on_progress,
             progress_interval=2.0,
             progress_every=200,
+            channel=channel,
         )
 
     await callback_query.message.answer(
@@ -461,6 +492,7 @@ async def handle_schedule_datetime_input(message: Message, state: FSMContext, se
         session,
         created_by_tg_id=message.from_user.id if message.from_user else None,
         send_to=data.get("type", "all"),
+        channel=data.get("channel", "both"),
         cluster_name=data.get("cluster_name"),
         text=data.get("text", ""),
         photo=data.get("photo"),

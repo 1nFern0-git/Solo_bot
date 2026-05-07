@@ -1337,6 +1337,16 @@ async def _migration_v24_add_identity_sessions(conn: AsyncConnection) -> None:
         )
 
 
+async def _migration_v29_add_scheduled_broadcasts_channel(conn: AsyncConnection) -> None:
+    logger.info("[schema_upgrade] v29: scheduled_broadcasts.channel (bot/site/both)")
+    if not await _table_exists(conn, "scheduled_broadcasts"):
+        return
+    if not await _column_exists(conn, "scheduled_broadcasts", "channel"):
+        await conn.execute(
+            text("ALTER TABLE scheduled_broadcasts ADD COLUMN channel VARCHAR(8) NOT NULL DEFAULT 'both'")
+        )
+
+
 _MIGRATIONS = [
     (1, "Добавление users.id", _migration_v1_add_users_id),
     (2, "Добавление user_id колонок", _migration_v2_add_user_id_columns),
@@ -1366,6 +1376,7 @@ _MIGRATIONS = [
     (26, "индексы keys(expiry_time/server_id/tariff_id)", _migration_v26_add_keys_indexes),
     (27, "admins.permissions (JSONB per-admin permissions)", _migration_v27_add_admins_permissions),
     (28, "таблица identity_notif_prefs (toggle каналов)", _migration_v28_add_identity_notif_prefs),
+    (29, "scheduled_broadcasts.channel (bot/site/both)", _migration_v29_add_scheduled_broadcasts_channel),
 ]
 
 

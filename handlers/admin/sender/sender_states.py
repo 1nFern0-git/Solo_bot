@@ -2,6 +2,7 @@ from aiogram.fsm.state import State, StatesGroup
 
 
 class AdminSender(StatesGroup):
+    waiting_for_channel = State()
     waiting_for_message = State()
     preview = State()
     waiting_for_schedule_datetime = State()

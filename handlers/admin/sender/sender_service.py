@@ -28,10 +28,12 @@ def run_broadcast_in_thread(
     photo: str | None,
     keyboard_data: dict | None,
     progress_cb: Callable[[int, int, int, int, int], None] | None = None,
+    channel: str = "both",
 ) -> dict:
     """
     Синхронная обёртка: запускает рассылку в отдельном event loop в текущем потоке.
     progress_cb принимает (completed, total, sent, failed, pending_retries).
+    channel: 'bot' / 'site' / 'both'.
     """
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -52,6 +54,7 @@ def run_broadcast_in_thread(
                 workers=5,
                 on_progress=on_progress,
                 progress_interval=2.0,
+                channel=channel,
             )
         )
     finally:
@@ -282,7 +285,10 @@ class BroadcastService:
         on_progress: Callable[[int, int, int, int, int], Awaitable[None]] | None = None,
         progress_interval: float = 2.0,
         progress_every: int = 50,
+        channel: str = "both",
     ) -> dict:
+        send_to_bot = channel in ("bot", "both")
+        send_to_site = channel in ("site", "both")
         self.is_running = True
         self.start_time = time.time()
         self.results = []
@@ -290,18 +296,19 @@ class BroadcastService:
         self.blocked_users = set()
         self.pending_retries = 0
 
-        for msg_data in messages:
-            msg = BroadcastMessage(
-                tg_id=msg_data["tg_id"],
-                text=msg_data["text"],
-                photo=msg_data.get("photo"),
-                keyboard=msg_data.get("keyboard"),
-            )
-            await self.queue.put(msg)
+        if send_to_bot:
+            for msg_data in messages:
+                msg = BroadcastMessage(
+                    tg_id=msg_data["tg_id"],
+                    text=msg_data["text"],
+                    photo=msg_data.get("photo"),
+                    keyboard=msg_data.get("keyboard"),
+                )
+                await self.queue.put(msg)
 
-        total = len(messages)
+        total = len(messages) if send_to_bot else 0
         logger.info(
-            f"📤 Начата рассылка на {total} пользователей с {workers} воркерами "
+            f"📤 Начата рассылка channel={channel} на {len(messages)} получателей с {workers} воркерами "
             f"(rate={self.rate_limiter.max_rate}/сек, max_attempts={self.max_attempts})"
         )
 
@@ -311,13 +318,14 @@ class BroadcastService:
                 self._progress_loop(total, on_progress, progress_interval, max(1, progress_every)),
             )
 
-        worker_tasks = [asyncio.create_task(self._worker()) for _ in range(workers)]
+        worker_tasks = [asyncio.create_task(self._worker()) for _ in range(workers)] if send_to_bot else []
 
-        while True:
-            await self.queue.join()
-            if self.pending_retries <= 0:
-                break
-            await asyncio.sleep(0.5)
+        if send_to_bot:
+            while True:
+                await self.queue.join()
+                if self.pending_retries <= 0:
+                    break
+                await asyncio.sleep(0.5)
 
         self.is_running = False
 
@@ -367,7 +375,8 @@ class BroadcastService:
             f"скорость: {avg_speed:.1f} сообщений/сек, время: {total_duration:.1f} сек"
         )
 
-        await self._create_web_notifications(messages)
+        if send_to_site:
+            await self._create_web_notifications(messages)
 
         return stats
 

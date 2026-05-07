@@ -10,6 +10,10 @@ class AdminSenderCallback(CallbackData, prefix="admin_sender"):
     data: str | None = None
 
 
+class AdminSenderChannelCallback(CallbackData, prefix="admin_sender_ch"):
+    channel: str
+
+
 class ScheduledBroadcastCallback(CallbackData, prefix="sb"):
     action: str
     broadcast_id: str = "0"
@@ -85,6 +89,23 @@ def build_clusters_kb(clusters: list) -> InlineKeyboardMarkup:
     builder.row(build_admin_back_btn())
 
     return builder.as_markup()
+
+
+def build_channel_kb() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="📢 Везде (бот + сайт)", callback_data=AdminSenderChannelCallback(channel="both").pack()),
+    )
+    builder.row(
+        InlineKeyboardButton(text="📲 Только бот", callback_data=AdminSenderChannelCallback(channel="bot").pack()),
+        InlineKeyboardButton(text="🌐 Только сайт", callback_data=AdminSenderChannelCallback(channel="site").pack()),
+    )
+    builder.row(build_admin_back_btn())
+    return builder.as_markup()
+
+
+def channel_label(channel: str) -> str:
+    return {"both": "📢 везде", "bot": "📲 бот", "site": "🌐 сайт"}.get(channel, channel)
 
 
 def build_broadcast_preview_kb() -> InlineKeyboardMarkup:
