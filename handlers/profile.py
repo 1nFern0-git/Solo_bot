@@ -113,7 +113,7 @@ async def process_callback_view_profile(
     if is_web_enabled():
         site_url = get_site_url()
         if site_url:
-            webapp_url = f"{site_url}/dashboard"
+            webapp_url = f"{site_url}/dashboard?webapp=1"
             builder.row(InlineKeyboardButton(text="🌐 Личный кабинет", web_app=WebAppInfo(url=webapp_url)))
 
     if is_email_binding_enabled():
