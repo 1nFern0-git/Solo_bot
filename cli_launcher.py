@@ -276,7 +276,12 @@ def safe_confirm(message: str, **kwargs) -> bool:
 
 
 def safe_prompt(message: str, **kwargs) -> str:
-    """Безопасный Prompt.ask с защитой от русской раскладки."""
+    """Безопасный Prompt.ask с защитой от русской раскладки.
+
+    Не-ASCII символы тихо фильтруются. Предупреждение появляется только
+    если после фильтрации в строке не осталось значимого ASCII (т.е. ввод
+    был полностью на не-английской раскладке).
+    """
     while True:
         try:
             value = Prompt.ask(message, **kwargs)
@@ -287,8 +292,11 @@ def safe_prompt(message: str, **kwargs) -> str:
             console.print(f"[red]{e}[/red]")
             continue
         if isinstance(value, str) and not is_ascii_only(value):
-            warn_english_only()
-            continue
+            cleaned = "".join(ch for ch in value if ord(ch) < 128)
+            if not cleaned.strip():
+                warn_english_only()
+                continue
+            return cleaned
         return value
 
 
